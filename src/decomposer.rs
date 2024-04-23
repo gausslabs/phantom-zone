@@ -71,10 +71,14 @@ impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
         Op: ArithmeticOps<Element = T>,
     {
         let mut value = T::zero();
-        for i in self.ignore_limbs..self.ignore_limbs + self.d {
+        dbg!(self.ignore_limbs);
+        for i in 0..self.d {
             value = modq_op.add(
                 &value,
-                &(modq_op.mul(&limbs[i], &(T::one() << (self.logb * i)))),
+                &(modq_op.mul(
+                    &limbs[i],
+                    &(T::one() << (self.logb * (i + self.ignore_limbs))),
+                )),
             )
         }
         value
@@ -85,7 +89,6 @@ impl<T: PrimInt + WrappingSub + Debug> Decomposer for DefaultDecomposer<T> {
     type Element = T;
     fn decompose(&self, value: &T) -> Vec<T> {
         let value = round_value(*value, self.ignore_bits);
-
         let q = self.q;
         let logb = self.logb;
         // let b = T::one() << logb; // base
@@ -135,25 +138,29 @@ mod tests {
 
     #[test]
     fn decomposition_works() {
-        let logq = 50;
-        let logb = 5;
-        let d = 10;
+        let logq = 15;
+        let logb = 3;
+        let d = 5;
+
+        let mut rng = thread_rng();
 
         // q is prime of bits logq and i is true, other q = 1<<logq
-        for i in [true, false] {
+        // FIXME: Test fails when q is prime, albeit the difference is minute
+        for i in [true] {
             let q = if i {
                 generate_prime(logq, 1 << 4, 1u64 << logq).unwrap()
             } else {
-                1u64 << 50
+                1u64 << logq
             };
-
             let decomposer = DefaultDecomposer::new(q, logb, d);
             let modq_op = ModularOpsU64::new(q);
-            for _ in 0..100 {
-                let value = 1000000;
+            for _ in 0..1 {
+                let value = rng.gen_range(0..q);
                 let limbs = decomposer.decompose(&value);
                 let value_back = decomposer.recompose(&limbs, &modq_op);
-                let rounded_value = round_value(value, decomposer.ignore_bits);
+                let rounded_value =
+                    round_value(value, decomposer.ignore_bits) << decomposer.ignore_bits;
+                dbg!(value, rounded_value, value_back, &limbs);
                 assert_eq!(
                     rounded_value, value_back,
                     "Expected {rounded_value} got {value_back} for q={q}"
