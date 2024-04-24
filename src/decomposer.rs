@@ -45,7 +45,7 @@ impl NumInfo for u128 {
 
 impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
     pub fn new(q: T, logb: usize, d: usize) -> DefaultDecomposer<T> {
-        // if q is power of 2, then BITS - leading zeros outputs logq + 1.
+        // if q is power of 2, then `BITS - leading_zeros` outputs logq + 1.
         let logq = if q & (q - T::one()) == T::zero() {
             (T::BITS - q.leading_zeros() - 1) as usize
         } else {
@@ -71,7 +71,6 @@ impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
         Op: ArithmeticOps<Element = T>,
     {
         let mut value = T::zero();
-        dbg!(self.ignore_limbs);
         for i in 0..self.d {
             value = modq_op.add(
                 &value,
@@ -88,10 +87,15 @@ impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
 impl<T: PrimInt + WrappingSub + Debug> Decomposer for DefaultDecomposer<T> {
     type Element = T;
     fn decompose(&self, value: &T) -> Vec<T> {
-        let value = round_value(*value, self.ignore_bits);
+        let mut value = round_value(*value, self.ignore_bits);
+
         let q = self.q;
+        if value >= (q >> 1) {
+            value = value.wrapping_sub(&q);
+        }
+
         let logb = self.logb;
-        // let b = T::one() << logb; // base
+        let b = T::one() << logb; // base
         let b_by2 = T::one() << (logb - 1);
         // let neg_b_by2_modq = q - b_by2;
         let full_mask = (T::one() << logb) - T::one();
@@ -100,15 +104,22 @@ impl<T: PrimInt + WrappingSub + Debug> Decomposer for DefaultDecomposer<T> {
         let mut out = Vec::<T>::with_capacity(self.d);
         for i in 0..self.d {
             let mut limb = ((value >> (logb * i)) & full_mask) + carry;
-
-            carry = limb & b_by2;
-            limb = (q + limb) - (carry << 1);
-            if limb > q {
-                limb = limb - q;
+            carry = T::zero();
+            if limb > b_by2 {
+                limb = (q + limb) - b;
+                carry = T::one();
             }
+
+            // carry = ((q + g - limb) % q) >> logb;
+
+            // carry = limb & b_by2;
+            // limb = (q + limb) - (carry << 1);
+            // if limb > q {
+            //     limb = limb - q;
+            // }
             out.push(limb);
 
-            carry = carry >> (logb - 1);
+            // carry = carry >> (logb - 1);
         }
 
         return out;
@@ -154,13 +165,13 @@ mod tests {
             };
             let decomposer = DefaultDecomposer::new(q, logb, d);
             let modq_op = ModularOpsU64::new(q);
-            for _ in 0..1 {
+            for _ in 0..100 {
                 let value = rng.gen_range(0..q);
                 let limbs = decomposer.decompose(&value);
                 let value_back = decomposer.recompose(&limbs, &modq_op);
                 let rounded_value =
                     round_value(value, decomposer.ignore_bits) << decomposer.ignore_bits;
-                dbg!(value, rounded_value, value_back, &limbs);
+                dbg!(rounded_value, value, value_back);
                 assert_eq!(
                     rounded_value, value_back,
                     "Expected {rounded_value} got {value_back} for q={q}"

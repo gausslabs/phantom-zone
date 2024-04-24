@@ -7,6 +7,7 @@ pub trait VectorOps {
     fn elwise_mul(&self, out: &mut [Self::Element], a: &[Self::Element], b: &[Self::Element]);
 
     fn elwise_add_mut(&self, a: &mut [Self::Element], b: &[Self::Element]);
+    fn elwise_sub_mut(&self, a: &mut [Self::Element], b: &[Self::Element]);
     fn elwise_mul_mut(&self, a: &mut [Self::Element], b: &[Self::Element]);
     fn elwise_neg_mut(&self, a: &mut [Self::Element]);
     /// inplace mutates `a`: a = a + b*c
@@ -21,6 +22,7 @@ pub trait ArithmeticOps {
     fn mul(&self, a: &Self::Element, b: &Self::Element) -> Self::Element;
     fn add(&self, a: &Self::Element, b: &Self::Element) -> Self::Element;
     fn sub(&self, a: &Self::Element, b: &Self::Element) -> Self::Element;
+    fn neg(&self, a: &Self::Element) -> Self::Element;
 
     fn modulus(&self) -> Self::Element;
 }
@@ -115,6 +117,10 @@ impl ArithmeticOps for ModularOpsU64 {
         self.sub_mod_fast(*a, *b)
     }
 
+    fn neg(&self, a: &Self::Element) -> Self::Element {
+        self.q - *a
+    }
+
     fn modulus(&self) -> Self::Element {
         self.q
     }
@@ -126,6 +132,12 @@ impl VectorOps for ModularOpsU64 {
     fn elwise_add_mut(&self, a: &mut [Self::Element], b: &[Self::Element]) {
         izip!(a.iter_mut(), b.iter()).for_each(|(ai, bi)| {
             *ai = self.add_mod_fast(*ai, *bi);
+        });
+    }
+
+    fn elwise_sub_mut(&self, a: &mut [Self::Element], b: &[Self::Element]) {
+        izip!(a.iter_mut(), b.iter()).for_each(|(ai, bi)| {
+            *ai = self.sub_mod_fast(*ai, *bi);
         });
     }
 
