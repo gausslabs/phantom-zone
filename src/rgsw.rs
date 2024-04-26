@@ -16,7 +16,7 @@ use crate::{
     Matrix, MatrixEntity, MatrixMut, RowMut, Secret,
 };
 
-struct RlweCiphertext<M>(M, bool);
+pub struct RlweCiphertext<M>(M, bool);
 
 impl<M: Matrix> Matrix for RlweCiphertext<M> {
     type MatElement = M::MatElement;
@@ -58,7 +58,7 @@ pub trait IsTrivial {
     fn set_not_trivial(&mut self);
 }
 
-struct RlweSecret {
+pub struct RlweSecret {
     values: Vec<i32>,
 }
 
@@ -70,7 +70,7 @@ impl Secret for RlweSecret {
 }
 
 impl RlweSecret {
-    fn random(hw: usize, n: usize) -> RlweSecret {
+    pub fn random(hw: usize, n: usize) -> RlweSecret {
         DefaultSecureRng::with_local_mut(|rng| {
             let mut out = vec![0i32; n];
             fill_random_ternary_secret_with_hamming_weight(&mut out, hw, rng);
@@ -80,8 +80,15 @@ impl RlweSecret {
     }
 }
 
-fn generate_auto_map(ring_size: usize, k: usize) -> (Vec<usize>, Vec<bool>) {
+fn generate_auto_map(ring_size: usize, k: isize) -> (Vec<usize>, Vec<bool>) {
     assert!(k & 1 == 1, "Auto {k} must be odd");
+
+    // k = k % 2*N
+    let k = if k < 0 {
+        (2 * ring_size) - (k.abs() as usize)
+    } else {
+        k as usize
+    };
     let (auto_map_index, auto_sign_index): (Vec<usize>, Vec<bool>) = (0..ring_size)
         .into_iter()
         .map(|i| {
@@ -183,13 +190,14 @@ pub(crate) fn galois_key_gen<
 >(
     ksk_out: &mut Mmut,
     s: &S,
-    auto_k: usize,
+    auto_k: isize,
     gadget_vector: &[Mmut::MatElement],
     mod_op: &ModOp,
     ntt_op: &NttOp,
     rng: &mut R,
 ) where
     <Mmut as Matrix>::R: RowMut,
+    //FIXME(Jay): Why isn't this bound Mmut::R: given that secret is a vector (Row) not a matrix
     Mmut: TryConvertFrom<[S::Element], Parameters = Mmut::MatElement>,
     Mmut::MatElement: Copy + Sub<Output = Mmut::MatElement>,
 {
@@ -327,7 +335,7 @@ pub(crate) fn galois_auto<
 ///   RLWE'_B(-sm) || RLWE'_A(m) || RLWE'_B(m)]^T
 pub(crate) fn encrypt_rgsw<
     Mmut: MatrixMut + MatrixEntity,
-    M: Matrix<MatElement = Mmut::MatElement> + Clone,
+    M: Matrix<MatElement = Mmut::MatElement>,
     S: Secret,
     R: RandomGaussianDist<[Mmut::MatElement], Parameters = Mmut::MatElement>
         + RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>,
@@ -805,9 +813,9 @@ mod tests {
     use rand::{thread_rng, Rng};
 
     use crate::{
-        backend::ModularOpsU64,
+        backend::{ModInit, ModularOpsU64},
         decomposer::{gadget_vector, DefaultDecomposer},
-        ntt::{self, Ntt, NttBackendU64},
+        ntt::{self, Ntt, NttBackendU64, NttInit},
         random::{DefaultSecureRng, RandomUniformDist},
         rgsw::{measure_noise, RlweCiphertext},
         utils::{generate_prime, negacyclic_mul},
@@ -933,7 +941,7 @@ mod tests {
             &mut rng,
         );
 
-        let auto_k = 25;
+        let auto_k = -25;
 
         // Generate galois key to key switch from s^k to s
         let mut ksk_out = vec![vec![0u64; ring_size as usize]; d_rgsw * 2];

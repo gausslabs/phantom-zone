@@ -1,5 +1,10 @@
 use itertools::izip;
 
+pub trait ModInit {
+    type Element;
+    fn new(q: Self::Element) -> Self;
+}
+
 pub trait VectorOps {
     type Element;
 
@@ -40,8 +45,9 @@ pub struct ModularOpsU64 {
     barrett_alpha: usize,
 }
 
-impl ModularOpsU64 {
-    pub fn new(q: u64) -> ModularOpsU64 {
+impl ModInit for ModularOpsU64 {
+    type Element = u64;
+    fn new(q: u64) -> ModularOpsU64 {
         let logq = 64 - q.leading_zeros();
 
         // barrett calculation
@@ -55,7 +61,9 @@ impl ModularOpsU64 {
             barrett_mu: mu,
         }
     }
+}
 
+impl ModularOpsU64 {
     fn add_mod_fast(&self, a: u64, b: u64) -> u64 {
         debug_assert!(a < self.q);
         debug_assert!(b < self.q);

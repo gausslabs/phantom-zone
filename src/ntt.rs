@@ -2,9 +2,14 @@ use itertools::Itertools;
 use rand::{thread_rng, Rng, RngCore};
 
 use crate::{
-    backend::{ArithmeticOps, ModularOpsU64},
+    backend::{ArithmeticOps, ModInit, ModularOpsU64},
     utils::{mod_exponent, mod_inverse, shoup_representation_fq},
 };
+
+pub trait NttInit {
+    type Element;
+    fn new(q: Self::Element, n: usize) -> Self;
+}
 
 pub trait Ntt {
     type Element;
@@ -195,8 +200,9 @@ pub struct NttBackendU64 {
     psi_inv_powers_bo_shoup: Box<[u64]>,
 }
 
-impl NttBackendU64 {
-    pub fn new(q: u64, n: usize) -> Self {
+impl NttInit for NttBackendU64 {
+    type Element = u64;
+    fn new(q: u64, n: usize) -> Self {
         // \psi = 2n^{th} primitive root of unity in F_q
         let mut rng = thread_rng();
         let psi = find_primitive_root(q, (n * 2) as u64, &mut rng)
@@ -325,9 +331,9 @@ mod tests {
     use rand::{thread_rng, Rng};
     use rand_distr::Uniform;
 
-    use super::NttBackendU64;
+    use super::{NttBackendU64, NttInit};
     use crate::{
-        backend::{ModularOpsU64, VectorOps},
+        backend::{ArithmeticOps, ModInit, ModularOpsU64, VectorOps},
         ntt::Ntt,
         utils::{generate_prime, negacyclic_mul},
     };

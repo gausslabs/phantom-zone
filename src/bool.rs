@@ -1,19 +1,18 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug, marker::PhantomData};
 
-use num_traits::{FromPrimitive, One, PrimInt, ToPrimitive, Zero};
+use itertools::Itertools;
+use num_traits::{FromPrimitive, Num, One, PrimInt, ToPrimitive, Zero};
 
 use crate::{
-    backend::{ArithmeticOps, VectorOps},
-    decomposer::Decomposer,
-    lwe::lwe_key_switch,
-    ntt::Ntt,
-    rgsw::{galois_auto, rlwe_by_rgsw, IsTrivial},
-    Matrix, MatrixEntity, MatrixMut, Row, RowMut,
+    backend::{ArithmeticOps, ModInit, VectorOps},
+    decomposer::{gadget_vector, Decomposer, DefaultDecomposer, NumInfo},
+    lwe::{decrypt_lwe, encrypt_lwe, lwe_key_switch, lwe_ksk_keygen, LweSecret},
+    ntt::{Ntt, NttInit},
+    random::{DefaultSecureRng, RandomGaussianDist, RandomUniformDist},
+    rgsw::{encrypt_rgsw, galois_auto, galois_key_gen, rlwe_by_rgsw, IsTrivial, RlweSecret},
+    utils::{generate_prime, mod_exponent, TryConvertFrom, WithLocal},
+    Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
 };
-
-struct BoolEvaluator {}
-
-impl BoolEvaluator {}
 
 trait PbsKey {
     type M: Matrix;
@@ -22,6 +21,278 @@ trait PbsKey {
     fn galois_key_for_auto(&self, k: isize) -> &Self::M;
     fn auto_map_index(&self, k: isize) -> &[usize];
     fn auto_map_sign(&self, k: isize) -> &[bool];
+}
+trait Parameters {
+    type Element;
+    type D: Decomposer<Element = Self::Element>;
+    fn rlwe_q(&self) -> Self::Element;
+    fn lwe_q(&self) -> Self::Element;
+    fn br_q(&self) -> usize;
+    fn d_rgsw(&self) -> usize;
+    fn d_lwe(&self) -> usize;
+    fn rlwe_n(&self) -> usize;
+    fn lwe_n(&self) -> usize;
+    /// Embedding fator for ring X^{q}+1 inside
+    fn embedding_factor(&self) -> usize;
+    /// generator g
+    fn g(&self) -> isize;
+    fn decomoposer_lwe(&self) -> &Self::D;
+    fn decomoposer_rlwe(&self) -> &Self::D;
+
+    /// Maps a \in Z^*_{q} to discrete log k, with generator g (i.e. g^k =
+    /// a). Returned vector is of size q that stores dlog of a at `vec[a]`.
+    /// For any a, if k is s.t. a = g^{k}, then k is expressed as k. If k is s.t
+    /// a = -g^{k}, then k is expressed as k=k+q/2
+    fn g_k_dlog_map(&self) -> &[usize];
+}
+struct ClientKey {
+    sk_rlwe: RlweSecret,
+    sk_lwe: LweSecret,
+}
+
+struct ServerKey<M> {
+    /// Rgsw cts of LWE secret elements
+    rgsw_cts: Vec<M>,
+    /// Galois keys
+    galois_keys: HashMap<isize, M>,
+    /// LWE ksk to key switching LWE ciphertext from RLWE secret to LWE secret
+    lwe_ksk: M,
+}
+
+struct BoolParameters<El> {
+    rlwe_q: El,
+    rlwe_logq: usize,
+    lwe_q: El,
+    lwe_logq: usize,
+    br_q: usize,
+    rlwe_n: usize,
+    lwe_n: usize,
+    d_rgsw: usize,
+    logb_rgsw: usize,
+    d_lwe: usize,
+    logb_lwe: usize,
+    g: usize,
+    w: usize,
+}
+
+struct BoolEvaluator<M, E, Ntt, ModOp> {
+    parameters: BoolParameters<E>,
+    decomposer_rlwe: DefaultDecomposer<E>,
+    decomposer_lwe: DefaultDecomposer<E>,
+    g_k_dlog_map: Vec<usize>,
+    rlwe_nttop: Ntt,
+    rlwe_modop: ModOp,
+    lwe_modop: ModOp,
+    embedding_factor: usize,
+
+    _phantom: PhantomData<M>,
+}
+
+impl<M, NttOp, ModOp> BoolEvaluator<M, M::MatElement, NttOp, ModOp>
+where
+    NttOp: NttInit<Element = M::MatElement> + Ntt<Element = M::MatElement>,
+    ModOp: ModInit<Element = M::MatElement>
+        + ArithmeticOps<Element = M::MatElement>
+        + VectorOps<Element = M::MatElement>,
+    M::MatElement: PrimInt + Debug + NumInfo + FromPrimitive,
+    M: MatrixEntity + MatrixMut,
+    M::R: TryConvertFrom<[i32], Parameters = M::MatElement> + RowEntity,
+    M: TryConvertFrom<[i32], Parameters = M::MatElement>,
+    <M as Matrix>::R: RowMut,
+    DefaultSecureRng: RandomGaussianDist<[M::MatElement], Parameters = M::MatElement>
+        + RandomGaussianDist<M::MatElement, Parameters = M::MatElement>
+        + RandomUniformDist<[M::MatElement], Parameters = M::MatElement>,
+{
+    fn new(parameters: BoolParameters<M::MatElement>) -> Self {
+        //TODO(Jay): Run sanity checks for modulus values in parameters
+
+        let decomposer_rlwe =
+            DefaultDecomposer::new(parameters.rlwe_q, parameters.logb_rgsw, parameters.d_rgsw);
+        let decomposer_lwe =
+            DefaultDecomposer::new(parameters.lwe_q, parameters.logb_lwe, parameters.d_lwe);
+
+        // generatr dlog map s.t. g^{k} % q = a, for all a \in Z*_{q}
+        let g = parameters.g;
+        let q = parameters.br_q;
+        let mut g_k_dlog_map = vec![0usize; q];
+        for i in 0..q / 2 {
+            let v = mod_exponent(g as u64, i as u64, q as u64) as usize;
+            // g^i
+            g_k_dlog_map[v] = i;
+            // -(g^i)
+            g_k_dlog_map[q - v] = i + (q / 2);
+        }
+
+        let embedding_factor = (2 * parameters.rlwe_n) / q;
+
+        let rlwe_nttop = NttOp::new(parameters.rlwe_q, parameters.rlwe_n);
+        let rlwe_modop = ModInit::new(parameters.rlwe_q);
+        let lwe_modop = ModInit::new(parameters.lwe_q);
+
+        BoolEvaluator {
+            parameters: parameters,
+            decomposer_lwe,
+            decomposer_rlwe,
+            g_k_dlog_map,
+            embedding_factor,
+            lwe_modop,
+            rlwe_modop,
+            rlwe_nttop,
+
+            _phantom: PhantomData,
+        }
+    }
+
+    fn client_key(&self) -> ClientKey {
+        let sk_lwe = LweSecret::random(self.parameters.lwe_n >> 1, self.parameters.lwe_n);
+        let sk_rlwe = RlweSecret::random(self.parameters.rlwe_n >> 1, self.parameters.rlwe_n);
+        ClientKey { sk_rlwe, sk_lwe }
+    }
+
+    fn server_key(&self, client_key: &ClientKey) -> ServerKey<M> {
+        let sk_rlwe = &client_key.sk_rlwe;
+        let sk_lwe = &client_key.sk_lwe;
+
+        let d_rgsw_gadget_vec = gadget_vector(
+            self.parameters.rlwe_logq,
+            self.parameters.logb_rgsw,
+            self.parameters.d_rgsw,
+        );
+
+        // generate galois key -g, g
+        let mut galois_keys = HashMap::new();
+        let g = self.parameters.g as isize;
+        for i in [g, -g] {
+            let gk = DefaultSecureRng::with_local_mut(|rng| {
+                let mut ksk_out = M::zeros(self.parameters.d_rgsw * 2, self.parameters.rlwe_n);
+                galois_key_gen(
+                    &mut ksk_out,
+                    sk_rlwe,
+                    i,
+                    &d_rgsw_gadget_vec,
+                    &self.rlwe_modop,
+                    &self.rlwe_nttop,
+                    rng,
+                );
+                ksk_out
+            });
+
+            galois_keys.insert(i, gk);
+        }
+
+        // generate rgsw ciphertexts RGSW(si) where si is i^th LWE secret element
+        let ring_size = self.parameters.rlwe_n;
+        let rlwe_q = self.parameters.rlwe_q;
+        let rgsw_cts = sk_lwe
+            .values()
+            .iter()
+            .map(|si| {
+                // X^{si}; assume |emebedding_factor * si| < N
+                let mut m = M::zeros(1, ring_size);
+                let si = (self.embedding_factor as i32) * si;
+                if si < 0 {
+                    // X^{-i} = X^{2N - i} = -X^{N-i}
+                    m.set(
+                        0,
+                        ring_size - (si.abs() as usize),
+                        rlwe_q - M::MatElement::one(),
+                    );
+                } else {
+                    // X^{i}
+                    m.set(0, (si.abs() as usize), M::MatElement::one());
+                }
+                self.rlwe_nttop.forward(m.get_row_mut(0));
+
+                let rgsw_si = DefaultSecureRng::with_local_mut(|rng| {
+                    let mut rgsw_si = M::zeros(self.parameters.d_rgsw * 4, ring_size);
+                    encrypt_rgsw(
+                        &mut rgsw_si,
+                        &m,
+                        &d_rgsw_gadget_vec,
+                        sk_rlwe,
+                        &self.rlwe_modop,
+                        &self.rlwe_nttop,
+                        rng,
+                    );
+                    rgsw_si
+                });
+                rgsw_si
+            })
+            .collect_vec();
+
+        // LWE KSK from RLWE secret s -> LWE secret z
+        let d_lwe_gadget = gadget_vector(
+            self.parameters.lwe_logq,
+            self.parameters.logb_lwe,
+            self.parameters.d_lwe,
+        );
+        let mut lwe_ksk = DefaultSecureRng::with_local_mut(|rng| {
+            let mut out = M::zeros(self.parameters.d_lwe * ring_size, self.parameters.lwe_n + 1);
+            lwe_ksk_keygen(
+                &sk_rlwe.values(),
+                &sk_lwe.values(),
+                &mut out,
+                &d_lwe_gadget,
+                &self.lwe_modop,
+                rng,
+            );
+            out
+        });
+
+        ServerKey {
+            rgsw_cts,
+            galois_keys,
+            lwe_ksk,
+        }
+    }
+
+    pub fn encrypt(&self, m: bool, client_key: &ClientKey) -> M::R {
+        let rlwe_q_by8 =
+            M::MatElement::from_f64((self.parameters.rlwe_q.to_f64().unwrap() / 8.0).round())
+                .unwrap();
+        let m = if m {
+            // Q/8
+            rlwe_q_by8
+        } else {
+            // -Q/8
+            self.parameters.rlwe_q - rlwe_q_by8
+        };
+
+        DefaultSecureRng::with_local_mut(|rng| {
+            let mut lwe_out = M::R::zeros(self.parameters.rlwe_n + 1);
+            encrypt_lwe(
+                &mut lwe_out,
+                &m,
+                client_key.sk_rlwe.values(),
+                &self.rlwe_modop,
+                rng,
+            );
+            lwe_out
+        })
+    }
+
+    pub fn decrypt(&self, lwe_ct: &M::R, client_key: &ClientKey) -> bool {
+        let m = decrypt_lwe(lwe_ct, client_key.sk_rlwe.values(), &self.rlwe_modop);
+        let m = {
+            // m + q/8 => {0,q/4 1}
+            let rlwe_q_by8 =
+                M::MatElement::from_f64((self.parameters.rlwe_q.to_f64().unwrap() / 8.0).round())
+                    .unwrap();
+            (((m + rlwe_q_by8).to_f64().unwrap() * 4.0) / self.parameters.rlwe_q.to_f64().unwrap())
+                .round()
+                .to_usize()
+                .unwrap()
+                % 4
+        };
+
+        if m == 0 {
+            false
+        } else if m == 1 {
+            true
+        } else {
+            panic!("Incorrect bool decryption. Got m={m} expected m to be 0 or 1")
+        }
+    }
 }
 
 /// LMKCY+ Blind rotation
@@ -135,29 +406,6 @@ fn blind_rotation<
             mod_op,
         );
     });
-}
-
-trait Parameters {
-    type Element;
-    type D: Decomposer<Element = Self::Element>;
-    fn rlwe_q(&self) -> Self::Element;
-    fn lwe_q(&self) -> Self::Element;
-    fn br_q(&self) -> usize;
-    fn d_rgsw(&self) -> usize;
-    fn d_lwe(&self) -> usize;
-    fn rlwe_n(&self) -> usize;
-    fn lwe_n(&self) -> usize;
-    // Embedding fator for ring X^{q}+1 inside
-    fn embedding_factor(&self) -> usize;
-    // generator g
-    fn g(&self) -> isize;
-    fn decomoposer_lwe(&self) -> &Self::D;
-    fn decomoposer_rlwe(&self) -> &Self::D;
-    /// Maps a \in Z^*_{2q} to discrete log k, with generator g (i.e. g^k =
-    /// a). Returned vector is of size q that stores dlog of a at `vec[a]`.
-    /// For any a, k is s.t. a = g^{k}, then k is expressed as k. If k is s.t a
-    /// = -g^{k/2}, then k is expressed as k=k+q/2
-    fn g_k_dlog_map(&self) -> &[usize];
 }
 
 /// - Mod down
@@ -274,7 +522,6 @@ fn pbs<
                 partb_trivial_rlwe[2 * index] = *v;
             });
     }
-    // TODO Rotate test input
 
     // blind rotate
     blind_rotation(
@@ -357,4 +604,45 @@ fn monomial_mul<El, ModOp: ArithmeticOps<Element = El>>(
             p_out.as_mut()[to_index] = *v;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{backend::ModularOpsU64, ntt::NttBackendU64};
+
+    use super::*;
+
+    const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+        rlwe_q: 4294957057u64,
+        rlwe_logq: 32,
+        lwe_q: 1 << 16,
+        lwe_logq: 16,
+        br_q: 1 << 9,
+        rlwe_n: 1 << 10,
+        lwe_n: 490,
+        d_rgsw: 4,
+        logb_rgsw: 7,
+        d_lwe: 4,
+        logb_lwe: 4,
+        g: 5,
+        w: 1,
+    };
+
+    #[test]
+    fn encrypt_decrypt_works() {
+        // let prime = generate_prime(32, 2 * 1024, 1 << 32);
+        // dbg!(prime);
+        let bool_evaluator =
+            BoolEvaluator::<Vec<Vec<u64>>, u64, NttBackendU64, ModularOpsU64>::new(SP_BOOL_PARAMS);
+        let client_key = bool_evaluator.client_key();
+        // let sever_key = bool_evaluator.server_key(&client_key);
+
+        let mut m = true;
+        for _ in 0..1000 {
+            let lwe_ct = bool_evaluator.encrypt(m, &client_key);
+            let m_back = bool_evaluator.decrypt(&lwe_ct, &client_key);
+            assert_eq!(m, m_back);
+            m = !m;
+        }
+    }
 }

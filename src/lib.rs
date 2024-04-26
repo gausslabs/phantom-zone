@@ -77,6 +77,10 @@ pub trait Row: AsRef<[Self::Element]> {
 
 pub trait RowMut: Row + AsMut<[<Self as Row>::Element]> {}
 
+pub trait RowEntity: Row {
+    fn zeros(col: usize) -> Self;
+}
+
 trait Secret {
     type Element;
     fn values(&self) -> &[Self::Element];
@@ -123,3 +127,9 @@ impl<T> Row for Vec<T> {
 }
 
 impl<T> RowMut for Vec<T> {}
+
+impl<T: Zero + Clone> RowEntity for Vec<T> {
+    fn zeros(col: usize) -> Self {
+        vec![T::zero(); col]
+    }
+}

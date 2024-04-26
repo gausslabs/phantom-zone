@@ -143,7 +143,11 @@ fn round_value<T: PrimInt>(value: T, ignore_bits: usize) -> T {
 mod tests {
     use rand::{thread_rng, Rng};
 
-    use crate::{backend::ModularOpsU64, decomposer::round_value, utils::generate_prime};
+    use crate::{
+        backend::{ModInit, ModularOpsU64},
+        decomposer::round_value,
+        utils::generate_prime,
+    };
 
     use super::{Decomposer, DefaultDecomposer};
 

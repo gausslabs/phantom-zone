@@ -21,7 +21,7 @@ trait LweKeySwitchParameters {
 
 trait LweCiphertext<M: Matrix> {}
 
-struct LweSecret {
+pub struct LweSecret {
     values: Vec<i32>,
 }
 
@@ -33,7 +33,7 @@ impl Secret for LweSecret {
 }
 
 impl LweSecret {
-    fn random(hw: usize, n: usize) -> LweSecret {
+    pub(crate) fn random(hw: usize, n: usize) -> LweSecret {
         DefaultSecureRng::with_local_mut(|rng| {
             let mut out = vec![0i32; n];
             fill_random_ternary_secret_with_hamming_weight(&mut out, hw, rng);
@@ -71,38 +71,32 @@ pub(crate) fn lwe_key_switch<
     lwe_out.as_mut()[0] = out_b;
 }
 
-fn lwe_ksk_keygen<
+pub fn lwe_ksk_keygen<
     Mmut: MatrixMut,
-    S: Secret,
+    S,
     Op: VectorOps<Element = Mmut::MatElement> + ArithmeticOps<Element = Mmut::MatElement>,
     R: RandomGaussianDist<Mmut::MatElement, Parameters = Mmut::MatElement>
         + RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>,
 >(
-    from_lwe_sk: &S,
-    to_lwe_sk: &S,
+    from_lwe_sk: &[S],
+    to_lwe_sk: &[S],
     ksk_out: &mut Mmut,
     gadget: &[Mmut::MatElement],
     operator: &Op,
     rng: &mut R,
 ) where
     <Mmut as Matrix>::R: RowMut,
-    Mmut::R: TryConvertFrom<[S::Element], Parameters = Mmut::MatElement>,
+    Mmut::R: TryConvertFrom<[S], Parameters = Mmut::MatElement>,
     Mmut::MatElement: Zero + Debug,
 {
-    assert!(
-        ksk_out.dimension()
-            == (
-                from_lwe_sk.values().len() * gadget.len(),
-                to_lwe_sk.values().len() + 1,
-            )
-    );
+    assert!(ksk_out.dimension() == (from_lwe_sk.len() * gadget.len(), to_lwe_sk.len() + 1,));
 
     let d = gadget.len();
 
     let modulus = VectorOps::modulus(operator);
-    let mut neg_sk_in_m = Mmut::R::try_convert_from(from_lwe_sk.values(), &modulus);
+    let mut neg_sk_in_m = Mmut::R::try_convert_from(from_lwe_sk, &modulus);
     operator.elwise_neg_mut(neg_sk_in_m.as_mut());
-    let sk_out_m = Mmut::R::try_convert_from(to_lwe_sk.values(), &modulus);
+    let sk_out_m = Mmut::R::try_convert_from(to_lwe_sk, &modulus);
 
     izip!(
         neg_sk_in_m.as_ref(),
@@ -134,23 +128,23 @@ fn lwe_ksk_keygen<
 }
 
 /// Encrypts encoded message m as LWE ciphertext
-fn encrypt_lwe<
+pub fn encrypt_lwe<
     Ro: Row + RowMut,
     R: RandomGaussianDist<Ro::Element, Parameters = Ro::Element>
         + RandomUniformDist<[Ro::Element], Parameters = Ro::Element>,
-    S: Secret,
+    S,
     Op: ArithmeticOps<Element = Ro::Element>,
 >(
     lwe_out: &mut Ro,
     m: &Ro::Element,
-    s: &S,
+    s: &[S],
     operator: &Op,
     rng: &mut R,
 ) where
-    Ro: TryConvertFrom<[S::Element], Parameters = Ro::Element>,
+    Ro: TryConvertFrom<[S], Parameters = Ro::Element>,
     Ro::Element: Zero,
 {
-    let s = Ro::try_convert_from(s.values(), &operator.modulus());
+    let s = Ro::try_convert_from(s, &operator.modulus());
     assert!(s.as_ref().len() == (lwe_out.as_ref().len() - 1));
 
     // a*s
@@ -168,16 +162,16 @@ fn encrypt_lwe<
     lwe_out.as_mut()[0] = b;
 }
 
-fn decrypt_lwe<Ro: Row, Op: ArithmeticOps<Element = Ro::Element>, S: Secret>(
+pub fn decrypt_lwe<Ro: Row, Op: ArithmeticOps<Element = Ro::Element>, S>(
     lwe_ct: &Ro,
-    s: &S,
+    s: &[S],
     operator: &Op,
 ) -> Ro::Element
 where
-    Ro: TryConvertFrom<[S::Element], Parameters = Ro::Element>,
+    Ro: TryConvertFrom<[S], Parameters = Ro::Element>,
     Ro::Element: Zero,
 {
-    let s = Ro::try_convert_from(s.values(), &operator.modulus());
+    let s = Ro::try_convert_from(s, &operator.modulus());
 
     let mut sa = Ro::Element::zero();
     izip!(lwe_ct.as_ref().iter().skip(1), s.as_ref()).for_each(|(ai, si)| {
@@ -193,10 +187,11 @@ where
 mod tests {
 
     use crate::{
-        backend::ModularOpsU64,
+        backend::{ModInit, ModularOpsU64},
         decomposer::{gadget_vector, DefaultDecomposer},
         lwe::lwe_key_switch,
         random::DefaultSecureRng,
+        Secret,
     };
 
     use super::{decrypt_lwe, encrypt_lwe, lwe_ksk_keygen, LweSecret};
@@ -217,8 +212,14 @@ mod tests {
         for m in 0..1u64 << logp {
             let encoded_m = m << (logq - logp);
             let mut lwe_ct = vec![0u64; lwe_n + 1];
-            encrypt_lwe(&mut lwe_ct, &encoded_m, &lwe_sk, &modq_op, &mut rng);
-            let encoded_m_back = decrypt_lwe(&lwe_ct, &lwe_sk, &modq_op);
+            encrypt_lwe(
+                &mut lwe_ct,
+                &encoded_m,
+                &lwe_sk.values(),
+                &modq_op,
+                &mut rng,
+            );
+            let encoded_m_back = decrypt_lwe(&lwe_ct, &lwe_sk.values(), &modq_op);
             let m_back = ((((encoded_m_back as f64) * ((1 << logp) as f64)) / q as f64).round()
                 as u64)
                 % (1u64 << logp);
@@ -247,8 +248,8 @@ mod tests {
             let mut ksk = vec![vec![0u64; lwe_out_n + 1]; d_ks * lwe_in_n];
             let gadget = gadget_vector(logq, logb, d_ks);
             lwe_ksk_keygen(
-                &lwe_sk_in,
-                &lwe_sk_out,
+                &lwe_sk_in.values(),
+                &lwe_sk_out.values(),
                 &mut ksk,
                 &gadget,
                 &modq_op,
@@ -260,7 +261,13 @@ mod tests {
                 // encrypt using lwe_sk_in
                 let encoded_m = m << (logq - logp);
                 let mut lwe_in_ct = vec![0u64; lwe_in_n + 1];
-                encrypt_lwe(&mut lwe_in_ct, &encoded_m, &lwe_sk_in, &modq_op, &mut rng);
+                encrypt_lwe(
+                    &mut lwe_in_ct,
+                    &encoded_m,
+                    lwe_sk_in.values(),
+                    &modq_op,
+                    &mut rng,
+                );
 
                 // key switch from lwe_sk_in to lwe_sk_out
                 let decomposer = DefaultDecomposer::new(1u64 << logq, logb, d_ks);
@@ -268,7 +275,7 @@ mod tests {
                 lwe_key_switch(&mut lwe_out_ct, &lwe_in_ct, &ksk, &modq_op, &decomposer);
 
                 // decrypt lwe_out_ct using lwe_sk_out
-                let encoded_m_back = decrypt_lwe(&lwe_out_ct, &lwe_sk_out, &modq_op);
+                let encoded_m_back = decrypt_lwe(&lwe_out_ct, &lwe_sk_out.values(), &modq_op);
                 let m_back = ((((encoded_m_back as f64) * ((1 << logp) as f64)) / q as f64).round()
                     as u64)
                     % (1u64 << logp);
