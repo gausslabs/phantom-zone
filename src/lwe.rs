@@ -43,36 +43,32 @@ impl LweSecret {
     }
 }
 
-fn lwe_key_switch<
+pub(crate) fn lwe_key_switch<
     M: Matrix,
-    Mmut: MatrixMut<MatElement = M::MatElement> + MatrixEntity,
+    Ro: AsMut<[M::MatElement]> + AsRef<[M::MatElement]>,
     Op: VectorOps<Element = M::MatElement> + ArithmeticOps<Element = M::MatElement>,
     D: Decomposer<Element = M::MatElement>,
 >(
-    lwe_out: &mut Mmut,
-    lwe_in: &M,
+    lwe_out: &mut Ro,
+    lwe_in: &Ro,
     lwe_ksk: &M,
     operator: &Op,
     decomposer: &D,
-) where
-    <Mmut as Matrix>::R: RowMut,
-{
-    assert!(lwe_ksk.dimension().0 == ((lwe_in.dimension().1 - 1) * decomposer.d()));
-    assert!(lwe_out.dimension() == (1, lwe_ksk.dimension().1));
-
-    let mut scratch_space = Mmut::zeros(1, lwe_out.dimension().1);
+) {
+    assert!(lwe_ksk.dimension().0 == ((lwe_in.as_ref().len() - 1) * decomposer.d()));
+    assert!(lwe_out.as_ref().len() == lwe_ksk.dimension().1);
 
     let lwe_in_a_decomposed = lwe_in
-        .get_row(0)
+        .as_ref()
+        .iter()
         .skip(1)
         .flat_map(|ai| decomposer.decompose(ai));
     izip!(lwe_in_a_decomposed, lwe_ksk.iter_rows()).for_each(|(ai_j, beta_ij_lwe)| {
-        operator.elwise_scalar_mul(scratch_space.get_row_mut(0), beta_ij_lwe.as_ref(), &ai_j);
-        operator.elwise_add_mut(lwe_out.get_row_mut(0), scratch_space.get_row_slice(0))
+        operator.elwise_fma_scalar_mut(lwe_out.as_mut(), beta_ij_lwe.as_ref(), &ai_j);
     });
 
-    let out_b = operator.add(lwe_out.get(0, 0), lwe_in.get(0, 0));
-    lwe_out.set(0, 0, out_b);
+    let out_b = operator.add(&lwe_out.as_ref()[0], &lwe_in.as_ref()[0]);
+    lwe_out.as_mut()[0] = out_b;
 }
 
 fn lwe_ksk_keygen<
@@ -82,34 +78,34 @@ fn lwe_ksk_keygen<
     R: RandomGaussianDist<Mmut::MatElement, Parameters = Mmut::MatElement>
         + RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>,
 >(
-    lwe_sk_in: &S,
-    lwe_sk_out: &S,
+    from_lwe_sk: &S,
+    to_lwe_sk: &S,
     ksk_out: &mut Mmut,
     gadget: &[Mmut::MatElement],
     operator: &Op,
     rng: &mut R,
 ) where
     <Mmut as Matrix>::R: RowMut,
-    Mmut: TryConvertFrom<[S::Element], Parameters = Mmut::MatElement>,
+    Mmut::R: TryConvertFrom<[S::Element], Parameters = Mmut::MatElement>,
     Mmut::MatElement: Zero + Debug,
 {
     assert!(
         ksk_out.dimension()
             == (
-                lwe_sk_in.values().len() * gadget.len(),
-                lwe_sk_out.values().len() + 1,
+                from_lwe_sk.values().len() * gadget.len(),
+                to_lwe_sk.values().len() + 1,
             )
     );
 
     let d = gadget.len();
 
     let modulus = VectorOps::modulus(operator);
-    let mut neg_sk_in_m = Mmut::try_convert_from(lwe_sk_in.values(), &modulus);
-    operator.elwise_neg_mut(neg_sk_in_m.get_row_mut(0));
-    let sk_out_m = Mmut::try_convert_from(lwe_sk_out.values(), &modulus);
+    let mut neg_sk_in_m = Mmut::R::try_convert_from(from_lwe_sk.values(), &modulus);
+    operator.elwise_neg_mut(neg_sk_in_m.as_mut());
+    let sk_out_m = Mmut::R::try_convert_from(to_lwe_sk.values(), &modulus);
 
     izip!(
-        neg_sk_in_m.get_row(0),
+        neg_sk_in_m.as_ref(),
         ksk_out.iter_rows_mut().chunks(d).into_iter()
     )
     .for_each(|(neg_sk_in_si, d_ks_lwes)| {
@@ -119,7 +115,7 @@ fn lwe_ksk_keygen<
 
             // a * z
             let mut az = Mmut::MatElement::zero();
-            izip!(lwe.as_ref()[1..].iter(), sk_out_m.get_row(0)).for_each(|(ai, si)| {
+            izip!(lwe.as_ref()[1..].iter(), sk_out_m.as_ref()).for_each(|(ai, si)| {
                 let ai_si = operator.mul(ai, si);
                 az = operator.add(&az, &ai_si);
             });
@@ -139,59 +135,57 @@ fn lwe_ksk_keygen<
 
 /// Encrypts encoded message m as LWE ciphertext
 fn encrypt_lwe<
-    Mmut: MatrixMut + MatrixEntity,
-    R: RandomGaussianDist<Mmut::MatElement, Parameters = Mmut::MatElement>
-        + RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>,
+    Ro: Row + RowMut,
+    R: RandomGaussianDist<Ro::Element, Parameters = Ro::Element>
+        + RandomUniformDist<[Ro::Element], Parameters = Ro::Element>,
     S: Secret,
-    Op: ArithmeticOps<Element = Mmut::MatElement>,
+    Op: ArithmeticOps<Element = Ro::Element>,
 >(
-    lwe_out: &mut Mmut,
-    m: Mmut::MatElement,
+    lwe_out: &mut Ro,
+    m: &Ro::Element,
     s: &S,
     operator: &Op,
     rng: &mut R,
 ) where
-    Mmut: TryConvertFrom<[S::Element], Parameters = Mmut::MatElement>,
-    Mmut::MatElement: Zero,
-    <Mmut as Matrix>::R: RowMut,
+    Ro: TryConvertFrom<[S::Element], Parameters = Ro::Element>,
+    Ro::Element: Zero,
 {
-    let s = Mmut::try_convert_from(s.values(), &operator.modulus());
-    assert!(s.dimension().0 == (lwe_out.dimension().0));
-    assert!(s.dimension().1 == (lwe_out.dimension().1 - 1));
+    let s = Ro::try_convert_from(s.values(), &operator.modulus());
+    assert!(s.as_ref().len() == (lwe_out.as_ref().len() - 1));
 
     // a*s
-    RandomUniformDist::random_fill(rng, &operator.modulus(), &mut lwe_out.get_row_mut(0)[1..]);
-    let mut sa = Mmut::MatElement::zero();
-    izip!(lwe_out.get_row(0).skip(1), s.get_row(0)).for_each(|(ai, si)| {
+    RandomUniformDist::random_fill(rng, &operator.modulus(), &mut lwe_out.as_mut()[1..]);
+    let mut sa = Ro::Element::zero();
+    izip!(lwe_out.as_mut().iter().skip(1), s.as_ref()).for_each(|(ai, si)| {
         let tmp = operator.mul(ai, si);
         sa = operator.add(&tmp, &sa);
     });
 
     // b = a*s + e + m
-    let mut e = Mmut::MatElement::zero();
+    let mut e = Ro::Element::zero();
     RandomGaussianDist::random_fill(rng, &operator.modulus(), &mut e);
-    let b = operator.add(&operator.add(&sa, &e), &m);
-    lwe_out.set(0, 0, b);
+    let b = operator.add(&operator.add(&sa, &e), m);
+    lwe_out.as_mut()[0] = b;
 }
 
-fn decrypt_lwe<M: Matrix, Op: ArithmeticOps<Element = M::MatElement>, S: Secret>(
-    lwe_ct: &M,
+fn decrypt_lwe<Ro: Row, Op: ArithmeticOps<Element = Ro::Element>, S: Secret>(
+    lwe_ct: &Ro,
     s: &S,
     operator: &Op,
-) -> M::MatElement
+) -> Ro::Element
 where
-    M: TryConvertFrom<[S::Element], Parameters = M::MatElement>,
-    M::MatElement: Zero,
+    Ro: TryConvertFrom<[S::Element], Parameters = Ro::Element>,
+    Ro::Element: Zero,
 {
-    let s = M::try_convert_from(s.values(), &operator.modulus());
+    let s = Ro::try_convert_from(s.values(), &operator.modulus());
 
-    let mut sa = M::MatElement::zero();
-    izip!(lwe_ct.get_row(0).skip(1), s.get_row(0)).for_each(|(ai, si)| {
+    let mut sa = Ro::Element::zero();
+    izip!(lwe_ct.as_ref().iter().skip(1), s.as_ref()).for_each(|(ai, si)| {
         let tmp = operator.mul(ai, si);
         sa = operator.add(&tmp, &sa);
     });
 
-    let b = &lwe_ct.get_row_slice(0)[0];
+    let b = &lwe_ct.as_ref()[0];
     operator.sub(b, &sa)
 }
 
@@ -222,8 +216,8 @@ mod tests {
         // encrypt
         for m in 0..1u64 << logp {
             let encoded_m = m << (logq - logp);
-            let mut lwe_ct = vec![vec![0u64; lwe_n + 1]];
-            encrypt_lwe(&mut lwe_ct, encoded_m, &lwe_sk, &modq_op, &mut rng);
+            let mut lwe_ct = vec![0u64; lwe_n + 1];
+            encrypt_lwe(&mut lwe_ct, &encoded_m, &lwe_sk, &modq_op, &mut rng);
             let encoded_m_back = decrypt_lwe(&lwe_ct, &lwe_sk, &modq_op);
             let m_back = ((((encoded_m_back as f64) * ((1 << logp) as f64)) / q as f64).round()
                 as u64)
@@ -265,12 +259,12 @@ mod tests {
             for m in 0..(1 << logp) {
                 // encrypt using lwe_sk_in
                 let encoded_m = m << (logq - logp);
-                let mut lwe_in_ct = vec![vec![0u64; lwe_in_n + 1]];
-                encrypt_lwe(&mut lwe_in_ct, encoded_m, &lwe_sk_in, &modq_op, &mut rng);
+                let mut lwe_in_ct = vec![0u64; lwe_in_n + 1];
+                encrypt_lwe(&mut lwe_in_ct, &encoded_m, &lwe_sk_in, &modq_op, &mut rng);
 
                 // key switch from lwe_sk_in to lwe_sk_out
                 let decomposer = DefaultDecomposer::new(1u64 << logq, logb, d_ks);
-                let mut lwe_out_ct = vec![vec![0u64; lwe_out_n + 1]];
+                let mut lwe_out_ct = vec![0u64; lwe_out_n + 1];
                 lwe_key_switch(&mut lwe_out_ct, &lwe_in_ct, &ksk, &modq_op, &decomposer);
 
                 // decrypt lwe_out_ct using lwe_sk_out

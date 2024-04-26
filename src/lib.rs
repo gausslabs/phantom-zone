@@ -6,6 +6,7 @@ use random::{RandomGaussianDist, RandomUniformDist};
 use utils::TryConvertFrom;
 
 mod backend;
+mod bool;
 mod decomposer;
 mod lwe;
 mod ntt;
@@ -34,6 +35,10 @@ pub trait Matrix: AsRef<[Self::R]> {
     fn get(&self, row_idx: usize, column_idx: usize) -> &Self::MatElement {
         &self.as_ref()[row_idx].as_ref()[column_idx]
     }
+
+    fn split_at_row(&self, idx: usize) -> (&[<Self as Matrix>::R], &[<Self as Matrix>::R]) {
+        self.as_ref().split_at(idx)
+    }
 }
 
 pub trait MatrixMut: Matrix + AsMut<[<Self as Matrix>::R]>
@@ -52,7 +57,7 @@ where
         self.as_mut()[row_idx].as_mut()[column_idx] = val;
     }
 
-    fn split_at_row(
+    fn split_at_row_mut(
         &mut self,
         idx: usize,
     ) -> (&mut [<Self as Matrix>::R], &mut [<Self as Matrix>::R]) {
@@ -86,7 +91,26 @@ impl<T> Matrix for Vec<Vec<T>> {
     }
 }
 
+impl<T> Matrix for &[Vec<T>] {
+    type MatElement = T;
+    type R = Vec<T>;
+
+    fn dimension(&self) -> (usize, usize) {
+        (self.len(), self[0].len())
+    }
+}
+
+impl<T> Matrix for &mut [Vec<T>] {
+    type MatElement = T;
+    type R = Vec<T>;
+
+    fn dimension(&self) -> (usize, usize) {
+        (self.len(), self[0].len())
+    }
+}
+
 impl<T> MatrixMut for Vec<Vec<T>> {}
+impl<T> MatrixMut for &mut [Vec<T>] {}
 
 impl<T: Zero + Clone> MatrixEntity for Vec<Vec<T>> {
     fn zeros(row: usize, col: usize) -> Self {

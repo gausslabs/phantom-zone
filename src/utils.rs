@@ -189,3 +189,24 @@ impl TryConvertFrom<[i32]> for Vec<Vec<u64>> {
         vec![row0]
     }
 }
+
+impl TryConvertFrom<[i32]> for Vec<u64> {
+    type Parameters = u64;
+    fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self {
+        value
+            .iter()
+            .map(|v| {
+                let is_neg = v.is_negative();
+                let v_u64 = v.abs() as u64;
+
+                assert!(v_u64 < *parameters);
+
+                if is_neg {
+                    parameters - v_u64
+                } else {
+                    v_u64
+                }
+            })
+            .collect_vec()
+    }
+}

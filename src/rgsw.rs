@@ -1,10 +1,11 @@
 use std::{
+    clone,
     fmt::Debug,
     ops::{Neg, Sub},
 };
 
 use itertools::{izip, Itertools};
-use num_traits::{PrimInt, ToPrimitive};
+use num_traits::{PrimInt, ToPrimitive, Zero};
 
 use crate::{
     backend::{ArithmeticOps, VectorOps},
@@ -14,6 +15,48 @@ use crate::{
     utils::{fill_random_ternary_secret_with_hamming_weight, TryConvertFrom, WithLocal},
     Matrix, MatrixEntity, MatrixMut, RowMut, Secret,
 };
+
+struct RlweCiphertext<M>(M, bool);
+
+impl<M: Matrix> Matrix for RlweCiphertext<M> {
+    type MatElement = M::MatElement;
+    type R = M::R;
+
+    fn dimension(&self) -> (usize, usize) {
+        self.0.dimension()
+    }
+}
+
+impl<M: MatrixMut> MatrixMut for RlweCiphertext<M> where <M as Matrix>::R: RowMut {}
+
+impl<M: Matrix> AsRef<[<M as Matrix>::R]> for RlweCiphertext<M> {
+    fn as_ref(&self) -> &[<M as Matrix>::R] {
+        self.0.as_ref()
+    }
+}
+
+impl<M: MatrixMut> AsMut<[<M as Matrix>::R]> for RlweCiphertext<M>
+where
+    <M as Matrix>::R: RowMut,
+{
+    fn as_mut(&mut self) -> &mut [<M as Matrix>::R] {
+        self.0.as_mut()
+    }
+}
+
+impl<M> IsTrivial for RlweCiphertext<M> {
+    fn is_trivial(&self) -> bool {
+        self.1
+    }
+    fn set_not_trivial(&mut self) {
+        self.1 = false;
+    }
+}
+
+pub trait IsTrivial {
+    fn is_trivial(&self) -> bool;
+    fn set_not_trivial(&mut self);
+}
 
 struct RlweSecret {
     values: Vec<i32>,
@@ -70,7 +113,7 @@ fn generate_auto_map(ring_size: usize, k: usize) -> (Vec<usize>, Vec<bool>) {
 /// - neg_from_s_eval: Negative of secret polynomial to key switch from in
 ///   evaluation domain
 /// - to_s_eval: secret polynomial to key switch to in evalution domain.
-fn rlwe_ksk_gen<
+pub(crate) fn rlwe_ksk_gen<
     Mmut: MatrixMut + MatrixEntity,
     ModOp: ArithmeticOps<Element = Mmut::MatElement> + VectorOps<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
@@ -98,7 +141,7 @@ fn rlwe_ksk_gen<
     let mut scratch_space = Mmut::zeros(1, ring_size);
 
     // RLWE'_{to_s}(-from_s)
-    let (part_a, part_b) = ksk_out.split_at_row(d);
+    let (part_a, part_b) = ksk_out.split_at_row_mut(d);
     izip!(part_a.iter_mut(), part_b.iter_mut(), gadget_vector.iter()).for_each(
         |(ai, bi, beta_i)| {
             // sample ai and transform to evaluation
@@ -130,7 +173,7 @@ fn rlwe_ksk_gen<
     );
 }
 
-fn galois_key_gen<
+pub(crate) fn galois_key_gen<
     Mmut: MatrixMut + MatrixEntity,
     ModOp: ArithmeticOps<Element = Mmut::MatElement> + VectorOps<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
@@ -179,17 +222,16 @@ fn galois_key_gen<
 }
 
 /// Sends RLWE_{s}(X) -> RLWE_{s}(X^k) where k is some galois element
-fn galois_auto<
-    M: Matrix,
-    Mmut: MatrixMut<MatElement = M::MatElement>,
-    ModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
-    NttOp: Ntt<Element = M::MatElement>,
-    D: Decomposer<Element = M::MatElement>,
+pub(crate) fn galois_auto<
+    MT: Matrix + IsTrivial + MatrixMut,
+    Mmut: MatrixMut<MatElement = MT::MatElement>,
+    ModOp: ArithmeticOps<Element = MT::MatElement> + VectorOps<Element = MT::MatElement>,
+    NttOp: Ntt<Element = MT::MatElement>,
+    D: Decomposer<Element = MT::MatElement>,
 >(
-    rlwe_in: &M,
-    ksk: &M,
-    rlwe_out: &mut Mmut,
-    a_rlwe_decomposed: &mut Mmut,
+    rlwe_in: &mut MT,
+    ksk: &Mmut,
+    scratch_matrix_dplus2_ring: &mut Mmut,
     auto_map_index: &[usize],
     auto_map_sign: &[bool],
     mod_op: &ModOp,
@@ -197,9 +239,12 @@ fn galois_auto<
     decomposer: &D,
 ) where
     <Mmut as Matrix>::R: RowMut,
-    M::MatElement: Copy,
+    <MT as Matrix>::R: RowMut,
+    MT::MatElement: Copy + Zero,
 {
     let d = decomposer.d();
+
+    let (scratch_matrix_d_ring, tmp_rlwe_out) = scratch_matrix_dplus2_ring.split_at_row_mut(d);
 
     // send b(X) -> b(X^k)
     izip!(
@@ -209,45 +254,69 @@ fn galois_auto<
     )
     .for_each(|(el_in, to_index, sign)| {
         if !*sign {
-            rlwe_out.set(1, *to_index, mod_op.neg(el_in));
+            tmp_rlwe_out[1].as_mut()[*to_index] = mod_op.neg(el_in);
         } else {
-            rlwe_out.set(1, *to_index, *el_in);
+            tmp_rlwe_out[1].as_mut()[*to_index] = *el_in;
+            // scratch_matrix_dplus2_ring.set(d + 1, *to_index, *el_in);
         }
     });
 
-    // send a(X) -> a(X^k) and decompose a(X^k)
-    izip!(
-        rlwe_in.get_row(0),
-        auto_map_index.iter(),
-        auto_map_sign.iter()
-    )
-    .for_each(|(el_in, to_index, sign)| {
-        let el_out = if !*sign { mod_op.neg(el_in) } else { *el_in };
+    if !rlwe_in.is_trivial() {
+        // send a(X) -> a(X^k) and decompose a(X^k)
+        izip!(
+            rlwe_in.get_row(0),
+            auto_map_index.iter(),
+            auto_map_sign.iter()
+        )
+        .for_each(|(el_in, to_index, sign)| {
+            let el_out = if !*sign { mod_op.neg(el_in) } else { *el_in };
 
-        let el_out_decomposed = decomposer.decompose(&el_out);
-        for j in 0..d {
-            a_rlwe_decomposed.set(j, *to_index, el_out_decomposed[j]);
-        }
-    });
+            let el_out_decomposed = decomposer.decompose(&el_out);
+            for j in 0..d {
+                scratch_matrix_d_ring[j].as_mut()[*to_index] = el_out_decomposed[j];
+            }
+        });
 
-    // transform decomposed a(X^k) to evaluation domain
-    a_rlwe_decomposed.iter_rows_mut().for_each(|r| {
-        ntt_op.forward(r.as_mut());
-    });
+        // transform decomposed a(X^k) to evaluation domain
+        scratch_matrix_d_ring.iter_mut().for_each(|r| {
+            ntt_op.forward(r.as_mut());
+        });
 
-    // key switch (a(X^k) * RLWE'(s(X^k)))
-    izip!(a_rlwe_decomposed.iter_rows(), ksk.iter_rows().take(d)).for_each(|(a, b)| {
-        mod_op.elwise_fma_mut(rlwe_out.get_row_mut(0), a.as_ref(), b.as_ref());
-    });
-    ntt_op.forward(rlwe_out.get_row_mut(1));
-    izip!(a_rlwe_decomposed.iter_rows(), ksk.iter_rows().skip(d)).for_each(|(a, b)| {
-        mod_op.elwise_fma_mut(rlwe_out.get_row_mut(1), a.as_ref(), b.as_ref());
-    });
+        // RLWE(m^k) = a', b'; RLWE(m) = a, b
+        // key switch: (a * RLWE'(s(X^k)))
+        let (ksk_a, ksk_b) = ksk.split_at_row(d);
+        tmp_rlwe_out[0].as_mut().fill(Mmut::MatElement::zero());
+        // a' = decomp<a> * RLWE'_A(s(X^k))
+        routine::<Mmut, ModOp>(
+            tmp_rlwe_out[0].as_mut(),
+            scratch_matrix_d_ring,
+            ksk_a,
+            mod_op,
+        );
+        // send b(X^k) to evaluation domain
+        ntt_op.forward(tmp_rlwe_out[1].as_mut());
+        // b' = b(X^k)
+        // b' += decomp<a(X^k)> * RLWE'_B(s(X^k))
+        routine::<Mmut, ModOp>(
+            tmp_rlwe_out[1].as_mut(),
+            scratch_matrix_d_ring,
+            ksk_b,
+            mod_op,
+        );
 
-    // transform RLWE(-s(X^k) * a(X^k)) to coefficient domain
-    rlwe_out
-        .iter_rows_mut()
-        .for_each(|r| ntt_op.backward(r.as_mut()));
+        // transform RLWE(m^k) to coefficient domain
+        tmp_rlwe_out
+            .iter_mut()
+            .for_each(|r| ntt_op.backward(r.as_mut()));
+
+        rlwe_in
+            .get_row_mut(0)
+            .copy_from_slice(tmp_rlwe_out[0].as_ref());
+    }
+
+    rlwe_in
+        .get_row_mut(1)
+        .copy_from_slice(tmp_rlwe_out[1].as_ref());
 }
 
 /// Encrypts message m as a RGSW ciphertext.
@@ -256,7 +325,7 @@ fn galois_auto<
 /// - out_rgsw: RGSW(m) is stored as single matrix of dimension (d_rgsw * 4,
 ///   ring_size). The matrix has the following structure [RLWE'_A(-sm) ||
 ///   RLWE'_B(-sm) || RLWE'_A(m) || RLWE'_B(m)]^T
-fn encrypt_rgsw<
+pub(crate) fn encrypt_rgsw<
     Mmut: MatrixMut + MatrixEntity,
     M: Matrix<MatElement = Mmut::MatElement> + Clone,
     S: Secret,
@@ -283,7 +352,7 @@ fn encrypt_rgsw<
     assert!(m_eval.dimension() == (1, ring_size));
 
     // RLWE(-sm), RLWE(-sm)
-    let (rlwe_dash_nsm, rlwe_dash_m) = out_rgsw.split_at_row(d * 2);
+    let (rlwe_dash_nsm, rlwe_dash_m) = out_rgsw.split_at_row_mut(d * 2);
 
     let mut s_eval = Mmut::try_convert_from(s.values(), &q);
     ntt_op.forward(s_eval.get_row_mut(0).as_mut());
@@ -364,7 +433,7 @@ fn encrypt_rgsw<
 /// - rgsw_in: RGSW(m') in evaluation domain
 /// - rlwe_in_decomposed: decomposed RLWE(m) in evaluation domain
 /// - rlwe_out: returned RLWE(mm') in evaluation domain
-fn rlwe_in_decomposed_evaluation_domain_mul_rgsw_rlwe_out_evaluation_domain<
+pub(crate) fn rlwe_in_decomposed_evaluation_domain_mul_rgsw_rlwe_out_evaluation_domain<
     Mmut: MatrixMut + MatrixEntity,
     M: Matrix<MatElement = Mmut::MatElement> + Clone,
     ModOp: VectorOps<Element = Mmut::MatElement>,
@@ -381,7 +450,7 @@ fn rlwe_in_decomposed_evaluation_domain_mul_rgsw_rlwe_out_evaluation_domain<
     assert!(rlwe_in_decomposed_eval.dimension() == (2 * d_rgsw, ring_size));
     assert!(rlwe_out_eval.dimension() == (2, ring_size));
 
-    let (a_rlwe_out, b_rlwe_out) = rlwe_out_eval.split_at_row(1);
+    let (a_rlwe_out, b_rlwe_out) = rlwe_out_eval.split_at_row_mut(1);
 
     // a * RLWE'(-sm)
     let a_rlwe_dash_nsm = rgsw_in.iter_rows().take(d_rgsw);
@@ -420,82 +489,165 @@ fn rlwe_in_decomposed_evaluation_domain_mul_rgsw_rlwe_out_evaluation_domain<
     });
 }
 
-fn decompose_rlwe<
-    M: Matrix + Clone,
-    Mmut: MatrixMut<MatElement = M::MatElement> + MatrixEntity,
-    D: Decomposer<Element = M::MatElement>,
->(
-    rlwe_in: &M,
+pub(crate) fn routine<M: Matrix + ?Sized, ModOp: VectorOps<Element = M::MatElement>>(
+    write_to_row: &mut [M::MatElement],
+    matrix_a: &[M::R],
+    matrix_b: &[M::R],
+    mod_op: &ModOp,
+) {
+    izip!(matrix_a.iter(), matrix_b.iter()).for_each(|(a, b)| {
+        mod_op.elwise_fma_mut(write_to_row, a.as_ref(), b.as_ref());
+    });
+}
+
+// pub(crate) fn decompose_rlwe<
+//     M: Matrix + Clone,
+//     Mmut: MatrixMut<MatElement = M::MatElement> + MatrixEntity,
+//     D: Decomposer<Element = M::MatElement>,
+// >(
+//     rlwe_in: &M,
+//     decomposer: &D,
+//     rlwe_in_decomposed: &mut Mmut,
+// ) where
+//     M::MatElement: Copy,
+//     <Mmut as Matrix>::R: RowMut,
+// {
+//     let d_rgsw = decomposer.d();
+//     let ring_size = rlwe_in.dimension().1;
+//     assert!(rlwe_in_decomposed.dimension() == (2 * d_rgsw, ring_size));
+
+//     // Decompose rlwe_in
+//     for ri in 0..ring_size {
+//         // ai
+//         let ai_decomposed = decomposer.decompose(rlwe_in.get(0, ri));
+//         for j in 0..d_rgsw {
+//             rlwe_in_decomposed.set(j, ri, ai_decomposed[j]);
+//         }
+
+//         // bi
+//         let bi_decomposed = decomposer.decompose(rlwe_in.get(1, ri));
+//         for j in 0..d_rgsw {
+//             rlwe_in_decomposed.set(j + d_rgsw, ri, bi_decomposed[j]);
+//         }
+//     }
+// }
+
+/// Decomposes ring polynomial r(X) into d polynomials using decomposer into
+/// output matrix decomp_r
+///
+/// Note that decomposition of r(X) requires decomposition of each of
+/// coefficients.
+///
+/// - decomp_r: must have dimensions d x ring_size. i^th decomposed polynomial
+///   will be stored at i^th row.
+pub(crate) fn decompose_r<M: Matrix + MatrixMut, D: Decomposer<Element = M::MatElement>>(
+    r: &[M::MatElement],
+    decomp_r: &mut [M::R],
     decomposer: &D,
-    rlwe_in_decomposed: &mut Mmut,
 ) where
+    <M as Matrix>::R: RowMut,
     M::MatElement: Copy,
-    <Mmut as Matrix>::R: RowMut,
 {
-    let d_rgsw = decomposer.d();
-    let ring_size = rlwe_in.dimension().1;
-    assert!(rlwe_in_decomposed.dimension() == (2 * d_rgsw, ring_size));
+    let ring_size = r.len();
+    let d = decomposer.d();
 
-    // Decompose rlwe_in
     for ri in 0..ring_size {
-        // ai
-        let ai_decomposed = decomposer.decompose(rlwe_in.get(0, ri));
-        for j in 0..d_rgsw {
-            rlwe_in_decomposed.set(j, ri, ai_decomposed[j]);
-        }
-
-        // bi
-        let bi_decomposed = decomposer.decompose(rlwe_in.get(1, ri));
-        for j in 0..d_rgsw {
-            rlwe_in_decomposed.set(j + d_rgsw, ri, bi_decomposed[j]);
+        let el_decomposed = decomposer.decompose(&r[ri]);
+        for j in 0..d {
+            decomp_r[j].as_mut()[ri] = el_decomposed[j];
         }
     }
 }
 
-/// Returns RLWE(m0m1) = RLWE(m0) x RGSW(m1)
+/// Returns RLWE(m0m1) = RLWE(m0) x RGSW(m1). Mutates rlwe_in inplace to equal
+/// RLWE(m0m1)
 ///
 /// - rlwe_in: is RLWE(m0) with polynomials in coefficient domain
 /// - rgsw_in: is RGSW(m1) with polynomials in evaluation domain
-/// - rlwe_out: is output RLWE(m0m1) with polynomials in coefficient domain
-/// - rlwe_in_decomposed: is a matrix of dimension (d_rgsw * 2, ring_size) used
-///   as scratch space to store decomposed RLWE(m0)
-fn rlwe_by_rgsw<
-    M: Matrix + Clone,
-    Mmut: MatrixMut<MatElement = M::MatElement> + MatrixEntity,
-    D: Decomposer<Element = M::MatElement>,
-    ModOp: VectorOps<Element = M::MatElement>,
-    NttOp: Ntt<Element = M::MatElement>,
+/// - scratch_matrix_d_ring: is a matrix of dimension (d_rgsw, ring_size) used
+///   as scratch space to store decomposed Ring elements temporarily
+pub(crate) fn rlwe_by_rgsw<
+    Mmut: MatrixMut,
+    MT: Matrix<MatElement = Mmut::MatElement> + MatrixMut<MatElement = Mmut::MatElement> + IsTrivial,
+    D: Decomposer<Element = Mmut::MatElement>,
+    ModOp: VectorOps<Element = Mmut::MatElement>,
+    NttOp: Ntt<Element = Mmut::MatElement>,
 >(
-    rlwe_in: &M,
-    rgsw_in: &M,
-    rlwe_out: &mut Mmut,
-    rlwe_in_decomposed: &mut Mmut,
+    rlwe_in: &mut MT,
+    rgsw_in: &Mmut,
+    scratch_matrix_dplus2_ring: &mut Mmut,
     decomposer: &D,
     ntt_op: &NttOp,
     mod_op: &ModOp,
 ) where
-    M::MatElement: Copy,
+    Mmut::MatElement: Copy + Zero,
     <Mmut as Matrix>::R: RowMut,
+    <MT as Matrix>::R: RowMut,
 {
-    decompose_rlwe(rlwe_in, decomposer, rlwe_in_decomposed);
-
-    // transform rlwe_in decomposed to evaluation domain
-    rlwe_in_decomposed
-        .iter_rows_mut()
-        .for_each(|r| ntt_op.forward(r.as_mut()));
+    let d_rgsw = decomposer.d();
+    assert!(scratch_matrix_dplus2_ring.dimension() == (d_rgsw + 2, rlwe_in.dimension().1));
 
     // decomposed RLWE x RGSW
-    rlwe_in_decomposed_evaluation_domain_mul_rgsw_rlwe_out_evaluation_domain(
-        rgsw_in,
-        rlwe_in_decomposed,
-        rlwe_out,
+    let (rlwe_dash_nsm, rlwe_dash_m) = rgsw_in.split_at_row(d_rgsw * 2);
+    let (scratch_matrix_d_ring, scratch_rlwe_out) =
+        scratch_matrix_dplus2_ring.split_at_row_mut(d_rgsw);
+    scratch_rlwe_out[0].as_mut().fill(Mmut::MatElement::zero());
+    scratch_rlwe_out[1].as_mut().fill(Mmut::MatElement::zero());
+    // RLWE_in = a_in, b_in; RLWE_out = a_out, b_out
+    if !rlwe_in.is_trivial() {
+        // a_in = 0 when RLWE_in is trivial RLWE ciphertext
+        // decomp<a_in>
+        decompose_r::<Mmut, D>(rlwe_in.get_row_slice(0), scratch_matrix_d_ring, decomposer);
+        scratch_matrix_d_ring
+            .iter_mut()
+            .for_each(|r| ntt_op.forward(r.as_mut()));
+        // a_out += decomp<a_in> \cdot RLWE_A'(-sm)
+        routine::<Mmut, ModOp>(
+            scratch_rlwe_out[0].as_mut(),
+            scratch_matrix_d_ring.as_ref(),
+            &rlwe_dash_nsm[..d_rgsw],
+            mod_op,
+        );
+        // b_out += decomp<a_in> \cdot RLWE_B'(-sm)
+        routine::<Mmut, ModOp>(
+            scratch_rlwe_out[1].as_mut(),
+            scratch_matrix_d_ring.as_ref(),
+            &rlwe_dash_nsm[d_rgsw..],
+            mod_op,
+        );
+    }
+    // decomp<b_in>
+    decompose_r::<Mmut, D>(rlwe_in.get_row_slice(1), scratch_matrix_d_ring, decomposer);
+    scratch_matrix_d_ring
+        .iter_mut()
+        .for_each(|r| ntt_op.forward(r.as_mut()));
+    // a_out += decomp<b_in> \cdot RLWE_A'(m)
+    routine::<Mmut, ModOp>(
+        scratch_rlwe_out[0].as_mut(),
+        scratch_matrix_d_ring.as_ref(),
+        &rlwe_dash_m[..d_rgsw],
+        mod_op,
+    );
+    // b_out += decomp<b_in> \cdot RLWE_B'(m)
+    routine::<Mmut, ModOp>(
+        scratch_rlwe_out[1].as_mut(),
+        scratch_matrix_d_ring.as_ref(),
+        &rlwe_dash_m[d_rgsw..],
         mod_op,
     );
 
     // transform rlwe_out to coefficient domain
-    rlwe_out
-        .iter_rows_mut()
+    scratch_rlwe_out
+        .iter_mut()
         .for_each(|r| ntt_op.backward(r.as_mut()));
+
+    rlwe_in
+        .get_row_mut(0)
+        .copy_from_slice(scratch_rlwe_out[0].as_mut());
+    rlwe_in
+        .get_row_mut(1)
+        .copy_from_slice(scratch_rlwe_out[1].as_mut());
+    rlwe_in.set_not_trivial();
 }
 
 /// Encrypt polynomial m(X) as RLWE ciphertext.
@@ -503,7 +655,7 @@ fn rlwe_by_rgsw<
 /// - rlwe_out: returned RLWE ciphertext RLWE(m) in coefficient domain. RLWE
 ///   ciphertext is a matirx with first row consiting polynomial `a` and the
 ///   second rows consting polynomial `b`
-fn encrypt_rlwe<
+pub(crate) fn encrypt_rlwe<
     Mmut: Matrix + MatrixMut + Clone,
     ModOp: VectorOps<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
@@ -547,7 +699,7 @@ fn encrypt_rlwe<
 /// Decrypts degree 1 RLWE ciphertext RLWE(m) and returns m
 ///
 /// - rlwe_ct: input degree 1 ciphertext RLWE(m).
-fn decrypt_rlwe<
+pub(crate) fn decrypt_rlwe<
     Mmut: MatrixMut + Clone,
     M: Matrix<MatElement = Mmut::MatElement>,
     ModOp: VectorOps<Element = Mmut::MatElement>,
@@ -587,7 +739,7 @@ fn decrypt_rlwe<
 
 // Measures noise in degree 1 RLWE ciphertext against encoded ideal message
 // encoded_m
-fn measure_noise<
+pub(crate) fn measure_noise<
     Mmut: MatrixMut + Matrix + MatrixEntity,
     ModOp: VectorOps<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
@@ -657,8 +809,9 @@ mod tests {
         decomposer::{gadget_vector, DefaultDecomposer},
         ntt::{self, Ntt, NttBackendU64},
         random::{DefaultSecureRng, RandomUniformDist},
-        rgsw::measure_noise,
+        rgsw::{measure_noise, RlweCiphertext},
         utils::{generate_prime, negacyclic_mul},
+        Matrix,
     };
 
     use super::{
@@ -718,15 +871,14 @@ mod tests {
             &ntt_op,
             &mut rng,
         );
+        let mut rlwe_in_ct = RlweCiphertext(rlwe_in_ct, false);
 
         // RLWE(m0m1) = RLWE(m0) x RGSW(m1)
-        let mut rlwe_out_ct = vec![vec![0u64; ring_size as usize]; 2];
-        let mut scratch_space = vec![vec![0u64; ring_size as usize]; d_rgsw * 2];
+        let mut scratch_space = vec![vec![0u64; ring_size as usize]; d_rgsw + 2];
         let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
         rlwe_by_rgsw(
-            &rlwe_in_ct,
+            &mut rlwe_in_ct,
             &rgsw_ct,
-            &mut rlwe_out_ct,
             &mut scratch_space,
             &decomposer,
             &ntt_op,
@@ -735,7 +887,7 @@ mod tests {
 
         // Decrypt RLWE(m0m1)
         let mut encoded_m0m1_back = vec![vec![0u64; ring_size as usize]];
-        decrypt_rlwe(&rlwe_out_ct, &s, &mut encoded_m0m1_back, &ntt_op, &mod_op);
+        decrypt_rlwe(&rlwe_in_ct, &s, &mut encoded_m0m1_back, &ntt_op, &mod_op);
         let m0m1_back = encoded_m0m1_back[0]
             .iter()
             .map(|v| (((*v as f64 * p as f64) / (q as f64)).round() as u64) % p)
@@ -797,14 +949,13 @@ mod tests {
         );
 
         // Send RLWE_{s}(m) -> RLWE_{s}(m^k)
-        let mut rlwe_m_k = vec![vec![0u64; ring_size as usize]; 2];
-        let mut scratch_space = vec![vec![0u64; ring_size as usize]; d_rgsw];
+        let mut rlwe_m = RlweCiphertext(rlwe_m, false);
+        let mut scratch_space = vec![vec![0u64; ring_size as usize]; d_rgsw + 2];
         let (auto_map_index, auto_map_sign) = generate_auto_map(ring_size as usize, auto_k);
         let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
         galois_auto(
-            &rlwe_m,
+            &mut rlwe_m,
             &ksk_out,
-            &mut rlwe_m_k,
             &mut scratch_space,
             &auto_map_index,
             &auto_map_sign,
@@ -812,6 +963,8 @@ mod tests {
             &ntt_op,
             &decomposer,
         );
+
+        let rlwe_m_k = rlwe_m;
 
         // Decrypt RLWE_{s}(m^k) and check
         let mut encoded_m_k_back = vec![vec![0u64; ring_size as usize]];
@@ -834,13 +987,13 @@ mod tests {
         );
 
         {
-            let encoded_m_k = m_k
-                .iter()
-                .map(|v| ((*v as f64 * q as f64) / p as f64).round() as u64)
-                .collect_vec();
+            // let encoded_m_k = m_k
+            //     .iter()
+            //     .map(|v| ((*v as f64 * q as f64) / p as f64).round() as u64)
+            //     .collect_vec();
 
-            let noise = measure_noise(&rlwe_m_k, &vec![encoded_m_k], &ntt_op, &mod_op, &s);
-            println!("Ksk noise: {noise}");
+            // let noise = measure_noise(&rlwe_m_k, &vec![encoded_m_k], &ntt_op,
+            // &mod_op, &s); println!("Ksk noise: {noise}");
         }
 
         // FIXME(Jay): Galios autormophism will incur high error unless we fix in
