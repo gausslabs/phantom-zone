@@ -1,7 +1,10 @@
-use std::fmt::Debug;
+use std::{
+    cell::RefCell,
+    fmt::{Debug, Display},
+};
 
 use itertools::{izip, Itertools};
-use num_traits::{abs, Zero};
+use num_traits::{abs, PrimInt, ToPrimitive, Zero};
 
 use crate::{
     backend::{ArithmeticOps, VectorOps},
@@ -21,6 +24,7 @@ trait LweKeySwitchParameters {
 
 trait LweCiphertext<M: Matrix> {}
 
+#[derive(Clone)]
 pub struct LweSecret {
     values: Vec<i32>,
 }
@@ -181,6 +185,34 @@ where
 
     let b = &lwe_ct.as_ref()[0];
     operator.sub(b, &sa)
+}
+
+pub(crate) fn measure_noise_lwe<Ro: Row, Op: ArithmeticOps<Element = Ro::Element>, S>(
+    ct: &Ro,
+    s: &[S],
+    operator: &Op,
+    ideal_m: &Ro::Element,
+) -> f64
+where
+    Ro: TryConvertFrom<[S], Parameters = Ro::Element>,
+    Ro::Element: Zero + ToPrimitive + PrimInt + Display,
+{
+    assert!(s.len() == ct.as_ref().len() - 1,);
+
+    let s = Ro::try_convert_from(s, &operator.modulus());
+    let mut sa = Ro::Element::zero();
+    izip!(s.as_ref().iter(), ct.as_ref().iter().skip(1)).for_each(|(si, ai)| {
+        sa = operator.add(&sa, &operator.mul(si, ai));
+    });
+    let m = operator.sub(&ct.as_ref()[0], &sa);
+
+    println!("measire: {m} {ideal_m}");
+    let mut diff = operator.sub(&m, ideal_m);
+    let q = operator.modulus();
+    if diff > (q >> 1) {
+        diff = q - diff;
+    }
+    return diff.to_f64().unwrap().log2();
 }
 
 #[cfg(test)]

@@ -16,7 +16,7 @@ use crate::{
     Matrix, MatrixEntity, MatrixMut, RowMut, Secret,
 };
 
-pub struct RlweCiphertext<M>(M, bool);
+pub struct RlweCiphertext<M>(pub(crate) M, pub(crate) bool);
 
 impl<M: Matrix> Matrix for RlweCiphertext<M> {
     type MatElement = M::MatElement;
@@ -58,6 +58,7 @@ pub trait IsTrivial {
     fn set_not_trivial(&mut self);
 }
 
+#[derive(Clone)]
 pub struct RlweSecret {
     values: Vec<i32>,
 }
@@ -80,12 +81,12 @@ impl RlweSecret {
     }
 }
 
-fn generate_auto_map(ring_size: usize, k: isize) -> (Vec<usize>, Vec<bool>) {
+pub(crate) fn generate_auto_map(ring_size: usize, k: isize) -> (Vec<usize>, Vec<bool>) {
     assert!(k & 1 == 1, "Auto {k} must be odd");
 
-    // k = k % 2*N
     let k = if k < 0 {
-        (2 * ring_size) - (k.abs() as usize)
+        // k is -ve, return k%(2*N)
+        (2 * ring_size) - (k.abs() as usize % (2 * ring_size))
     } else {
         k as usize
     };
@@ -712,19 +713,19 @@ pub(crate) fn decrypt_rlwe<
     M: Matrix<MatElement = Mmut::MatElement>,
     ModOp: VectorOps<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
-    S: Secret,
+    S,
 >(
     rlwe_ct: &M,
-    s: &S,
+    s: &[S],
     m_out: &mut Mmut,
     ntt_op: &NttOp,
     mod_op: &ModOp,
 ) where
     <Mmut as Matrix>::R: RowMut,
-    Mmut: TryConvertFrom<[S::Element], Parameters = Mmut::MatElement>,
+    Mmut: TryConvertFrom<[S], Parameters = Mmut::MatElement>,
     Mmut::MatElement: Copy,
 {
-    let ring_size = s.values().len();
+    let ring_size = s.len();
     assert!(rlwe_ct.dimension() == (2, ring_size));
     assert!(m_out.dimension() == (1, ring_size));
 
@@ -735,7 +736,7 @@ pub(crate) fn decrypt_rlwe<
     ntt_op.forward(m_out.get_row_mut(0));
 
     // -s*a
-    let mut s = Mmut::try_convert_from(&s.values(), &mod_op.modulus());
+    let mut s = Mmut::try_convert_from(&s, &mod_op.modulus());
     ntt_op.forward(s.get_row_mut(0));
     mod_op.elwise_mul_mut(m_out.get_row_mut(0), s.get_row_slice(0));
     mod_op.elwise_neg_mut(m_out.get_row_mut(0));
@@ -819,7 +820,7 @@ mod tests {
         random::{DefaultSecureRng, RandomUniformDist},
         rgsw::{measure_noise, RlweCiphertext},
         utils::{generate_prime, negacyclic_mul},
-        Matrix,
+        Matrix, Secret,
     };
 
     use super::{
@@ -834,7 +835,7 @@ mod tests {
         let ring_size = 1 << 10;
         let q = generate_prime(logq, ring_size, 1u64 << logq).unwrap();
         let p = 1u64 << logp;
-        let d_rgsw = 10;
+        let d_rgsw = 9;
         let logb = 5;
 
         let mut rng = DefaultSecureRng::new();
@@ -895,7 +896,13 @@ mod tests {
 
         // Decrypt RLWE(m0m1)
         let mut encoded_m0m1_back = vec![vec![0u64; ring_size as usize]];
-        decrypt_rlwe(&rlwe_in_ct, &s, &mut encoded_m0m1_back, &ntt_op, &mod_op);
+        decrypt_rlwe(
+            &rlwe_in_ct,
+            s.values(),
+            &mut encoded_m0m1_back,
+            &ntt_op,
+            &mod_op,
+        );
         let m0m1_back = encoded_m0m1_back[0]
             .iter()
             .map(|v| (((*v as f64 * p as f64) / (q as f64)).round() as u64) % p)
@@ -941,7 +948,7 @@ mod tests {
             &mut rng,
         );
 
-        let auto_k = -25;
+        let auto_k = -5;
 
         // Generate galois key to key switch from s^k to s
         let mut ksk_out = vec![vec![0u64; ring_size as usize]; d_rgsw * 2];
@@ -976,7 +983,13 @@ mod tests {
 
         // Decrypt RLWE_{s}(m^k) and check
         let mut encoded_m_k_back = vec![vec![0u64; ring_size as usize]];
-        decrypt_rlwe(&rlwe_m_k, &s, &mut encoded_m_k_back, &ntt_op, &mod_op);
+        decrypt_rlwe(
+            &rlwe_m_k,
+            s.values(),
+            &mut encoded_m_k_back,
+            &ntt_op,
+            &mod_op,
+        );
         let m_k_back = encoded_m_k_back[0]
             .iter()
             .map(|v| (((*v as f64 * p as f64) / q as f64).round() as u64) % p)
