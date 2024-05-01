@@ -15,7 +15,7 @@ use crate::{
     decomposer::{gadget_vector, Decomposer, DefaultDecomposer, NumInfo},
     lwe::{decrypt_lwe, encrypt_lwe, lwe_key_switch, lwe_ksk_keygen, measure_noise_lwe, LweSecret},
     ntt::{Ntt, NttBackendU64, NttInit},
-    random::{DefaultSecureRng, RandomGaussianDist, RandomUniformDist},
+    random::{DefaultSecureRng, NewWithSeed, RandomGaussianDist, RandomUniformDist},
     rgsw::{
         decrypt_rlwe, galois_auto, galois_key_gen, generate_auto_map, rlwe_by_rgsw,
         secret_key_encrypt_rgsw, IsTrivial, RlweCiphertext, RlweSecret,
@@ -97,19 +97,172 @@ impl ClientKey {
 //     ClientKey::with_local_mut(|k| *k = key.clone())
 // }
 
-struct ServerKey<M> {
+struct SeededServerKey<M: Matrix, P, S> {
+    /// Rgsw cts of LWE secret elements
+    rgsw_cts: Vec<M>,
+    /// Auto keys
+    auto_keys: HashMap<isize, M>,
+    /// LWE ksk to key switching LWE ciphertext from RLWE secret to LWE secret
+    lwe_ksk: M::R,
+    /// Parameters
+    parameters: P,
+    /// Main seed
+    seed: S,
+}
+
+impl<M: Matrix, S> SeededServerKey<M, BoolParameters<M::MatElement>, S> {
+    pub(crate) fn from_raw(
+        auto_keys: HashMap<isize, M>,
+        rgsw_cts: Vec<M>,
+        lwe_ksk: M::R,
+        parameters: BoolParameters<M::MatElement>,
+        seed: S,
+    ) -> Self {
+        // sanity checks
+        auto_keys
+            .iter()
+            .for_each(|v| assert!(v.1.dimension() == (parameters.d_rgsw, parameters.rlwe_n)));
+        rgsw_cts
+            .iter()
+            .for_each(|v| assert!(v.dimension() == (parameters.d_rgsw * 3, parameters.rlwe_n)));
+        assert!(lwe_ksk.as_ref().len() == (parameters.d_lwe * parameters.rlwe_n));
+
+        SeededServerKey {
+            rgsw_cts,
+            auto_keys,
+            lwe_ksk,
+            parameters,
+            seed,
+        }
+    }
+}
+
+struct ServerKeyEvaluationDomain<M, R, N> {
     /// Rgsw cts of LWE secret elements
     rgsw_cts: Vec<M>,
     /// Galois keys
     galois_keys: HashMap<isize, M>,
     /// LWE ksk to key switching LWE ciphertext from RLWE secret to LWE secret
     lwe_ksk: M,
+    _phanton: PhantomData<(R, N)>,
+}
+
+impl<
+        M: MatrixMut + MatrixEntity,
+        R: RandomUniformDist<[M::MatElement], Parameters = M::MatElement> + NewWithSeed,
+        N: NttInit<Element = M::MatElement> + Ntt<Element = M::MatElement>,
+    > From<&SeededServerKey<M, BoolParameters<M::MatElement>, R::Seed>>
+    for ServerKeyEvaluationDomain<M, R, N>
+where
+    <M as Matrix>::R: RowMut,
+    M::MatElement: Copy,
+    R::Seed: Clone,
+{
+    fn from(value: &SeededServerKey<M, BoolParameters<M::MatElement>, R::Seed>) -> Self {
+        let mut main_prng = R::new_with_seed(value.seed.clone());
+
+        let g = value.parameters.g as isize;
+        let ring_size = value.parameters.rlwe_n;
+        let lwe_n = value.parameters.lwe_n;
+        let d_rgsw = value.parameters.d_rgsw;
+        let d_lwe = value.parameters.d_lwe;
+        let rlwe_q = value.parameters.rlwe_q;
+        let lwq_q = value.parameters.lwe_q;
+
+        let nttop = N::new(rlwe_q, ring_size);
+
+        // galois keys
+        let mut auto_keys = HashMap::new();
+        for i in [g, -g] {
+            let seeded_auto_key = value.auto_keys.get(&i).unwrap();
+            assert!(seeded_auto_key.dimension() == (d_rgsw, ring_size));
+
+            let mut data = M::zeros(d_rgsw * 2, ring_size);
+
+            // sample RLWE'_A(-s(X^k))
+            data.iter_rows_mut().take(d_rgsw).for_each(|ri| {
+                RandomUniformDist::random_fill(&mut main_prng, &rlwe_q, ri.as_mut())
+            });
+
+            // copy over RLWE'B_(-s(X^k))
+            izip!(
+                data.iter_rows_mut().skip(d_rgsw),
+                seeded_auto_key.iter_rows()
+            )
+            .for_each(|(to_ri, from_ri)| to_ri.as_mut().copy_from_slice(from_ri.as_ref()));
+
+            // Send to Evaluation domain
+            data.iter_rows_mut()
+                .for_each(|ri| nttop.forward(ri.as_mut()));
+
+            auto_keys.insert(i, data);
+        }
+
+        // RGSW ciphertexts
+        let rgsw_cts = value
+            .rgsw_cts
+            .iter()
+            .map(|seeded_rgsw_si| {
+                assert!(seeded_rgsw_si.dimension() == (3 * d_rgsw, ring_size));
+
+                let mut data = M::zeros(d_rgsw * 4, ring_size);
+
+                // copy over RLWE'(-sm)
+                izip!(
+                    data.iter_rows_mut().take(d_rgsw * 2),
+                    seeded_rgsw_si.iter_rows().take(d_rgsw * 2)
+                )
+                .for_each(|(to_ri, from_ri)| to_ri.as_mut().copy_from_slice(from_ri.as_ref()));
+
+                // sample RLWE'_A(m)
+                data.iter_rows_mut()
+                    .skip(2 * d_rgsw)
+                    .take(d_rgsw)
+                    .for_each(|ri| {
+                        RandomUniformDist::random_fill(&mut main_prng, &rlwe_q, ri.as_mut())
+                    });
+
+                // copy over RLWE'_B(m)
+                izip!(
+                    data.iter_rows_mut().skip(d_rgsw * 3),
+                    seeded_rgsw_si.iter_rows().skip(d_rgsw * 2)
+                )
+                .for_each(|(to_ri, from_ri)| to_ri.as_mut().copy_from_slice(from_ri.as_ref()));
+
+                // send polynomials to evaluation domain
+                data.iter_rows_mut()
+                    .for_each(|ri| nttop.forward(ri.as_mut()));
+
+                data
+            })
+            .collect_vec();
+
+        // LWE ksk
+        let lwe_ksk = {
+            assert!(value.lwe_ksk.as_ref().len() == d_lwe * ring_size);
+
+            let mut data = M::zeros(d_lwe * ring_size, lwe_n + 1);
+            izip!(data.iter_rows_mut(), value.lwe_ksk.as_ref().iter()).for_each(|(lwe_i, bi)| {
+                RandomUniformDist::random_fill(&mut main_prng, &lwq_q, &mut lwe_i.as_mut()[1..]);
+                lwe_i.as_mut()[0] = *bi;
+            });
+
+            data
+        };
+
+        ServerKeyEvaluationDomain {
+            rgsw_cts,
+            galois_keys: auto_keys,
+            lwe_ksk,
+            _phanton: PhantomData,
+        }
+    }
 }
 
 //FIXME(Jay): Figure out a way for BoolEvaluator to have access to ServerKey
 // via a pointer and implement PbsKey for BoolEvaluator instead of ServerKey
 // directly
-impl<M: Matrix> PbsKey for ServerKey<M> {
+impl<M: Matrix, R, N> PbsKey for ServerKeyEvaluationDomain<M, R, N> {
     type M = M;
     fn galois_key_for_auto(&self, k: isize) -> &Self::M {
         self.galois_keys.get(&k).unwrap()
@@ -123,6 +276,7 @@ impl<M: Matrix> PbsKey for ServerKey<M> {
     }
 }
 
+#[derive(Clone)]
 struct BoolParameters<El> {
     rlwe_q: El,
     rlwe_logq: usize,
@@ -170,7 +324,8 @@ where
     <M as Matrix>::R: RowMut,
     DefaultSecureRng: RandomGaussianDist<[M::MatElement], Parameters = M::MatElement>
         + RandomGaussianDist<M::MatElement, Parameters = M::MatElement>
-        + RandomUniformDist<[M::MatElement], Parameters = M::MatElement>,
+        + RandomUniformDist<[M::MatElement], Parameters = M::MatElement>
+        + NewWithSeed,
 {
     fn new(parameters: BoolParameters<M::MatElement>) -> Self {
         //TODO(Jay): Run sanity checks for modulus values in parameters
@@ -285,104 +440,104 @@ where
         ClientKey { sk_rlwe, sk_lwe }
     }
 
-    fn server_key(&self, client_key: &ClientKey) -> ServerKey<M> {
-        // let sk_rlwe = &client_key.sk_rlwe;
-        // let sk_lwe = &client_key.sk_lwe;
+    fn server_key(
+        &self,
+        client_key: &ClientKey,
+    ) -> SeededServerKey<M, BoolParameters<M::MatElement>, [u8; 32]> {
+        DefaultSecureRng::with_local_mut(|rng| {
+            let mut main_seed = [0u8; 32];
+            rng.fill_bytes(&mut main_seed);
 
-        // let d_rgsw_gadget_vec = gadget_vector(
-        //     self.parameters.rlwe_logq,
-        //     self.parameters.logb_rgsw,
-        //     self.parameters.d_rgsw,
-        // );
+            let mut main_prng = DefaultSecureRng::new_seeded(main_seed);
 
-        // // generate galois key -g, g
-        // let mut galois_keys = HashMap::new();
-        // let g = self.parameters.g as isize;
-        // for i in [g, -g] {
-        //     let gk = DefaultSecureRng::with_local_mut(|rng| {
-        //         let mut ksk_out = M::zeros(self.parameters.d_rgsw * 2,
-        // self.parameters.rlwe_n);         galois_key_gen(
-        //             &mut ksk_out,
-        //             sk_rlwe,
-        //             i,
-        //             &d_rgsw_gadget_vec,
-        //             &self.rlwe_modop,
-        //             &self.rlwe_nttop,
-        //             rng,
-        //         );
-        //         ksk_out
-        //     });
+            let sk_rlwe = &client_key.sk_rlwe;
+            let sk_lwe = &client_key.sk_lwe;
 
-        //     galois_keys.insert(i, gk);
-        // }
+            let d_rgsw_gadget_vec = gadget_vector(
+                self.parameters.rlwe_logq,
+                self.parameters.logb_rgsw,
+                self.parameters.d_rgsw,
+            );
 
-        // // generate rgsw ciphertexts RGSW(si) where si is i^th LWE secret element
-        // let ring_size = self.parameters.rlwe_n;
-        // let rlwe_q = self.parameters.rlwe_q;
-        // let rgsw_cts = sk_lwe
-        //     .values()
-        //     .iter()
-        //     .map(|si| {
-        //         // X^{si}; assume |emebedding_factor * si| < N
-        //         let mut m = M::zeros(1, ring_size);
-        //         let si = (self.embedding_factor as i32) * si;
-        //         // dbg!(si);
-        //         if si < 0 {
-        //             // X^{-i} = X^{2N - i} = -X^{N-i}
-        //             m.set(
-        //                 0,
-        //                 ring_size - (si.abs() as usize),
-        //                 rlwe_q - M::MatElement::one(),
-        //             );
-        //         } else {
-        //             // X^{i}
-        //             m.set(0, (si.abs() as usize), M::MatElement::one());
-        //         }
-        //         self.rlwe_nttop.forward(m.get_row_mut(0));
+            // generate auto keys -g, g
+            let mut auto_keys = HashMap::new();
+            let g = self.parameters.g as isize;
+            for i in [g, -g] {
+                let mut gk = M::zeros(self.parameters.d_rgsw, self.parameters.rlwe_n);
+                galois_key_gen(
+                    &mut gk,
+                    sk_rlwe.values(),
+                    i,
+                    &d_rgsw_gadget_vec,
+                    &self.rlwe_modop,
+                    &self.rlwe_nttop,
+                    &mut main_prng,
+                    rng,
+                );
+                auto_keys.insert(i, gk);
+            }
 
-        //         let rgsw_si = DefaultSecureRng::with_local_mut(|rng| {
-        //             let mut rgsw_si = M::zeros(self.parameters.d_rgsw * 4,
-        // ring_size);             secret_key_encrypt_rgsw(
-        //                 &mut rgsw_si,
-        //                 &m,
-        //                 &d_rgsw_gadget_vec,
-        //                 sk_rlwe,
-        //                 &self.rlwe_modop,
-        //                 &self.rlwe_nttop,
-        //                 rng,
-        //             );
-        //             rgsw_si
-        //         });
-        //         rgsw_si
-        //     })
-        //     .collect_vec();
+            // generate rgsw ciphertexts RGSW(si) where si is i^th LWE secret element
+            let ring_size = self.parameters.rlwe_n;
+            let rlwe_q = self.parameters.rlwe_q;
+            let rgsw_cts = sk_lwe
+                .values()
+                .iter()
+                .map(|si| {
+                    // X^{si}; assume |emebedding_factor * si| < N
+                    let mut m = M::R::zeros(ring_size);
+                    let si = (self.embedding_factor as i32) * si;
+                    // dbg!(si);
+                    if si < 0 {
+                        // X^{-i} = X^{2N - i} = -X^{N-i}
+                        m.as_mut()[ring_size - (si.abs() as usize)] = rlwe_q - M::MatElement::one();
+                    } else {
+                        // X^{i}
+                        m.as_mut()[si.abs() as usize] = M::MatElement::one();
+                    }
 
-        // // LWE KSK from RLWE secret s -> LWE secret z
-        // let d_lwe_gadget = gadget_vector(
-        //     self.parameters.lwe_logq,
-        //     self.parameters.logb_lwe,
-        //     self.parameters.d_lwe,
-        // );
-        // let mut lwe_ksk = DefaultSecureRng::with_local_mut(|rng| {
-        //     let mut out = M::zeros(self.parameters.d_lwe * ring_size,
-        // self.parameters.lwe_n + 1);     lwe_ksk_keygen(
-        //         &sk_rlwe.values(),
-        //         &sk_lwe.values(),
-        //         &mut out,
-        //         &d_lwe_gadget,
-        //         &self.lwe_modop,
-        //         rng,
-        //     );
-        //     out
-        // });
+                    let mut rgsw_si = M::zeros(self.parameters.d_rgsw * 3, ring_size);
+                    secret_key_encrypt_rgsw(
+                        &mut rgsw_si,
+                        &m,
+                        &d_rgsw_gadget_vec,
+                        sk_rlwe.values(),
+                        &self.rlwe_modop,
+                        &self.rlwe_nttop,
+                        &mut main_prng,
+                        rng,
+                    );
 
-        // ServerKey {
-        //     rgsw_cts,
-        //     galois_keys,
-        //     lwe_ksk,
-        // }
+                    rgsw_si
+                })
+                .collect_vec();
 
-        todo!()
+            // LWE KSK from RLWE secret s -> LWE secret z
+            let d_lwe_gadget = gadget_vector(
+                self.parameters.lwe_logq,
+                self.parameters.logb_lwe,
+                self.parameters.d_lwe,
+            );
+
+            let mut lwe_ksk = M::R::zeros(self.parameters.d_lwe * ring_size);
+            lwe_ksk_keygen(
+                &sk_rlwe.values(),
+                &sk_lwe.values(),
+                &mut lwe_ksk,
+                &d_lwe_gadget,
+                &self.lwe_modop,
+                &mut main_prng,
+                rng,
+            );
+
+            SeededServerKey::from_raw(
+                auto_keys,
+                rgsw_cts,
+                lwe_ksk,
+                self.parameters.clone(),
+                main_seed,
+            )
+        })
     }
 
     /// TODO(Jay): Fetch client key from thread local
@@ -434,7 +589,7 @@ where
         &self,
         c0: &M::R,
         c1: &M::R,
-        server_key: &ServerKey<M>,
+        server_key: &ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>,
         scratch_lwen_plus1: &mut M::R,
         scratch_matrix_dplus2_ring: &mut M,
     ) -> M::R {
@@ -984,7 +1139,7 @@ mod tests {
         lwe_n: 493,
         d_rgsw: 3,
         logb_rgsw: 8,
-        d_lwe: 2,
+        d_lwe: 3,
         logb_lwe: 4,
         g: 5,
         w: 1,
@@ -996,7 +1151,7 @@ mod tests {
     // }
 
     #[test]
-    fn encrypt_decrypt_works() {
+    fn bool_encrypt_decrypt_works() {
         // let prime = generate_prime(32, 2 * 1024, 1 << 32);
         // dbg!(prime);
         let bool_evaluator =
@@ -1014,18 +1169,22 @@ mod tests {
     }
 
     #[test]
-    fn trial12() {
-        // DefaultSecureRng::with_local_mut(|r| {
-        //     let rng = DefaultSecureRng::new_seeded([19u8; 32]);
-        //     *r = rng;
-        // });
+    fn bool_nand() {
+        DefaultSecureRng::with_local_mut(|r| {
+            let rng = DefaultSecureRng::new_seeded([19u8; 32]);
+            *r = rng;
+        });
 
         let bool_evaluator =
             BoolEvaluator::<Vec<Vec<u64>>, u64, NttBackendU64, ModularOpsU64>::new(SP_BOOL_PARAMS);
 
         // println!("{:?}", bool_evaluator.nand_test_vec);
         let client_key = bool_evaluator.client_key();
-        let server_key = bool_evaluator.server_key(&client_key);
+        let seeded_server_key = bool_evaluator.server_key(&client_key);
+        let server_key_eval_domain =
+            ServerKeyEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
+                &seeded_server_key,
+            );
 
         let mut scratch_lwen_plus1 = vec![0u64; bool_evaluator.parameters.lwe_n + 1];
         let mut scratch_matrix_dplus2_ring = vec![
@@ -1037,11 +1196,11 @@ mod tests {
         let mut m1 = true;
         let mut ct0 = bool_evaluator.encrypt(m0, &client_key);
         let mut ct1 = bool_evaluator.encrypt(m1, &client_key);
-        for _ in 0..100 {
+        for _ in 0..1000 {
             let ct_back = bool_evaluator.nand(
                 &ct0,
                 &ct1,
-                &server_key,
+                &server_key_eval_domain,
                 &mut scratch_lwen_plus1,
                 &mut scratch_matrix_dplus2_ring,
             );

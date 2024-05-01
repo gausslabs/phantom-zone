@@ -131,16 +131,15 @@ pub fn lwe_ksk_keygen<
     Ro: Row + RowMut + RowEntity,
     S,
     Op: VectorOps<Element = Ro::Element> + ArithmeticOps<Element = Ro::Element>,
-    R: RandomGaussianDist<Ro::Element, Parameters = Ro::Element>
-        + RandomUniformDist<[Ro::Element], Parameters = Ro::Element>
-        + NewWithSeed,
+    R: RandomGaussianDist<Ro::Element, Parameters = Ro::Element>,
+    PR: RandomUniformDist<[Ro::Element], Parameters = Ro::Element>,
 >(
     from_lwe_sk: &[S],
     to_lwe_sk: &[S],
     ksk_out: &mut Ro,
     gadget: &[Ro::Element],
-    seed: R::Seed,
     operator: &Op,
+    p_rng: &mut PR,
     rng: &mut R,
 ) where
     Ro: TryConvertFrom<[S], Parameters = Ro::Element>,
@@ -156,13 +155,12 @@ pub fn lwe_ksk_keygen<
     let sk_out_m = Ro::try_convert_from(to_lwe_sk, &modulus);
 
     let mut scratch = Ro::zeros(to_lwe_sk.len());
-    let mut p_rng = R::new_with_seed(seed);
 
     izip!(neg_sk_in_m.as_ref(), ksk_out.as_mut().chunks_mut(d)).for_each(
         |(neg_sk_in_si, d_lwes_partb)| {
             izip!(gadget.iter(), d_lwes_partb.into_iter()).for_each(|(f, lwe_b)| {
                 // sample `a`
-                RandomUniformDist::random_fill(&mut p_rng, &modulus, scratch.as_mut());
+                RandomUniformDist::random_fill(p_rng, &modulus, scratch.as_mut());
 
                 // a * z
                 let mut az = Ro::Element::zero();
@@ -345,14 +343,15 @@ mod tests {
             rng.fill_bytes(&mut ksk_seed);
             let mut seeded_ksk =
                 SeededLweKeySwitchingKey::empty(lwe_in_n, lwe_out_n, d_ks, ksk_seed, q);
+            let mut p_rng = DefaultSecureRng::new_seeded(ksk_seed);
             let gadget = gadget_vector(logq, logb, d_ks);
             lwe_ksk_keygen(
                 &lwe_sk_in.values(),
                 &lwe_sk_out.values(),
                 &mut seeded_ksk.data,
                 &gadget,
-                seeded_ksk.seed,
                 &modq_op,
+                &mut p_rng,
                 &mut rng,
             );
             // println!("{:?}", ksk);

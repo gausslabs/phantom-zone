@@ -383,9 +383,8 @@ pub(crate) fn rlwe_ksk_gen<
     Mmut: MatrixMut + MatrixEntity,
     ModOp: ArithmeticOps<Element = Mmut::MatElement> + VectorOps<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
-    R: RandomGaussianDist<[Mmut::MatElement], Parameters = Mmut::MatElement>
-        + RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>
-        + NewWithSeed,
+    R: RandomGaussianDist<[Mmut::MatElement], Parameters = Mmut::MatElement>,
+    PR: RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>,
 >(
     ksk_out: &mut Mmut,
     neg_from_s: Mmut::R,
@@ -393,7 +392,7 @@ pub(crate) fn rlwe_ksk_gen<
     gadget_vector: &[Mmut::MatElement],
     mod_op: &ModOp,
     ntt_op: &NttOp,
-    seed: R::Seed,
+    p_rng: &mut PR,
     rng: &mut R,
 ) where
     <Mmut as Matrix>::R: RowMut,
@@ -409,9 +408,8 @@ pub(crate) fn rlwe_ksk_gen<
     // RLWE'_{to_s}(-from_s)
     let mut part_a = {
         let mut a = Mmut::zeros(d, ring_size);
-        let mut p_rng = R::new_with_seed(seed);
         a.iter_rows_mut()
-            .for_each(|ai| RandomUniformDist::random_fill(&mut p_rng, &q, ai.as_mut()));
+            .for_each(|ai| RandomUniformDist::random_fill(p_rng, &q, ai.as_mut()));
         a
     };
     izip!(
@@ -443,9 +441,8 @@ pub(crate) fn galois_key_gen<
     ModOp: ArithmeticOps<Element = Mmut::MatElement> + VectorOps<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
     S,
-    R: RandomGaussianDist<[Mmut::MatElement], Parameters = Mmut::MatElement>
-        + RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>
-        + NewWithSeed,
+    R: RandomGaussianDist<[Mmut::MatElement], Parameters = Mmut::MatElement>,
+    PR: RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>,
 >(
     ksk_out: &mut Mmut,
     s: &[S],
@@ -453,7 +450,7 @@ pub(crate) fn galois_key_gen<
     gadget_vector: &[Mmut::MatElement],
     mod_op: &ModOp,
     ntt_op: &NttOp,
-    seed: R::Seed,
+    p_rng: &mut PR,
     rng: &mut R,
 ) where
     <Mmut as Matrix>::R: RowMut,
@@ -488,7 +485,7 @@ pub(crate) fn galois_key_gen<
         gadget_vector,
         mod_op,
         ntt_op,
-        seed,
+        p_rng,
         rng,
     );
 }
@@ -731,8 +728,8 @@ pub(crate) fn secret_key_encrypt_rgsw<
     Mmut: MatrixMut + MatrixEntity,
     S,
     R: RandomGaussianDist<[Mmut::MatElement], Parameters = Mmut::MatElement>
-        + RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>
-        + NewWithSeed,
+        + RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>,
+    PR: RandomUniformDist<[Mmut::MatElement], Parameters = Mmut::MatElement>,
     ModOp: VectorOps<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
 >(
@@ -742,13 +739,11 @@ pub(crate) fn secret_key_encrypt_rgsw<
     s: &[S],
     mod_op: &ModOp,
     ntt_op: &NttOp,
-    seed: R::Seed,
+    p_rng: &mut PR,
     rng: &mut R,
 ) where
-    <Mmut as Matrix>::R:
-        RowMut + RowEntity + TryConvertFrom<[S], Parameters = Mmut::MatElement> + Debug,
-    Mmut::MatElement: Copy + Debug,
-    Mmut: Debug,
+    <Mmut as Matrix>::R: RowMut + RowEntity + TryConvertFrom<[S], Parameters = Mmut::MatElement>,
+    Mmut::MatElement: Copy,
 {
     let d = gadget_vector.len();
     let q = mod_op.modulus();
@@ -793,10 +788,9 @@ pub(crate) fn secret_key_encrypt_rgsw<
     // RLWE(m)
     let mut a_rlwe_dash_m = {
         // polynomials of part A of RLWE'(m) are sampled from seed
-        let mut p_rng = R::new_with_seed(seed);
         let mut a = Mmut::zeros(d, ring_size);
         a.iter_rows_mut()
-            .for_each(|ai| RandomUniformDist::random_fill(&mut p_rng, &q, ai.as_mut()));
+            .for_each(|ai| RandomUniformDist::random_fill(p_rng, &q, ai.as_mut()));
         a
     };
 
@@ -832,16 +826,15 @@ pub(crate) fn secret_key_encrypt_rlwe<
     ModOp: VectorOps<Element = Ro::Element>,
     NttOp: Ntt<Element = Ro::Element>,
     S,
-    R: RandomUniformDist<[Ro::Element], Parameters = Ro::Element>
-        + RandomGaussianDist<[Ro::Element], Parameters = Ro::Element>
-        + NewWithSeed,
+    R: RandomGaussianDist<[Ro::Element], Parameters = Ro::Element>,
+    PR: RandomUniformDist<[Ro::Element], Parameters = Ro::Element>,
 >(
     m: &Ro,
     b_rlwe_out: &mut Ro,
     s: &[S],
     mod_op: &ModOp,
     ntt_op: &NttOp,
-    seed: R::Seed,
+    p_rng: &mut PR,
     rng: &mut R,
 ) where
     Ro: TryConvertFrom<[S], Parameters = Ro::Element> + Debug,
@@ -855,8 +848,7 @@ pub(crate) fn secret_key_encrypt_rlwe<
     // sample a
     let mut a = {
         let mut a = Ro::zeros(ring_size);
-        let mut p_rng = R::new_with_seed(seed);
-        RandomUniformDist::random_fill(&mut p_rng, &q, a.as_mut());
+        RandomUniformDist::random_fill(p_rng, &q, a.as_mut());
         a
     };
 
@@ -982,7 +974,7 @@ mod tests {
         backend::{ModInit, ModularOpsU64},
         decomposer::{gadget_vector, DefaultDecomposer},
         ntt::{self, Ntt, NttBackendU64, NttInit},
-        random::{DefaultSecureRng, RandomUniformDist},
+        random::{DefaultSecureRng, NewWithSeed, RandomUniformDist},
         rgsw::{
             measure_noise, AutoKeyEvaluationDomain, RgswCiphertextEvaluationDomain, RlweCiphertext,
             SeededAutoKey, SeededRgswCiphertext, SeededRlweCiphertext,
@@ -1020,6 +1012,7 @@ mod tests {
         rng.fill_bytes(&mut rlwe_seed);
         let mut seeded_rlwe_in_ct =
             SeededRlweCiphertext::<_, [u8; 32]>::empty(ring_size as usize, rlwe_seed, q);
+        let mut p_rng = DefaultSecureRng::new_with_seed(rlwe_seed);
         let encoded_m = m0
             .iter()
             .map(|v| (((*v as f64) * q as f64) / (p as f64)).round() as u64)
@@ -1030,7 +1023,7 @@ mod tests {
             s.values(),
             &mod_op,
             &ntt_op,
-            seeded_rlwe_in_ct.seed,
+            &mut p_rng,
             &mut rng,
         );
         let rlwe_in_ct =
@@ -1046,7 +1039,7 @@ mod tests {
         );
         let m_back = encoded_m_back
             .iter()
-            .map(|v| ((*v as f64 * p as f64) / q as f64).round() as u64)
+            .map(|v| (((*v as f64 * p as f64) / q as f64).round() as u64) % p)
             .collect_vec();
         assert_eq!(m0, m_back);
     }
@@ -1082,6 +1075,7 @@ mod tests {
             rgsw_seed,
             q,
         );
+        let mut p_rng = DefaultSecureRng::new_seeded(rgsw_seed);
         let gadget_vector = gadget_vector(logq, logb, d_rgsw);
         secret_key_encrypt_rgsw(
             &mut seeded_rgsw_ct.data,
@@ -1090,7 +1084,7 @@ mod tests {
             s.values(),
             &mod_op,
             &ntt_op,
-            seeded_rgsw_ct.seed,
+            &mut p_rng,
             &mut rng,
         );
         let rgsw_ct = RgswCiphertextEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
@@ -1102,6 +1096,7 @@ mod tests {
         rng.fill_bytes(&mut rlwe_seed);
         let mut seeded_rlwe_in_ct =
             SeededRlweCiphertext::<_, [u8; 32]>::empty(ring_size as usize, rlwe_seed, q);
+        let mut p_rng = DefaultSecureRng::new_seeded(rlwe_seed);
         let encoded_m = m0
             .iter()
             .map(|v| (((*v as f64) * q as f64) / (p as f64)).round() as u64)
@@ -1112,7 +1107,7 @@ mod tests {
             s.values(),
             &mod_op,
             &ntt_op,
-            seeded_rlwe_in_ct.seed,
+            &mut p_rng,
             &mut rng,
         );
         let mut rlwe_in_ct =
@@ -1181,13 +1176,14 @@ mod tests {
         let mut seed_rlwe = [0u8; 32];
         rng.fill_bytes(&mut seed_rlwe);
         let mut seeded_rlwe_m = SeededRlweCiphertext::empty(ring_size as usize, seed_rlwe, q);
+        let mut p_rng = DefaultSecureRng::new_seeded(seed_rlwe);
         secret_key_encrypt_rlwe(
             &encoded_m,
             &mut seeded_rlwe_m.data,
             s.values(),
             &mod_op,
             &ntt_op,
-            seeded_rlwe_m.seed,
+            &mut p_rng,
             &mut rng,
         );
         let mut rlwe_m = RlweCiphertext::<Vec<Vec<u64>>, DefaultSecureRng>::from(&seeded_rlwe_m);
@@ -1198,6 +1194,7 @@ mod tests {
         let mut seed_auto = [0u8; 32];
         rng.fill_bytes(&mut seed_auto);
         let mut seeded_auto_key = SeededAutoKey::empty(ring_size as usize, d_rgsw, seed_auto, q);
+        let mut p_rng = DefaultSecureRng::new_seeded(seed_auto);
         let gadget_vector = gadget_vector(logq, logb, d_rgsw);
         galois_key_gen(
             &mut seeded_auto_key.data,
@@ -1206,7 +1203,7 @@ mod tests {
             &gadget_vector,
             &mod_op,
             &ntt_op,
-            seeded_auto_key.seed,
+            &mut p_rng,
             &mut rng,
         );
         let auto_key =
