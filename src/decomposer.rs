@@ -175,7 +175,7 @@ mod tests {
                 let value_back = decomposer.recompose(&limbs, &modq_op);
                 let rounded_value =
                     round_value(value, decomposer.ignore_bits) << decomposer.ignore_bits;
-                dbg!(rounded_value, value, value_back);
+                // dbg!(rounded_value, value, value_back);
                 assert_eq!(
                     rounded_value, value_back,
                     "Expected {rounded_value} got {value_back} for q={q}"

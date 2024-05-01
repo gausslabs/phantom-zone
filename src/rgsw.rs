@@ -107,14 +107,12 @@ where
         .for_each(|(to_ri, from_ri)| {
             to_ri.as_mut().copy_from_slice(from_ri.as_ref());
         });
-        // println!("RGSW key; coefficient {:?}", &data);
 
         // Send polynomials to evaluation domain
         let ring_size = data.dimension().1;
         let nttop = N::new(value.modulus, ring_size);
         data.iter_rows_mut()
             .for_each(|ri| nttop.forward(ri.as_mut()));
-        // println!("RGSW key; {:?}", &data);
 
         Self {
             data: data,
@@ -676,7 +674,8 @@ pub(crate) fn secret_key_encrypt_rgsw<
     seed: R::Seed,
     rng: &mut R,
 ) where
-    <Mmut as Matrix>::R: RowMut + RowEntity + TryConvertFrom<[S], Parameters = Mmut::MatElement>,
+    <Mmut as Matrix>::R:
+        RowMut + RowEntity + TryConvertFrom<[S], Parameters = Mmut::MatElement> + Debug,
     Mmut::MatElement: Copy + Debug,
     Mmut: Debug,
 {
@@ -688,7 +687,7 @@ pub(crate) fn secret_key_encrypt_rgsw<
 
     // RLWE(-sm), RLWE(m)
     let (rlwe_dash_nsm, b_rlwe_dash_m) = out_rgsw.split_at_row_mut(d * 2);
-    dbg!(rlwe_dash_nsm.len(), b_rlwe_dash_m.len());
+
     let mut s_eval = Mmut::R::try_convert_from(s, &q);
     ntt_op.forward(s_eval.as_mut());
 
@@ -702,7 +701,7 @@ pub(crate) fn secret_key_encrypt_rgsw<
         gadget_vector.iter()
     )
     .for_each(|(ai, bi, beta_i)| {
-        // Sample a_i and transform to evaluation domain
+        // Sample a_i
         RandomUniformDist::random_fill(rng, &q, ai.as_mut());
 
         // a_i * s
@@ -725,14 +724,10 @@ pub(crate) fn secret_key_encrypt_rgsw<
         // polynomials of part A of RLWE'(m) are sampled from seed
         let mut p_rng = R::new_with_seed(seed);
         let mut a = Mmut::zeros(d, ring_size);
-        a.iter_rows_mut().for_each(|ai| {
-            RandomUniformDist::random_fill(&mut p_rng, &q, ai.as_mut());
-            ntt_op.forward(ai.as_mut());
-        });
+        a.iter_rows_mut()
+            .for_each(|ai| RandomUniformDist::random_fill(&mut p_rng, &q, ai.as_mut()));
         a
     };
-
-    // println!("RGSW sample RLWE'_A(m) {:?}", &a_rlwe_dash_m);
 
     izip!(
         a_rlwe_dash_m.iter_rows_mut(),
@@ -740,11 +735,10 @@ pub(crate) fn secret_key_encrypt_rgsw<
         gadget_vector.iter()
     )
     .for_each(|(ai, bi, beta_i)| {
-        dbg!(&beta_i);
-
         // ai * s
-        // ntt_op.forward(ai.as_mut());
+        ntt_op.forward(ai.as_mut());
         mod_op.elwise_mul_mut(ai.as_mut(), s_eval.as_ref());
+        ntt_op.backward(ai.as_mut());
 
         // beta_i * m
         mod_op.elwise_scalar_mul(scratch_space.as_mut(), m.as_ref(), beta_i);
@@ -755,15 +749,6 @@ pub(crate) fn secret_key_encrypt_rgsw<
         mod_op.elwise_add_mut(bi.as_mut(), scratch_space.as_ref());
         mod_op.elwise_add_mut(bi.as_mut(), ai.as_ref());
     });
-
-    out_rgsw
-        .iter_rows_mut()
-        .for_each(|ri| ntt_op.forward(ri.as_mut()));
-
-    // println!("RGSW key ex {:?}", &out_rgsw);
-    out_rgsw
-        .iter_rows_mut()
-        .for_each(|ri| ntt_op.backward(ri.as_mut()));
 }
 
 /// Encrypt polynomial m(X) as RLWE ciphertext.
@@ -997,23 +982,22 @@ mod tests {
 
     #[test]
     fn rlwe_by_rgsw_works() {
-        let logq = 50;
+        let logq = 24;
         let logp = 2;
         let ring_size = 1 << 4;
         let q = generate_prime(logq, ring_size, 1u64 << logq).unwrap();
         let p = 1u64 << logp;
-        let d_rgsw = 10;
-        let logb = 5;
+        let d_rgsw = 2;
+        let logb = 12;
 
         let mut rng = DefaultSecureRng::new_seeded([0u8; 32]);
 
         let s = RlweSecret::random((ring_size >> 1) as usize, ring_size as usize);
 
         let mut m0 = vec![0u64; ring_size as usize];
-        // RandomUniformDist::<[u64]>::random_fill(&mut rng, &(1u64 << logp),
-        // m0.as_mut_slice());
+        RandomUniformDist::<[u64]>::random_fill(&mut rng, &(1u64 << logp), m0.as_mut_slice());
         let mut m1 = vec![0u64; ring_size as usize];
-        // m1[thread_rng().gen_range(0..ring_size) as usize] = 1;
+        m1[thread_rng().gen_range(0..ring_size) as usize] = 1;
 
         let ntt_op = NttBackendU64::new(q, ring_size as usize);
         let mod_op = ModularOpsU64::new(q);
@@ -1041,8 +1025,6 @@ mod tests {
         let rgsw_ct = RgswCiphertextEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
             &seeded_rgsw_ct,
         );
-        // println!("RGSW(m1) seeded: {:?}", &seeded_rgsw_ct);
-        // println!("RGSW(m1): {:?}", &rgsw_ct);
 
         // Encrypt m0 as RLWE(m0)
         let mut rlwe_seed = [0u8; 32];
@@ -1062,7 +1044,6 @@ mod tests {
             seeded_rlwe_in_ct.seed,
             &mut rng,
         );
-
         let mut rlwe_in_ct =
             RlweCiphertext::<Vec<Vec<u64>>, DefaultSecureRng>::from(&seeded_rlwe_in_ct);
 
@@ -1100,7 +1081,6 @@ mod tests {
             m0m1,
             m0m1_back
         );
-        // dbg!(&m0m1_back, m0m1, q);
     }
 
     // #[test]

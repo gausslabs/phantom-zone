@@ -8,7 +8,7 @@ use rand_distr::Distribution;
 use crate::utils::WithLocal;
 
 thread_local! {
-    pub(crate) static DEFAULT_RNG: RefCell<DefaultSecureRng> = RefCell::new(DefaultSecureRng::new());
+    pub(crate) static DEFAULT_RNG: RefCell<DefaultSecureRng> = RefCell::new(DefaultSecureRng::new_seeded([0u8;32]));
 }
 
 pub(crate) trait NewWithSeed {
@@ -102,19 +102,19 @@ impl RandomUniformDist<[u64]> for DefaultSecureRng {
 impl RandomGaussianDist<u64> for DefaultSecureRng {
     type Parameters = u64;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut u64) {
-        // let o = rand_distr::Normal::new(0.0, 3.2f64)
-        //     .unwrap()
-        //     .sample(&mut self.rng)
-        //     .round();
+        let o = rand_distr::Normal::new(0.0, 3.2f64)
+            .unwrap()
+            .sample(&mut self.rng)
+            .round();
 
-        // // let o = 0.0f64;
+        // let o = 0.0f64;
 
-        // let is_neg = o.is_sign_negative() && o != 0.0;
-        // if is_neg {
-        //     *container = parameters - (o.abs() as u64);
-        // } else {
-        //     *container = o as u64;
-        // }
+        let is_neg = o.is_sign_negative() && o != 0.0;
+        if is_neg {
+            *container = parameters - (o.abs() as u64);
+        } else {
+            *container = o as u64;
+        }
     }
 }
 
@@ -140,21 +140,21 @@ impl RandomGaussianDist<u32> for DefaultSecureRng {
 impl RandomGaussianDist<[u64]> for DefaultSecureRng {
     type Parameters = u64;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u64]) {
-        // izip!(
-        //     rand_distr::Normal::new(0.0, 3.2f64)
-        //         .unwrap()
-        //         .sample_iter(&mut self.rng),
-        //     container.iter_mut()
-        // )
-        // .for_each(|(oi, v)| {
-        //     let oi = oi.round();
-        //     let is_neg = oi.is_sign_negative() && oi != 0.0;
-        //     if is_neg {
-        //         *v = parameters - (oi.abs() as u64);
-        //     } else {
-        //         *v = oi as u64;
-        //     }
-        // });
+        izip!(
+            rand_distr::Normal::new(0.0, 3.2f64)
+                .unwrap()
+                .sample_iter(&mut self.rng),
+            container.iter_mut()
+        )
+        .for_each(|(oi, v)| {
+            let oi = oi.round();
+            let is_neg = oi.is_sign_negative() && oi != 0.0;
+            if is_neg {
+                *v = parameters - (oi.abs() as u64);
+            } else {
+                *v = oi as u64;
+            }
+        });
     }
 }
 
