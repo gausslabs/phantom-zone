@@ -9,11 +9,13 @@ mod backend;
 mod bool;
 mod decomposer;
 mod lwe;
+mod multi_party;
 mod ntt;
 mod num;
 mod random;
 mod rgsw;
 mod utils;
+
 pub trait Matrix: AsRef<[Self::R]> {
     type MatElement;
     type R: Row<Element = Self::MatElement>;

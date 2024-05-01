@@ -187,6 +187,11 @@ where
     operator.sub(b, &sa)
 }
 
+/// Measures noise in input LWE ciphertext with reference of `ideal_m`
+///
+/// - ct: Input LWE ciphertext
+/// - s: corresponding secret
+/// - ideal_m: Ideal `encoded` message
 pub(crate) fn measure_noise_lwe<Ro: Row, Op: ArithmeticOps<Element = Ro::Element>, S>(
     ct: &Ro,
     s: &[S],
@@ -206,7 +211,6 @@ where
     });
     let m = operator.sub(&ct.as_ref()[0], &sa);
 
-    println!("measire: {m} {ideal_m}");
     let mut diff = operator.sub(&m, ideal_m);
     let q = operator.modulus();
     if diff > (q >> 1) {
@@ -221,16 +225,19 @@ mod tests {
     use crate::{
         backend::{ModInit, ModularOpsU64},
         decomposer::{gadget_vector, DefaultDecomposer},
-        lwe::lwe_key_switch,
+        lwe::{lwe_key_switch, measure_noise_lwe},
         random::DefaultSecureRng,
+        rgsw::measure_noise,
         Secret,
     };
 
     use super::{decrypt_lwe, encrypt_lwe, lwe_ksk_keygen, LweSecret};
 
+    const K: usize = 500;
+
     #[test]
     fn encrypt_decrypt_works() {
-        let logq = 20;
+        let logq = 16;
         let q = 1u64 << logq;
         let lwe_n = 1024;
         let logp = 3;
@@ -262,12 +269,12 @@ mod tests {
     #[test]
     fn key_switch_works() {
         let logq = 16;
-        let logp = 3;
+        let logp = 2;
         let q = 1u64 << logq;
-        let lwe_in_n = 1024;
-        let lwe_out_n = 470;
+        let lwe_in_n = 2048;
+        let lwe_out_n = 493;
         let d_ks = 3;
-        let logb = 4;
+        let logb = 5;
 
         let lwe_sk_in = LweSecret::random(lwe_in_n >> 1, lwe_in_n);
         let lwe_sk_out = LweSecret::random(lwe_out_n >> 1, lwe_out_n);
@@ -276,7 +283,7 @@ mod tests {
         let modq_op = ModularOpsU64::new(q);
 
         // genrate ksk
-        for _ in 0..10 {
+        for _ in 0..K {
             let mut ksk = vec![vec![0u64; lwe_out_n + 1]; d_ks * lwe_in_n];
             let gadget = gadget_vector(logq, logb, d_ks);
             lwe_ksk_keygen(
@@ -311,6 +318,9 @@ mod tests {
                 let m_back = ((((encoded_m_back as f64) * ((1 << logp) as f64)) / q as f64).round()
                     as u64)
                     % (1u64 << logp);
+                let noise =
+                    measure_noise_lwe(&lwe_out_ct, lwe_sk_out.values(), &modq_op, &encoded_m);
+                println!("Noise: {noise}");
                 assert_eq!(m, m_back, "Expected {m} but got {m_back}");
                 // dbg!(m, m_back);
                 // dbg!(encoded_m, encoded_m_back);

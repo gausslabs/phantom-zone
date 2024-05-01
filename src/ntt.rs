@@ -1,5 +1,6 @@
 use itertools::Itertools;
-use rand::{thread_rng, Rng, RngCore};
+use rand::{thread_rng, Rng, RngCore, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 
 use crate::{
     backend::{ArithmeticOps, ModInit, ModularOpsU64},
@@ -8,6 +9,8 @@ use crate::{
 
 pub trait NttInit {
     type Element;
+    /// Ntt istance must be compatible across different instances with same `q`
+    /// and `n`
     fn new(q: Self::Element, n: usize) -> Self;
 }
 
@@ -189,6 +192,7 @@ pub(crate) fn find_primitive_root<R: RngCore>(q: u64, n: u64, rng: &mut R) -> Op
     None
 }
 
+#[derive(Debug)]
 pub struct NttBackendU64 {
     q: u64,
     q_twice: u64,
@@ -204,10 +208,9 @@ impl NttInit for NttBackendU64 {
     type Element = u64;
     fn new(q: u64, n: usize) -> Self {
         // \psi = 2n^{th} primitive root of unity in F_q
-        let mut rng = thread_rng();
+        let mut rng = ChaCha8Rng::from_seed([0u8; 32]);
         let psi = find_primitive_root(q, (n * 2) as u64, &mut rng)
             .expect("Unable to find 2n^th root of unity");
-
         let psi_inv = mod_inverse(psi, q);
 
         // assert!(
@@ -382,7 +385,7 @@ mod tests {
 
     #[test]
     fn native_ntt_negacylic_mul() {
-        let primes = [40, 50, 60]
+        let primes = [25, 40, 50, 60]
             .iter()
             .map(|bits| generate_prime(*bits, (2 * N) as u64, 1u64 << bits).unwrap())
             .collect_vec();
