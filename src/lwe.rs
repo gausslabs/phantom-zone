@@ -78,7 +78,7 @@ trait LweCiphertext<M: Matrix> {}
 
 #[derive(Clone)]
 pub struct LweSecret {
-    values: Vec<i32>,
+    pub(crate) values: Vec<i32>,
 }
 
 impl Secret for LweSecret {

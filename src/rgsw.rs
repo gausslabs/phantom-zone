@@ -88,11 +88,16 @@ where
     }
 }
 
+pub struct RgswCiphertext<M: Matrix> {
+    data: M,
+    modulus: M::MatElement,
+}
+
 pub struct SeededRgswCiphertext<M, S>
 where
     M: Matrix,
 {
-    data: M,
+    pub(crate) data: M,
     seed: S,
     modulus: M::MatElement,
 }
@@ -108,7 +113,7 @@ impl<M: Matrix + MatrixEntity, S> SeededRgswCiphertext<M, S> {
         }
     }
 
-    fn empty(
+    pub(crate) fn empty(
         ring_size: usize,
         d_rgsw: usize,
         seed: S,
@@ -136,7 +141,7 @@ where
 }
 
 pub struct RgswCiphertextEvaluationDomain<M, R, N> {
-    data: M,
+    pub(crate) data: M,
     _phantom: PhantomData<(R, N)>,
 }
 
@@ -192,6 +197,51 @@ where
     }
 }
 
+impl<
+        M: MatrixMut + MatrixEntity,
+        R,
+        N: NttInit<Element = M::MatElement> + Ntt<Element = M::MatElement>,
+    > From<&RgswCiphertext<M>> for RgswCiphertextEvaluationDomain<M, R, N>
+where
+    <M as Matrix>::R: RowMut,
+    M::MatElement: Copy,
+    M: Debug,
+{
+    fn from(value: &RgswCiphertext<M>) -> Self {
+        assert!(value.data.dimension().0 % 4 == 0);
+        let d = value.data.dimension().0.div(4);
+
+        let mut data = M::zeros(4 * d, value.data.dimension().1);
+
+        // copy RLWE'(-sm)
+        izip!(data.iter_rows_mut().take(2 * d), value.data.iter_rows()).for_each(
+            |(to_ri, from_ri)| {
+                to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+            },
+        );
+
+        // copy RLWE'(m)
+        izip!(
+            data.iter_rows_mut().skip(2 * d),
+            value.data.iter_rows().skip(2 * d)
+        )
+        .for_each(|(to_ri, from_ri)| {
+            to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+        });
+
+        // Send polynomials to evaluation domain
+        let ring_size = data.dimension().1;
+        let nttop = N::new(value.modulus, ring_size);
+        data.iter_rows_mut()
+            .for_each(|ri| nttop.forward(ri.as_mut()));
+
+        Self {
+            data: data,
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl<M: Debug, R, N> Debug for RgswCiphertextEvaluationDomain<M, R, N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RgswCiphertextEvaluationDomain")
@@ -220,13 +270,13 @@ pub struct SeededRlweCiphertext<R, S>
 where
     R: Row,
 {
-    data: R,
-    seed: S,
-    modulus: R::Element,
+    pub(crate) data: R,
+    pub(crate) seed: S,
+    pub(crate) modulus: R::Element,
 }
 
 impl<R: RowEntity, S> SeededRlweCiphertext<R, S> {
-    fn empty(ring_size: usize, seed: S, modulus: R::Element) -> Self {
+    pub(crate) fn empty(ring_size: usize, seed: S, modulus: R::Element) -> Self {
         SeededRlweCiphertext {
             data: R::zeros(ring_size),
             seed,
@@ -236,8 +286,8 @@ impl<R: RowEntity, S> SeededRlweCiphertext<R, S> {
 }
 
 pub struct RlweCiphertext<M, Rng> {
-    data: M,
-    is_trivial: bool,
+    pub(crate) data: M,
+    pub(crate) is_trivial: bool,
     _phatom: PhantomData<Rng>,
 }
 
@@ -316,9 +366,56 @@ pub trait IsTrivial {
     fn set_not_trivial(&mut self);
 }
 
+pub struct SeededRlwePublicKey<Ro: Row, S> {
+    data: Ro,
+    seed: S,
+    modulus: Ro::Element,
+}
+
+impl<Ro: RowEntity, S> SeededRlwePublicKey<Ro, S> {
+    pub(crate) fn empty(ring_size: usize, seed: S, modulus: Ro::Element) -> Self {
+        Self {
+            data: Ro::zeros(ring_size),
+            seed,
+            modulus,
+        }
+    }
+}
+
+pub struct RlwePublicKey<M, R> {
+    data: M,
+    _phantom: PhantomData<R>,
+}
+
+impl<
+        M: MatrixMut + MatrixEntity,
+        Rng: NewWithSeed + RandomUniformDist<[M::MatElement], Parameters = M::MatElement>,
+    > From<&SeededRlwePublicKey<M::R, Rng::Seed>> for RlwePublicKey<M, Rng>
+where
+    <M as Matrix>::R: RowMut,
+    M::MatElement: Copy,
+    Rng::Seed: Copy,
+{
+    fn from(value: &SeededRlwePublicKey<M::R, Rng::Seed>) -> Self {
+        let mut data = M::zeros(2, value.data.as_ref().len());
+
+        // sample a
+        let mut p_rng = Rng::new_with_seed(value.seed);
+        RandomUniformDist::random_fill(&mut p_rng, &value.modulus, data.get_row_mut(0));
+
+        // copy over b
+        data.get_row_mut(1).copy_from_slice(value.data.as_ref());
+
+        Self {
+            data,
+            _phantom: PhantomData,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct RlweSecret {
-    values: Vec<i32>,
+    pub(crate) values: Vec<i32>,
 }
 
 impl Secret for RlweSecret {
@@ -490,10 +587,10 @@ pub(crate) fn galois_key_gen<
     );
 }
 
-pub(crate) fn routine<M: Matrix + ?Sized, ModOp: VectorOps<Element = M::MatElement>>(
-    write_to_row: &mut [M::MatElement],
-    matrix_a: &[M::R],
-    matrix_b: &[M::R],
+pub(crate) fn routine<R: RowMut, ModOp: VectorOps<Element = R::Element>>(
+    write_to_row: &mut [R::Element],
+    matrix_a: &[R],
+    matrix_b: &[R],
     mod_op: &ModOp,
 ) {
     izip!(matrix_a.iter(), matrix_b.iter()).for_each(|(a, b)| {
@@ -509,13 +606,12 @@ pub(crate) fn routine<M: Matrix + ?Sized, ModOp: VectorOps<Element = M::MatEleme
 ///
 /// - decomp_r: must have dimensions d x ring_size. i^th decomposed polynomial
 ///   will be stored at i^th row.
-pub(crate) fn decompose_r<M: Matrix + MatrixMut, D: Decomposer<Element = M::MatElement>>(
-    r: &[M::MatElement],
-    decomp_r: &mut [M::R],
+pub(crate) fn decompose_r<R: RowMut, D: Decomposer<Element = R::Element>>(
+    r: &[R::Element],
+    decomp_r: &mut [R],
     decomposer: &D,
 ) where
-    <M as Matrix>::R: RowMut,
-    M::MatElement: Copy,
+    R::Element: Copy,
 {
     let ring_size = r.len();
     let d = decomposer.d();
@@ -594,7 +690,7 @@ pub(crate) fn galois_auto<
         let (ksk_a, ksk_b) = ksk.split_at_row(d);
         tmp_rlwe_out[0].as_mut().fill(Mmut::MatElement::zero());
         // a' = decomp<a> * RLWE'_A(s(X^k))
-        routine::<Mmut, ModOp>(
+        routine(
             tmp_rlwe_out[0].as_mut(),
             scratch_matrix_d_ring,
             ksk_a,
@@ -604,7 +700,7 @@ pub(crate) fn galois_auto<
         ntt_op.forward(tmp_rlwe_out[1].as_mut());
         // b' = b(X^k)
         // b' += decomp<a(X^k)> * RLWE'_B(s(X^k))
-        routine::<Mmut, ModOp>(
+        routine(
             tmp_rlwe_out[1].as_mut(),
             scratch_matrix_d_ring,
             ksk_b,
@@ -665,19 +761,19 @@ pub(crate) fn rlwe_by_rgsw<
     if !rlwe_in.is_trivial() {
         // a_in = 0 when RLWE_in is trivial RLWE ciphertext
         // decomp<a_in>
-        decompose_r::<Mmut, D>(rlwe_in.get_row_slice(0), scratch_matrix_d_ring, decomposer);
+        decompose_r(rlwe_in.get_row_slice(0), scratch_matrix_d_ring, decomposer);
         scratch_matrix_d_ring
             .iter_mut()
             .for_each(|r| ntt_op.forward(r.as_mut()));
         // a_out += decomp<a_in> \cdot RLWE_A'(-sm)
-        routine::<Mmut, ModOp>(
+        routine(
             scratch_rlwe_out[0].as_mut(),
             scratch_matrix_d_ring.as_ref(),
             &rlwe_dash_nsm[..d_rgsw],
             mod_op,
         );
         // b_out += decomp<a_in> \cdot RLWE_B'(-sm)
-        routine::<Mmut, ModOp>(
+        routine(
             scratch_rlwe_out[1].as_mut(),
             scratch_matrix_d_ring.as_ref(),
             &rlwe_dash_nsm[d_rgsw..],
@@ -685,19 +781,19 @@ pub(crate) fn rlwe_by_rgsw<
         );
     }
     // decomp<b_in>
-    decompose_r::<Mmut, D>(rlwe_in.get_row_slice(1), scratch_matrix_d_ring, decomposer);
+    decompose_r(rlwe_in.get_row_slice(1), scratch_matrix_d_ring, decomposer);
     scratch_matrix_d_ring
         .iter_mut()
         .for_each(|r| ntt_op.forward(r.as_mut()));
     // a_out += decomp<b_in> \cdot RLWE_A'(m)
-    routine::<Mmut, ModOp>(
+    routine(
         scratch_rlwe_out[0].as_mut(),
         scratch_matrix_d_ring.as_ref(),
         &rlwe_dash_m[..d_rgsw],
         mod_op,
     );
     // b_out += decomp<b_in> \cdot RLWE_B'(m)
-    routine::<Mmut, ModOp>(
+    routine(
         scratch_rlwe_out[1].as_mut(),
         scratch_matrix_d_ring.as_ref(),
         &rlwe_dash_m[d_rgsw..],
@@ -718,12 +814,110 @@ pub(crate) fn rlwe_by_rgsw<
     rlwe_in.set_not_trivial();
 }
 
+/// Inplace mutates rlwe_0_eval_domain to equal RGSW(m0m1) = RGSW(m0)xRGSW(m1)
+/// in evaluation domain
+///
+/// - rgsw_0_eval_domain: RGSW(m0) in evaluation domain
+/// - rgsw_1: RGSW(m1)
+/// - scratch_matrix_d_plus_rgsw_by_ring: scratch space matrix of size
+///   (d+(d*4))xring_size, where d equals d_rgsw
+pub(crate) fn rgsw_by_rgsw_inplace<
+    Mmut: MatrixMut,
+    D: Decomposer<Element = Mmut::MatElement>,
+    ModOp: VectorOps<Element = Mmut::MatElement>,
+    NttOp: Ntt<Element = Mmut::MatElement>,
+>(
+    rgsw_0_eval_domain: &mut Mmut,
+    rgsw_1: &Mmut,
+    decomposer: &D,
+    scratch_matrix_d_plus_rgsw_by_ring: &mut Mmut,
+    ntt_op: &NttOp,
+    mod_op: &ModOp,
+) where
+    <Mmut as Matrix>::R: RowMut,
+    Mmut::MatElement: Copy + Zero,
+{
+    let d_rgsw = decomposer.d();
+    assert!(rgsw_0_eval_domain.dimension().0 == 4 * d_rgsw);
+    let ring_size = rgsw_0_eval_domain.dimension().1;
+    assert!(rgsw_1.dimension() == (4 * d_rgsw, ring_size));
+    assert!(scratch_matrix_d_plus_rgsw_by_ring.dimension() == (d_rgsw + (d_rgsw * 4), ring_size));
+
+    let (decomp_r_space, rgsw_space) = scratch_matrix_d_plus_rgsw_by_ring.split_at_row_mut(d_rgsw);
+
+    // zero rgsw_space
+    rgsw_space
+        .iter_mut()
+        .for_each(|ri| ri.as_mut().fill(Mmut::MatElement::zero()));
+    let (rlwe_dash_space_nsm, rlwe_dash_space_m) = rgsw_space.split_at_mut(d_rgsw * 2);
+    let (rlwe_dash_space_nsm_parta, rlwe_dash_space_nsm_partb) =
+        rlwe_dash_space_nsm.split_at_mut(d_rgsw);
+    let (rlwe_dash_space_m_parta, rlwe_dash_space_m_partb) = rlwe_dash_space_m.split_at_mut(d_rgsw);
+
+    let (rgsw0_nsm, rgsw0_m) = rgsw_0_eval_domain.split_at_row(d_rgsw * 2);
+    let (rgsw1_nsm, rgsw1_m) = rgsw_1.split_at_row(d_rgsw * 2);
+
+    // RGSW x RGSW
+    izip!(
+        rgsw1_nsm.iter().take(d_rgsw).chain(rgsw1_m).take(d_rgsw),
+        rgsw1_nsm.iter().skip(d_rgsw).chain(rgsw1_m).skip(d_rgsw),
+        rlwe_dash_space_nsm_parta
+            .iter_mut()
+            .chain(rlwe_dash_space_m_parta),
+        rlwe_dash_space_nsm_partb
+            .iter_mut()
+            .chain(rlwe_dash_space_m_partb),
+    )
+    .for_each(|(rlwe_a, rlwe_b, rlwe_out_a, rlwe_out_b)| {
+        // Part A
+        decompose_r(rlwe_a.as_ref(), decomp_r_space.as_mut(), decomposer);
+        decomp_r_space
+            .iter_mut()
+            .for_each(|ri| ntt_op.forward(ri.as_mut()));
+        routine(
+            rlwe_out_a.as_mut(),
+            decomp_r_space,
+            &rgsw0_nsm[..d_rgsw],
+            mod_op,
+        );
+        routine(
+            rlwe_out_b.as_mut(),
+            decomp_r_space,
+            &rgsw0_nsm[d_rgsw..],
+            mod_op,
+        );
+
+        // Part B
+        decompose_r(rlwe_b.as_ref(), decomp_r_space.as_mut(), decomposer);
+        decomp_r_space
+            .iter_mut()
+            .for_each(|ri| ntt_op.forward(ri.as_mut()));
+        routine(
+            rlwe_out_a.as_mut(),
+            decomp_r_space,
+            &rgsw0_m[..d_rgsw],
+            mod_op,
+        );
+        routine(
+            rlwe_out_b.as_mut(),
+            decomp_r_space,
+            &rgsw0_m[d_rgsw..],
+            mod_op,
+        );
+    });
+
+    // copy over RGSW(m0m1) into RGSW(m0)
+    izip!(rgsw_0_eval_domain.iter_rows_mut(), rgsw_space.iter())
+        .for_each(|(to_ri, from_ri)| to_ri.as_mut().copy_from_slice(from_ri.as_ref()))
+}
+
 /// Encrypts message m as a RGSW ciphertext.
 ///
 /// - m_eval: is `m` is evaluation domain
 /// - out_rgsw: RGSW(m) is stored as single matrix of dimension (d_rgsw * 3,
 ///   ring_size). The matrix has the following structure [RLWE'_A(-sm) ||
-///   RLWE'_B(-sm) || RLWE'_B(m)]^T and RLWE'_A(m) is generated via seed
+///   RLWE'_B(-sm) || RLWE'_B(m)]^T and RLWE'_A(m) is generated via seed (where
+///   p_rng is assumed to be seeded with seed)
 pub(crate) fn secret_key_encrypt_rgsw<
     Mmut: MatrixMut + MatrixEntity,
     S,
@@ -816,6 +1010,123 @@ pub(crate) fn secret_key_encrypt_rgsw<
     });
 }
 
+pub(crate) fn public_key_encrypt_rgsw<
+    Mmut: MatrixMut + MatrixEntity,
+    M: Matrix<MatElement = Mmut::MatElement>,
+    R: RandomGaussianDist<[Mmut::MatElement], Parameters = Mmut::MatElement>
+        + RandomUniformDist<[u8], Parameters = u8>
+        + RandomUniformDist<usize, Parameters = usize>,
+    ModOp: VectorOps<Element = Mmut::MatElement>,
+    NttOp: Ntt<Element = Mmut::MatElement>,
+>(
+    out_rgsw: &mut Mmut,
+    m: &[M::MatElement],
+    public_key: &M,
+    gadget_vector: &[Mmut::MatElement],
+    mod_op: &ModOp,
+    ntt_op: &NttOp,
+    rng: &mut R,
+) where
+    <Mmut as Matrix>::R: RowMut + RowEntity + TryConvertFrom<[i32], Parameters = Mmut::MatElement>,
+    Mmut::MatElement: Copy,
+{
+    let ring_size = public_key.dimension().1;
+    let d = gadget_vector.len();
+    assert!(public_key.dimension().0 == 2);
+    assert!(out_rgsw.dimension() == (d * 4, ring_size));
+
+    let mut pk_eval = Mmut::zeros(2, ring_size);
+    izip!(pk_eval.iter_rows_mut(), public_key.iter_rows()).for_each(|(to_i, from_i)| {
+        to_i.as_mut().copy_from_slice(from_i.as_ref());
+        ntt_op.forward(to_i.as_mut());
+    });
+    let p0 = pk_eval.get_row_slice(0);
+    let p1 = pk_eval.get_row_slice(1);
+
+    let q = mod_op.modulus();
+
+    // RGSW(m) = RLWE'(-sm), RLWE(m)
+    let (rlwe_dash_nsm, rlwe_dash_m) = out_rgsw.split_at_row_mut(2 * d);
+
+    // RLWE(-sm)
+    let (rlwe_dash_nsm_parta, rlwe_dash_nsm_partb) = rlwe_dash_nsm.split_at_mut(d);
+    izip!(
+        rlwe_dash_nsm_parta.iter_mut(),
+        rlwe_dash_nsm_partb.iter_mut(),
+        gadget_vector.iter()
+    )
+    .for_each(|(ai, bi, beta_i)| {
+        // sample ephemeral secret u_i
+        let mut u = vec![0i32; ring_size];
+        fill_random_ternary_secret_with_hamming_weight(u.as_mut(), ring_size >> 1, rng);
+        let mut u_eval = Mmut::R::try_convert_from(u.as_ref(), &q);
+        ntt_op.forward(u_eval.as_mut());
+
+        let mut u_eval_copy = Mmut::R::zeros(ring_size);
+        u_eval_copy.as_mut().copy_from_slice(u_eval.as_ref());
+
+        // p0 * u
+        mod_op.elwise_mul_mut(u_eval.as_mut(), p0.as_ref());
+        // p1 * u
+        mod_op.elwise_mul_mut(u_eval_copy.as_mut(), p1.as_ref());
+        ntt_op.backward(u_eval.as_mut());
+        ntt_op.backward(u_eval_copy.as_mut());
+
+        // sample error
+        RandomGaussianDist::random_fill(rng, &q, ai.as_mut());
+        RandomGaussianDist::random_fill(rng, &q, bi.as_mut());
+
+        // a = p0*u+e0
+        mod_op.elwise_add_mut(ai.as_mut(), u_eval.as_ref());
+        // b = p1*u+e1
+        mod_op.elwise_add_mut(bi.as_mut(), u_eval_copy.as_ref());
+
+        // a = p0*u + e0 + \beta*m
+        // use u_eval as scratch
+        mod_op.elwise_scalar_mul(u_eval.as_mut(), m.as_ref(), beta_i);
+        mod_op.elwise_add_mut(ai.as_mut(), u_eval.as_ref());
+    });
+
+    // RLWE(m)
+    let (rlwe_dash_m_parta, rlwe_dash_m_partb) = rlwe_dash_m.split_at_mut(d);
+    izip!(
+        rlwe_dash_m_parta.iter_mut(),
+        rlwe_dash_m_partb.iter_mut(),
+        gadget_vector.iter()
+    )
+    .for_each(|(ai, bi, beta_i)| {
+        // sample ephemeral secret u_i
+        let mut u = vec![0i32; ring_size];
+        fill_random_ternary_secret_with_hamming_weight(u.as_mut(), ring_size >> 1, rng);
+        let mut u_eval = Mmut::R::try_convert_from(u.as_ref(), &q);
+        ntt_op.forward(u_eval.as_mut());
+
+        let mut u_eval_copy = Mmut::R::zeros(ring_size);
+        u_eval_copy.as_mut().copy_from_slice(u_eval.as_ref());
+
+        // p0 * u
+        mod_op.elwise_mul_mut(u_eval.as_mut(), p0.as_ref());
+        // p1 * u
+        mod_op.elwise_mul_mut(u_eval_copy.as_mut(), p1.as_ref());
+        ntt_op.backward(u_eval.as_mut());
+        ntt_op.backward(u_eval_copy.as_mut());
+
+        // sample error
+        RandomGaussianDist::random_fill(rng, &q, ai.as_mut());
+        RandomGaussianDist::random_fill(rng, &q, bi.as_mut());
+
+        // a = p0*u+e0
+        mod_op.elwise_add_mut(ai.as_mut(), u_eval.as_ref());
+        // b = p1*u+e1
+        mod_op.elwise_add_mut(bi.as_mut(), u_eval_copy.as_ref());
+
+        // b = p1*u + e0 + \beta*m
+        // use u_eval as scratch
+        mod_op.elwise_scalar_mul(u_eval.as_mut(), m.as_ref(), beta_i);
+        mod_op.elwise_add_mut(bi.as_mut(), u_eval.as_ref());
+    });
+}
+
 /// Encrypt polynomial m(X) as RLWE ciphertext.
 ///
 /// - rlwe_out: returned RLWE ciphertext RLWE(m) in coefficient domain. RLWE
@@ -863,6 +1174,48 @@ pub(crate) fn secret_key_encrypt_rlwe<
     RandomGaussianDist::random_fill(rng, &q, b_rlwe_out.as_mut());
     mod_op.elwise_add_mut(b_rlwe_out.as_mut(), m.as_ref());
     mod_op.elwise_add_mut(b_rlwe_out.as_mut(), sa.as_ref());
+}
+
+/// Generates RLWE public key
+pub(crate) fn gen_rlwe_public_key<
+    Ro: RowMut + RowEntity,
+    S,
+    ModOp: VectorOps<Element = Ro::Element>,
+    NttOp: Ntt<Element = Ro::Element>,
+    PRng: RandomUniformDist<[Ro::Element], Parameters = Ro::Element>,
+    Rng: RandomGaussianDist<[Ro::Element], Parameters = Ro::Element>,
+>(
+    part_b_out: &mut Ro,
+    s: &[S],
+    ntt_op: &NttOp,
+    mod_op: &ModOp,
+    p_rng: &mut PRng,
+    rng: &mut Rng,
+) where
+    Ro: TryConvertFrom<[S], Parameters = Ro::Element>,
+{
+    let ring_size = s.len();
+    assert!(part_b_out.as_ref().len() == ring_size);
+
+    let q = mod_op.modulus();
+
+    // sample a
+    let mut a = {
+        let mut tmp = Ro::zeros(ring_size);
+        RandomUniformDist::random_fill(p_rng, &q, tmp.as_mut());
+        tmp
+    };
+    ntt_op.forward(a.as_mut());
+
+    // s*a
+    let mut sa = Ro::try_convert_from(s, &q);
+    ntt_op.forward(sa.as_mut());
+    mod_op.elwise_mul_mut(sa.as_mut(), a.as_ref());
+    ntt_op.backward(sa.as_mut());
+
+    // s*a + e
+    RandomGaussianDist::random_fill(rng, &q, part_b_out.as_mut());
+    mod_op.elwise_add_mut(part_b_out.as_mut(), sa.as_ref());
 }
 
 /// Decrypts degree 1 RLWE ciphertext RLWE(m) and returns m
@@ -965,27 +1318,28 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
+    use std::{ops::Mul, vec};
 
     use itertools::{izip, Itertools};
     use rand::{thread_rng, Rng};
 
     use crate::{
-        backend::{ModInit, ModularOpsU64},
+        backend::{ArithmeticOps, ModInit, ModularOpsU64},
         decomposer::{gadget_vector, DefaultDecomposer},
         ntt::{self, Ntt, NttBackendU64, NttInit},
         random::{DefaultSecureRng, NewWithSeed, RandomUniformDist},
         rgsw::{
-            measure_noise, AutoKeyEvaluationDomain, RgswCiphertextEvaluationDomain, RlweCiphertext,
-            SeededAutoKey, SeededRgswCiphertext, SeededRlweCiphertext,
+            gen_rlwe_public_key, measure_noise, public_key_encrypt_rgsw, AutoKeyEvaluationDomain,
+            RgswCiphertext, RgswCiphertextEvaluationDomain, RlweCiphertext, RlwePublicKey,
+            SeededAutoKey, SeededRgswCiphertext, SeededRlweCiphertext, SeededRlwePublicKey,
         },
         utils::{generate_prime, negacyclic_mul},
         Matrix, Secret,
     };
 
     use super::{
-        decrypt_rlwe, galois_auto, galois_key_gen, generate_auto_map, rlwe_by_rgsw,
-        secret_key_encrypt_rgsw, secret_key_encrypt_rlwe, RlweSecret,
+        decrypt_rlwe, galois_auto, galois_key_gen, generate_auto_map, rgsw_by_rgsw_inplace,
+        rlwe_by_rgsw, secret_key_encrypt_rgsw, secret_key_encrypt_rlwe, RlweSecret,
     };
 
     #[test]
@@ -1046,13 +1400,13 @@ mod tests {
 
     #[test]
     fn rlwe_by_rgsw_works() {
-        let logq = 24;
+        let logq = 50;
         let logp = 2;
-        let ring_size = 1 << 4;
+        let ring_size = 1 << 9;
         let q = generate_prime(logq, ring_size, 1u64 << logq).unwrap();
         let p = 1u64 << logp;
-        let d_rgsw = 2;
-        let logb = 12;
+        let d_rgsw = 9;
+        let logb = 5;
 
         let mut rng = DefaultSecureRng::new_seeded([0u8; 32]);
 
@@ -1067,51 +1421,99 @@ mod tests {
         let mod_op = ModularOpsU64::new(q);
 
         // Encrypt m1 as RGSW(m1)
-        let mut rgsw_seed = [0u8; 32];
-        rng.fill_bytes(&mut rgsw_seed);
-        let mut seeded_rgsw_ct = SeededRgswCiphertext::<Vec<Vec<u64>>, [u8; 32]>::empty(
-            ring_size as usize,
-            d_rgsw,
-            rgsw_seed,
-            q,
-        );
-        let mut p_rng = DefaultSecureRng::new_seeded(rgsw_seed);
-        let gadget_vector = gadget_vector(logq, logb, d_rgsw);
-        secret_key_encrypt_rgsw(
-            &mut seeded_rgsw_ct.data,
-            &m1,
-            &gadget_vector,
-            s.values(),
-            &mod_op,
-            &ntt_op,
-            &mut p_rng,
-            &mut rng,
-        );
-        let rgsw_ct = RgswCiphertextEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
-            &seeded_rgsw_ct,
-        );
+        let rgsw_ct = {
+            //TODO(Jay): Figure out better way to test secret key and public key variant of
+            // RGSW ciphertext encryption within the same test
+
+            if false {
+                // RGSW(m1) encryption using secret key
+                let mut rgsw_seed = [0u8; 32];
+                rng.fill_bytes(&mut rgsw_seed);
+                let mut seeded_rgsw_ct = SeededRgswCiphertext::<Vec<Vec<u64>>, [u8; 32]>::empty(
+                    ring_size as usize,
+                    d_rgsw,
+                    rgsw_seed,
+                    q,
+                );
+                let mut p_rng = DefaultSecureRng::new_seeded(rgsw_seed);
+                let gadget_vector = gadget_vector(logq, logb, d_rgsw);
+                secret_key_encrypt_rgsw(
+                    &mut seeded_rgsw_ct.data,
+                    &m1,
+                    &gadget_vector,
+                    s.values(),
+                    &mod_op,
+                    &ntt_op,
+                    &mut p_rng,
+                    &mut rng,
+                );
+                RgswCiphertextEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
+                    &seeded_rgsw_ct,
+                )
+            } else {
+                // RGSW(m1) encryption using public key
+
+                // first create public key
+                let mut pk_seed = [0u8; 32];
+                rng.fill_bytes(&mut pk_seed);
+                let mut pk_prng = DefaultSecureRng::new_seeded(pk_seed);
+                let mut seeded_pk =
+                    SeededRlwePublicKey::<Vec<u64>, _>::empty(ring_size as usize, pk_seed, q);
+                gen_rlwe_public_key(
+                    &mut seeded_pk.data,
+                    s.values(),
+                    &ntt_op,
+                    &mod_op,
+                    &mut pk_prng,
+                    &mut rng,
+                );
+                let pk = RlwePublicKey::<Vec<Vec<u64>>, DefaultSecureRng>::from(&seeded_pk);
+
+                // public key encrypt RGSW(m1)
+                let mut rgsw_ct = vec![vec![0u64; ring_size as usize]; d_rgsw * 4];
+                let gadget_vector = gadget_vector(logq, logb, d_rgsw);
+                public_key_encrypt_rgsw(
+                    &mut rgsw_ct,
+                    &m1,
+                    &pk.data,
+                    &gadget_vector,
+                    &mod_op,
+                    &ntt_op,
+                    &mut rng,
+                );
+
+                RgswCiphertextEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
+                    &RgswCiphertext {
+                        data: rgsw_ct,
+                        modulus: q,
+                    },
+                )
+            }
+        };
 
         // Encrypt m0 as RLWE(m0)
-        let mut rlwe_seed = [0u8; 32];
-        rng.fill_bytes(&mut rlwe_seed);
-        let mut seeded_rlwe_in_ct =
-            SeededRlweCiphertext::<_, [u8; 32]>::empty(ring_size as usize, rlwe_seed, q);
-        let mut p_rng = DefaultSecureRng::new_seeded(rlwe_seed);
-        let encoded_m = m0
-            .iter()
-            .map(|v| (((*v as f64) * q as f64) / (p as f64)).round() as u64)
-            .collect_vec();
-        secret_key_encrypt_rlwe(
-            &encoded_m,
-            &mut seeded_rlwe_in_ct.data,
-            s.values(),
-            &mod_op,
-            &ntt_op,
-            &mut p_rng,
-            &mut rng,
-        );
-        let mut rlwe_in_ct =
-            RlweCiphertext::<Vec<Vec<u64>>, DefaultSecureRng>::from(&seeded_rlwe_in_ct);
+        let mut rlwe_in_ct = {
+            let mut rlwe_seed = [0u8; 32];
+            rng.fill_bytes(&mut rlwe_seed);
+            let mut seeded_rlwe_in_ct =
+                SeededRlweCiphertext::<_, [u8; 32]>::empty(ring_size as usize, rlwe_seed, q);
+            let mut p_rng = DefaultSecureRng::new_seeded(rlwe_seed);
+            let encoded_m = m0
+                .iter()
+                .map(|v| (((*v as f64) * q as f64) / (p as f64)).round() as u64)
+                .collect_vec();
+            secret_key_encrypt_rlwe(
+                &encoded_m,
+                &mut seeded_rlwe_in_ct.data,
+                s.values(),
+                &mod_op,
+                &ntt_op,
+                &mut p_rng,
+                &mut rng,
+            );
+
+            RlweCiphertext::<Vec<Vec<u64>>, DefaultSecureRng>::from(&seeded_rlwe_in_ct)
+        };
 
         // RLWE(m0m1) = RLWE(m0) x RGSW(m1)
         let mut scratch_space = vec![vec![0u64; ring_size as usize]; d_rgsw + 2];
@@ -1147,6 +1549,113 @@ mod tests {
             m0m1,
             m0m1_back
         );
+    }
+
+    fn _pk_encrypt_rgsw(
+        m: &[u64],
+        public_key: &RlwePublicKey<Vec<Vec<u64>>, DefaultSecureRng>,
+        gadget_vector: &[u64],
+        mod_op: &ModularOpsU64,
+        ntt_op: &NttBackendU64,
+    ) -> RgswCiphertext<Vec<Vec<u64>>> {
+        let (_, ring_size) = Matrix::dimension(&public_key.data);
+        let d_rgsw = gadget_vector.len();
+
+        let mut rng = DefaultSecureRng::new();
+
+        assert!(m.len() == ring_size);
+
+        // public key encrypt RGSW(m1)
+        let mut rgsw_ct = vec![vec![0u64; ring_size]; d_rgsw * 4];
+        public_key_encrypt_rgsw(
+            &mut rgsw_ct,
+            m,
+            &public_key.data,
+            gadget_vector,
+            mod_op,
+            ntt_op,
+            &mut rng,
+        );
+
+        RgswCiphertext {
+            data: rgsw_ct,
+            modulus: mod_op.modulus(),
+        }
+    }
+
+    #[test]
+    fn rgsw_by_rgsw() {
+        let logq = 50;
+        let logp = 2;
+        let ring_size = 1 << 4;
+        let q = generate_prime(logq, ring_size, 1u64 << logq).unwrap();
+        let p = 1u64 << logp;
+        let d_rgsw = 10;
+        let logb = 5;
+
+        let s = RlweSecret::random((ring_size >> 1) as usize, ring_size as usize);
+
+        let mut rng = DefaultSecureRng::new();
+        let ntt_op = NttBackendU64::new(q, ring_size as usize);
+        let mod_op = ModularOpsU64::new(q);
+        let gadget_vector = gadget_vector(logq, logb, d_rgsw);
+        let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
+
+        // Public Key
+        let public_key = {
+            let mut pk_seed = [0u8; 32];
+            rng.fill_bytes(&mut pk_seed);
+            let mut pk_prng = DefaultSecureRng::new_seeded(pk_seed);
+            let mut seeded_pk =
+                SeededRlwePublicKey::<Vec<u64>, _>::empty(ring_size as usize, pk_seed, q);
+            gen_rlwe_public_key(
+                &mut seeded_pk.data,
+                s.values(),
+                &ntt_op,
+                &mod_op,
+                &mut pk_prng,
+                &mut rng,
+            );
+            RlwePublicKey::<Vec<Vec<u64>>, DefaultSecureRng>::from(&seeded_pk)
+        };
+
+        let mut m0 = vec![0u64; ring_size as usize];
+        m0[thread_rng().gen_range(0..ring_size) as usize] = 1;
+        let mut m1 = vec![0u64; ring_size as usize];
+        m1[thread_rng().gen_range(0..ring_size) as usize] = 1;
+
+        // RGSW(m0)
+        let rgsw_m0 = _pk_encrypt_rgsw(&m0, &public_key, &gadget_vector, &mod_op, &ntt_op);
+        // RGSW(m1)
+        let rgsw_m1 = _pk_encrypt_rgsw(&m0, &public_key, &gadget_vector, &mod_op, &ntt_op);
+
+        let mut rgsw_m0_eval =
+            RgswCiphertextEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(&rgsw_m0);
+
+        let mut scratch_matrix_d_plus_rgsw_by_ring =
+            vec![vec![0u64; ring_size as usize]; d_rgsw + (d_rgsw * 4)];
+        rgsw_by_rgsw_inplace(
+            &mut rgsw_m0_eval.data,
+            &rgsw_m1.data,
+            &decomposer,
+            &mut scratch_matrix_d_plus_rgsw_by_ring,
+            &ntt_op,
+            &mod_op,
+        );
+        dbg!(&rgsw_m0_eval.data);
+
+        // RLWE(m0m1)
+        let mut rlwe_m0m1 = vec![vec![0u64; ring_size as usize]; 2];
+        rlwe_m0m1[0].copy_from_slice(rgsw_m0_eval.get_row_slice(2 * d_rgsw));
+        rlwe_m0m1[1].copy_from_slice(rgsw_m0_eval.get_row_slice(3 * d_rgsw));
+        rlwe_m0m1.iter_mut().for_each(|ri| ntt_op.backward(ri));
+
+        // m0m1
+        let mul = |a: &u64, b: &u64| ((*a as u128 * *b as u128) % q as u128) as u64;
+        let m0m1 = negacyclic_mul(&m0, &m1, mul, q);
+
+        let noise = measure_noise(&rlwe_m0m1, &m0m1, &ntt_op, &mod_op, s.values());
+        dbg!(noise);
     }
 
     #[test]
