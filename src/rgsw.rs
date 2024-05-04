@@ -6,7 +6,7 @@ use std::{
 };
 
 use itertools::{izip, Itertools};
-use num_traits::{PrimInt, ToPrimitive, Zero};
+use num_traits::{PrimInt, Signed, ToPrimitive, Zero};
 
 use crate::{
     backend::{ArithmeticOps, VectorOps},
@@ -103,7 +103,7 @@ where
 }
 
 impl<M: Matrix + MatrixEntity, S> SeededRgswCiphertext<M, S> {
-    fn from_raw(data: M, seed: S, modulus: M::MatElement) -> SeededRgswCiphertext<M, S> {
+    pub(crate) fn from_raw(data: M, seed: S, modulus: M::MatElement) -> SeededRgswCiphertext<M, S> {
         assert!(data.dimension().0 % 3 == 0);
 
         SeededRgswCiphertext {
@@ -814,11 +814,22 @@ pub(crate) fn rlwe_by_rgsw<
     rlwe_in.set_not_trivial();
 }
 
-/// Inplace mutates rlwe_0_eval_domain to equal RGSW(m0m1) = RGSW(m0)xRGSW(m1)
+/// Inplace mutates rlwe_0 to equal RGSW(m0m1) = RGSW(m0)xRGSW(m1)
 /// in evaluation domain
 ///
-/// - rgsw_0_eval_domain: RGSW(m0) in evaluation domain
-/// - rgsw_1: RGSW(m1)
+/// Warning -
+/// Pass a fresh RGSW ciphertext as the second operand, i.e. as `rgsw_1`.
+/// This is to assure minimal error growth in the resulting RGSW ciphertext.
+/// RGSWxRGSW boils down to d_rgsw*2 RLWExRGSW multiplications. Hence, the noise
+/// growth in resulting ciphertext depends on the norm of second RGSW
+/// ciphertext, not the first. This is useful in cases where one is accumulating
+/// multiple RGSW ciphertexts into 1. In which case, pass the accumulating RGSW
+/// ciphertext as rlwe_0 (the one with higher noise) and subsequent RGSW
+/// ciphertexts, with lower noise, to be accumulated as second
+/// operand.
+///
+/// - rgsw_0: RGSW(m0)
+/// - rgsw_1_eval: RGSW(m1) in Evaluation domain
 /// - scratch_matrix_d_plus_rgsw_by_ring: scratch space matrix of size
 ///   (d+(d*4))xring_size, where d equals d_rgsw
 pub(crate) fn rgsw_by_rgsw_inplace<
@@ -827,8 +838,8 @@ pub(crate) fn rgsw_by_rgsw_inplace<
     ModOp: VectorOps<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
 >(
-    rgsw_0_eval_domain: &mut Mmut,
-    rgsw_1: &Mmut,
+    rgsw_0: &mut Mmut,
+    rgsw_1_eval: &Mmut,
     decomposer: &D,
     scratch_matrix_d_plus_rgsw_by_ring: &mut Mmut,
     ntt_op: &NttOp,
@@ -838,9 +849,9 @@ pub(crate) fn rgsw_by_rgsw_inplace<
     Mmut::MatElement: Copy + Zero,
 {
     let d_rgsw = decomposer.d();
-    assert!(rgsw_0_eval_domain.dimension().0 == 4 * d_rgsw);
-    let ring_size = rgsw_0_eval_domain.dimension().1;
-    assert!(rgsw_1.dimension() == (4 * d_rgsw, ring_size));
+    assert!(rgsw_0.dimension().0 == 4 * d_rgsw);
+    let ring_size = rgsw_0.dimension().1;
+    assert!(rgsw_1_eval.dimension() == (4 * d_rgsw, ring_size));
     assert!(scratch_matrix_d_plus_rgsw_by_ring.dimension() == (d_rgsw + (d_rgsw * 4), ring_size));
 
     let (decomp_r_space, rgsw_space) = scratch_matrix_d_plus_rgsw_by_ring.split_at_row_mut(d_rgsw);
@@ -854,19 +865,19 @@ pub(crate) fn rgsw_by_rgsw_inplace<
         rlwe_dash_space_nsm.split_at_mut(d_rgsw);
     let (rlwe_dash_space_m_parta, rlwe_dash_space_m_partb) = rlwe_dash_space_m.split_at_mut(d_rgsw);
 
-    let (rgsw0_nsm, rgsw0_m) = rgsw_0_eval_domain.split_at_row(d_rgsw * 2);
-    let (rgsw1_nsm, rgsw1_m) = rgsw_1.split_at_row(d_rgsw * 2);
+    let (rgsw0_nsm, rgsw0_m) = rgsw_0.split_at_row(d_rgsw * 2);
+    let (rgsw1_nsm, rgsw1_m) = rgsw_1_eval.split_at_row(d_rgsw * 2);
 
     // RGSW x RGSW
     izip!(
-        rgsw1_nsm
+        rgsw0_nsm
             .iter()
             .take(d_rgsw)
-            .chain(rgsw1_m.iter().take(d_rgsw)),
-        rgsw1_nsm
+            .chain(rgsw0_m.iter().take(d_rgsw)),
+        rgsw0_nsm
             .iter()
             .skip(d_rgsw)
-            .chain(rgsw1_m.iter().skip(d_rgsw)),
+            .chain(rgsw0_m.iter().skip(d_rgsw)),
         rlwe_dash_space_nsm_parta
             .iter_mut()
             .chain(rlwe_dash_space_m_parta.iter_mut()),
@@ -883,13 +894,13 @@ pub(crate) fn rgsw_by_rgsw_inplace<
         routine(
             rlwe_out_a.as_mut(),
             decomp_r_space,
-            &rgsw0_nsm[..d_rgsw],
+            &rgsw1_nsm[..d_rgsw],
             mod_op,
         );
         routine(
             rlwe_out_b.as_mut(),
             decomp_r_space,
-            &rgsw0_nsm[d_rgsw..],
+            &rgsw1_nsm[d_rgsw..],
             mod_op,
         );
 
@@ -901,20 +912,25 @@ pub(crate) fn rgsw_by_rgsw_inplace<
         routine(
             rlwe_out_a.as_mut(),
             decomp_r_space,
-            &rgsw0_m[..d_rgsw],
+            &rgsw1_m[..d_rgsw],
             mod_op,
         );
         routine(
             rlwe_out_b.as_mut(),
             decomp_r_space,
-            &rgsw0_m[d_rgsw..],
+            &rgsw1_m[d_rgsw..],
             mod_op,
         );
     });
 
     // copy over RGSW(m0m1) into RGSW(m0)
-    izip!(rgsw_0_eval_domain.iter_rows_mut(), rgsw_space.iter())
-        .for_each(|(to_ri, from_ri)| to_ri.as_mut().copy_from_slice(from_ri.as_ref()))
+    izip!(rgsw_0.iter_rows_mut(), rgsw_space.iter())
+        .for_each(|(to_ri, from_ri)| to_ri.as_mut().copy_from_slice(from_ri.as_ref()));
+
+    // send back to coefficient domain
+    rgsw_0
+        .iter_rows_mut()
+        .for_each(|ri| ntt_op.backward(ri.as_mut()));
 }
 
 /// Encrypts message m as a RGSW ciphertext.
@@ -1180,6 +1196,66 @@ pub(crate) fn secret_key_encrypt_rlwe<
     RandomGaussianDist::random_fill(rng, &q, b_rlwe_out.as_mut());
     mod_op.elwise_add_mut(b_rlwe_out.as_mut(), m.as_ref());
     mod_op.elwise_add_mut(b_rlwe_out.as_mut(), sa.as_ref());
+}
+
+pub(crate) fn public_key_encrypt_rlwe<
+    M: MatrixMut,
+    ModOp: VectorOps<Element = M::MatElement>,
+    NttOp: Ntt<Element = M::MatElement>,
+    S,
+    R: RandomGaussianDist<[M::MatElement], Parameters = M::MatElement>
+        + RandomUniformDist<[M::MatElement], Parameters = M::MatElement>
+        + RandomUniformDist<[u8], Parameters = u8>
+        + RandomUniformDist<usize, Parameters = usize>,
+>(
+    rlwe_out: &mut M,
+    pk: &M,
+    m: &[M::MatElement],
+    mod_op: &ModOp,
+    ntt_op: &NttOp,
+    rng: &mut R,
+) where
+    <M as Matrix>::R: RowMut + TryConvertFrom<[S], Parameters = M::MatElement> + RowEntity,
+    M::MatElement: Copy,
+    S: Zero + Signed + Copy,
+{
+    let ring_size = m.len();
+    assert!(rlwe_out.dimension() == (2, ring_size));
+
+    let q = mod_op.modulus();
+
+    let mut u = vec![S::zero(); ring_size];
+    fill_random_ternary_secret_with_hamming_weight(u.as_mut(), ring_size >> 1, rng);
+    let mut u = M::R::try_convert_from(&u, &q);
+    ntt_op.forward(u.as_mut());
+
+    let mut ua = M::R::zeros(ring_size);
+    ua.as_mut().copy_from_slice(pk.get_row_slice(0));
+    let mut ub = M::R::zeros(ring_size);
+    ub.as_mut().copy_from_slice(pk.get_row_slice(1));
+
+    // a*u
+    ntt_op.forward(ua.as_mut());
+    mod_op.elwise_mul_mut(ua.as_mut(), u.as_ref());
+    ntt_op.backward(ua.as_mut());
+
+    // b*u
+    ntt_op.forward(ub.as_mut());
+    mod_op.elwise_mul_mut(ub.as_mut(), u.as_ref());
+    ntt_op.backward(ub.as_mut());
+
+    // sample error
+    rlwe_out.iter_rows_mut().for_each(|ri| {
+        RandomGaussianDist::random_fill(rng, &q, ri.as_mut());
+    });
+
+    // a*u + e0
+    mod_op.elwise_add_mut(rlwe_out.get_row_mut(0), ua.as_ref());
+    // b*u + e1
+    mod_op.elwise_add_mut(rlwe_out.get_row_mut(1), ub.as_ref());
+
+    // b*u + e1 + m
+    mod_op.elwise_add_mut(rlwe_out.get_row_mut(1), m);
 }
 
 /// Generates RLWE public key
@@ -1778,19 +1854,20 @@ pub(crate) mod tests {
         carry_m[thread_rng().gen_range(0..ring_size) as usize] = 1;
 
         // RGSW(carry_m)
-        let rgsw_carrym = _pk_encrypt_rgsw(&carry_m, &public_key, &gadget_vector, &mod_op, &ntt_op);
         let mut rgsw_carrym =
-            RgswCiphertextEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
-                &rgsw_carrym,
-            );
+            _pk_encrypt_rgsw(&carry_m, &public_key, &gadget_vector, &mod_op, &ntt_op);
 
         let mut scratch_matrix_d_plus_rgsw_by_ring =
             vec![vec![0u64; ring_size as usize]; d_rgsw + (d_rgsw * 4)];
 
-        for i in 0..10 {
+        for i in 0..100 {
             let mut m = vec![0u64; ring_size as usize];
             m[thread_rng().gen_range(0..ring_size) as usize] = q - 1;
-            let rgsw_m = _pk_encrypt_rgsw(&m, &public_key, &gadget_vector, &mod_op, &ntt_op);
+            let rgsw_m = {
+                RgswCiphertextEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
+                    &_pk_encrypt_rgsw(&m, &public_key, &gadget_vector, &mod_op, &ntt_op),
+                )
+            };
 
             rgsw_by_rgsw_inplace(
                 &mut rgsw_carrym.data,
@@ -1805,23 +1882,19 @@ pub(crate) mod tests {
             let mul_mod = |a: &u64, b: &u64| ((*a as u128 * *b as u128) % q as u128) as u64;
             carry_m = negacyclic_mul(&carry_m, &m, mul_mod, q);
             println!("########### Noise RGSW(carrym) in {i}^th loop ###########");
-            let mut rgsw_carrym_clone = rgsw_carrym.data.clone();
-            rgsw_carrym_clone
-                .iter_mut()
-                .for_each(|ri| ntt_op.backward(ri.as_mut()));
-            _measure_noise_rgsw(&rgsw_carrym_clone, &carry_m, s.values(), &gadget_vector, q);
+            _measure_noise_rgsw(&rgsw_carrym.data, &carry_m, s.values(), &gadget_vector, q);
         }
     }
 
     #[test]
     fn sk_rgsw_by_rgsw() {
-        let logq = 60;
+        let logq = 31;
         let logp = 2;
-        let ring_size = 1 << 11;
+        let ring_size = 1 << 10;
         let q = generate_prime(logq, ring_size, 1u64 << logq).unwrap();
         let p = 1u64 << logp;
-        let d_rgsw = 15;
-        let logb = 4;
+        let d_rgsw = 4;
+        let logb = 7;
 
         let s = RlweSecret::random((ring_size >> 1) as usize, ring_size as usize);
 
@@ -1830,32 +1903,32 @@ pub(crate) mod tests {
         let mod_op = ModularOpsU64::new(q);
         let gadget_vector = gadget_vector(logq, logb, d_rgsw);
         let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
+        let mul_mod = |a: &u64, b: &u64| ((*a as u128 * *b as u128) % q as u128) as u64;
 
         let mut carry_m = vec![0u64; ring_size as usize];
         carry_m[thread_rng().gen_range(0..ring_size) as usize] = 1;
 
         // RGSW(carry_m)
-        let mut rgsw_carrym =
-            _sk_encrypt_rgsw(&carry_m, s.values(), &gadget_vector, &mod_op, &ntt_op);
+        let mut rgsw_carrym = {
+            let mut rgsw_eval =
+                _sk_encrypt_rgsw(&carry_m, s.values(), &gadget_vector, &mod_op, &ntt_op);
+            rgsw_eval
+                .data
+                .iter_mut()
+                .for_each(|ri| ntt_op.backward(ri.as_mut()));
+            rgsw_eval.data
+        };
 
         let mut scratch_matrix_d_plus_rgsw_by_ring =
             vec![vec![0u64; ring_size as usize]; d_rgsw + (d_rgsw * 4)];
 
-        for i in 0..1 {
+        for i in 0..1000 {
             let mut m = vec![0u64; ring_size as usize];
             m[thread_rng().gen_range(0..ring_size) as usize] = if (i & 1) == 1 { q - 1 } else { 1 };
-            let rgsw_m = {
-                let mut rgsw_eval =
-                    _sk_encrypt_rgsw(&m, s.values(), &gadget_vector, &mod_op, &ntt_op).data;
-                rgsw_eval
-                    .iter_mut()
-                    .for_each(|ri| ntt_op.backward(ri.as_mut()));
-                rgsw_eval
-            };
-
+            let rgsw_m = _sk_encrypt_rgsw(&m, s.values(), &gadget_vector, &mod_op, &ntt_op);
             rgsw_by_rgsw_inplace(
-                &mut rgsw_carrym.data,
-                &rgsw_m,
+                &mut rgsw_carrym,
+                &rgsw_m.data,
                 &decomposer,
                 &mut scratch_matrix_d_plus_rgsw_by_ring,
                 &ntt_op,
@@ -1863,14 +1936,9 @@ pub(crate) mod tests {
             );
 
             // measure noise
-            let mul_mod = |a: &u64, b: &u64| ((*a as u128 * *b as u128) % q as u128) as u64;
             carry_m = negacyclic_mul(&carry_m, &m, mul_mod, q);
             println!("########### Noise RGSW(carrym) in {i}^th loop ###########");
-            let mut rgsw_carrym_clone = rgsw_carrym.data.clone();
-            rgsw_carrym_clone
-                .iter_mut()
-                .for_each(|ri| ntt_op.backward(ri.as_mut()));
-            _measure_noise_rgsw(&rgsw_carrym_clone, &carry_m, s.values(), &gadget_vector, q);
+            _measure_noise_rgsw(&rgsw_carrym, &carry_m, s.values(), &gadget_vector, q);
         }
     }
 
