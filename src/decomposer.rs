@@ -90,9 +90,9 @@ impl<T: PrimInt + WrappingSub + Debug> Decomposer for DefaultDecomposer<T> {
         let mut value = round_value(*value, self.ignore_bits);
 
         let q = self.q;
-        if value >= (q >> 1) {
-            value = value.wrapping_sub(&q);
-        }
+        // if value >= (q >> 1) {
+        //     value = value.wrapping_sub(&q);
+        // }
 
         let logb = self.logb;
         let b = T::one() << logb; // base
@@ -105,7 +105,7 @@ impl<T: PrimInt + WrappingSub + Debug> Decomposer for DefaultDecomposer<T> {
         for i in 0..self.d {
             let mut limb = ((value >> (logb * i)) & full_mask) + carry;
             carry = T::zero();
-            if limb > b_by2 {
+            if limb >= b_by2 {
                 limb = (q + limb) - b;
                 carry = T::one();
             }
@@ -120,6 +120,11 @@ impl<T: PrimInt + WrappingSub + Debug> Decomposer for DefaultDecomposer<T> {
             out.push(limb);
 
             // carry = carry >> (logb - 1);
+        }
+
+        out[self.d - 1] = out[self.d - 1] + (carry << logb);
+        if out[self.d - 1] > q {
+            out[self.d - 1] = out[self.d - 1] - q;
         }
 
         return out;
@@ -153,15 +158,15 @@ mod tests {
 
     #[test]
     fn decomposition_works() {
-        let logq = 15;
-        let logb = 3;
-        let d = 5;
+        let logq = 60;
+        let logb = 5;
+        let d = 12;
 
         let mut rng = thread_rng();
 
         // q is prime of bits logq and i is true, other q = 1<<logq
         // FIXME: Test fails when q is prime, albeit the difference is minute
-        for i in [true] {
+        for i in [true, false] {
             let q = if i {
                 generate_prime(logq, 1 << 4, 1u64 << logq).unwrap()
             } else {
@@ -175,7 +180,7 @@ mod tests {
                 let value_back = decomposer.recompose(&limbs, &modq_op);
                 let rounded_value =
                     round_value(value, decomposer.ignore_bits) << decomposer.ignore_bits;
-                // dbg!(rounded_value, value, value_back);
+                // dbg!(&limbs, q);
                 assert_eq!(
                     rounded_value, value_back,
                     "Expected {rounded_value} got {value_back} for q={q}"
