@@ -1146,7 +1146,7 @@ pub(crate) fn secret_key_encrypt_rlwe<
     R: RandomGaussianDist<[Ro::Element], Parameters = Ro::Element>,
     PR: RandomUniformDist<[Ro::Element], Parameters = Ro::Element>,
 >(
-    m: &Ro,
+    m: &[Ro::Element],
     b_rlwe_out: &mut Ro,
     s: &[S],
     mod_op: &ModOp,
@@ -1306,7 +1306,6 @@ where
     let mut max_diff_bits = f64::MIN;
     m_plus_e.as_ref().iter().for_each(|v| {
         let mut v = *v;
-        println!("{:?}", v);
         if v >= (q >> 1) {
             // v is -ve
             v = q - v;
@@ -1536,13 +1535,42 @@ pub(crate) mod tests {
         );
     }
 
+    fn _secret_encrypt_rlwe(
+        m: &[u64],
+        s: &[i32],
+        ntt_op: &NttBackendU64,
+        mod_op: &ModularOpsU64,
+    ) -> RlweCiphertext<Vec<Vec<u64>>, DefaultSecureRng> {
+        let ring_size = m.len();
+        let q = mod_op.modulus();
+        assert!(s.len() == ring_size);
+
+        let mut rng = DefaultSecureRng::new();
+        let mut rlwe_seed = [0u8; 32];
+        rng.fill_bytes(&mut rlwe_seed);
+        let mut seeded_rlwe_ct =
+            SeededRlweCiphertext::<_, [u8; 32]>::empty(ring_size as usize, rlwe_seed, q);
+        let mut p_rng = DefaultSecureRng::new_seeded(rlwe_seed);
+        secret_key_encrypt_rlwe(
+            &m,
+            &mut seeded_rlwe_ct.data,
+            s,
+            mod_op,
+            ntt_op,
+            &mut p_rng,
+            &mut rng,
+        );
+
+        RlweCiphertext::<Vec<Vec<u64>>, DefaultSecureRng>::from(&seeded_rlwe_ct)
+    }
+
     #[test]
     fn rlwe_by_rgsw_noise_growth() {
-        let logq = 31;
-        let ring_size = 1 << 9;
+        let logq = 60;
+        let ring_size = 1 << 11;
         let q = generate_prime(logq, ring_size * 2, 1u64 << logq).unwrap();
-        let d_rgsw = 6;
-        let logb = 5;
+        let d_rgsw = 7;
+        let logb = 8;
 
         let s = RlweSecret::random((ring_size >> 1) as usize, ring_size as usize);
 
@@ -1555,11 +1583,10 @@ pub(crate) mod tests {
 
         let mut carry_m = vec![0u64; ring_size as usize];
         carry_m[thread_rng().gen_range(0..ring_size) as usize] = 1;
-        let mut rlwe = vec![vec![0u64; ring_size as usize], carry_m.clone()];
-        let mut rlwe = RlweCiphertext::<Vec<Vec<u64>>, DefaultSecureRng>::from_raw(rlwe, true);
+        let mut rlwe = _secret_encrypt_rlwe(&carry_m, s.values(), &ntt_op, &mod_op);
 
         let mut scratch_matrix_dplus2_ring = vec![vec![0u64; ring_size as usize]; d_rgsw + 2];
-        for i in 0..1usize {
+        for i in 0..1000usize {
             // Encrypt monomial as RGSW
             let mut m = vec![0u64; ring_size as usize];
             m[thread_rng().gen_range(0..ring_size) as usize] = if i & 1 == 1 { 1 } else { q - 1 };
