@@ -141,7 +141,7 @@ impl RandomGaussianDist<[u64]> for DefaultSecureRng {
     type Parameters = u64;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u64]) {
         izip!(
-            rand_distr::Normal::new(0.0, 3.2f64)
+            rand_distr::Normal::new(0.0, 3.19f64)
                 .unwrap()
                 .sample_iter(&mut self.rng),
             container.iter_mut()
@@ -162,7 +162,7 @@ impl RandomGaussianDist<[u32]> for DefaultSecureRng {
     type Parameters = u32;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u32]) {
         izip!(
-            rand_distr::Normal::new(0.0, 3.2f32)
+            rand_distr::Normal::new(0.0, 3.19f32)
                 .unwrap()
                 .sample_iter(&mut self.rng),
             container.iter_mut()

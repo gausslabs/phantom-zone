@@ -176,8 +176,6 @@ pub fn lwe_ksk_keygen<
                 b = operator.add(&b, &e);
 
                 *lwe_b = b;
-
-                // dbg!(&lwe.as_mut(), &f);
             })
         },
     );
@@ -323,13 +321,13 @@ mod tests {
 
     #[test]
     fn key_switch_works() {
-        let logq = 16;
+        let logq = 18;
         let logp = 2;
         let q = 1u64 << logq;
         let lwe_in_n = 2048;
         let lwe_out_n = 493;
         let d_ks = 3;
-        let logb = 4;
+        let logb = 6;
 
         let lwe_sk_in = LweSecret::random(lwe_in_n >> 1, lwe_in_n);
         let lwe_sk_out = LweSecret::random(lwe_out_n >> 1, lwe_out_n);

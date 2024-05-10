@@ -158,9 +158,9 @@ mod tests {
 
     #[test]
     fn decomposition_works() {
-        let logq = 60;
-        let logb = 5;
-        let d = 12;
+        let logq = 55;
+        let logb = 9;
+        let d = 6;
 
         let mut rng = thread_rng();
 
@@ -174,7 +174,7 @@ mod tests {
             };
             let decomposer = DefaultDecomposer::new(q, logb, d);
             let modq_op = ModularOpsU64::new(q);
-            for _ in 0..100 {
+            for _ in 0..1000 {
                 let value = rng.gen_range(0..q);
                 let limbs = decomposer.decompose(&value);
                 let value_back = decomposer.recompose(&limbs, &modq_op);
