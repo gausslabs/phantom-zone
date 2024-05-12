@@ -605,6 +605,100 @@ pub(crate) fn galois_auto<
 /// - rgsw_in: is RGSW(m1) with polynomials in evaluation domain
 /// - scratch_matrix_d_ring: is a matrix of dimension (d_rgsw, ring_size) used
 ///   as scratch space to store decomposed Ring elements temporarily
+pub(crate) fn less1_rlwe_by_rgsw<
+    Mmut: MatrixMut,
+    MT: Matrix<MatElement = Mmut::MatElement> + MatrixMut<MatElement = Mmut::MatElement> + IsTrivial,
+    D: Decomposer<Element = Mmut::MatElement>,
+    ModOp: VectorOps<Element = Mmut::MatElement>,
+    NttOp: Ntt<Element = Mmut::MatElement>,
+>(
+    rlwe_in: &mut MT,
+    rgsw_in: &Mmut,
+    scratch_matrix_dplus2_ring: &mut Mmut,
+    decomposer: &D,
+    ntt_op: &NttOp,
+    mod_op: &ModOp,
+    skip0: usize,
+    skip1: usize,
+) where
+    Mmut::MatElement: Copy + Zero,
+    <Mmut as Matrix>::R: RowMut,
+    <MT as Matrix>::R: RowMut,
+{
+    let d_rgsw = decomposer.d();
+    assert!(scratch_matrix_dplus2_ring.dimension() == (d_rgsw + 2, rlwe_in.dimension().1));
+    assert!(rgsw_in.dimension() == (d_rgsw * 4, rlwe_in.dimension().1));
+
+    // decomposed RLWE x RGSW
+    let (rlwe_dash_nsm, rlwe_dash_m) = rgsw_in.split_at_row(d_rgsw * 2);
+    let (scratch_matrix_d_ring, scratch_rlwe_out) =
+        scratch_matrix_dplus2_ring.split_at_row_mut(d_rgsw);
+    scratch_rlwe_out[0].as_mut().fill(Mmut::MatElement::zero());
+    scratch_rlwe_out[1].as_mut().fill(Mmut::MatElement::zero());
+    // RLWE_in = a_in, b_in; RLWE_out = a_out, b_out
+    if !rlwe_in.is_trivial() {
+        // a_in = 0 when RLWE_in is trivial RLWE ciphertext
+        // decomp<a_in>
+        decompose_r(rlwe_in.get_row_slice(0), scratch_matrix_d_ring, decomposer);
+        scratch_matrix_d_ring
+            .iter_mut()
+            .for_each(|r| ntt_op.forward(r.as_mut()));
+        // a_out += decomp<a_in> \cdot RLWE_A'(-sm)
+        routine(
+            scratch_rlwe_out[0].as_mut(),
+            scratch_matrix_d_ring[skip0..].as_ref(),
+            &rlwe_dash_nsm[skip0..d_rgsw],
+            mod_op,
+        );
+        // b_out += decomp<a_in> \cdot RLWE_B'(-sm)
+        routine(
+            scratch_rlwe_out[1].as_mut(),
+            scratch_matrix_d_ring[skip0..].as_ref(),
+            &rlwe_dash_nsm[d_rgsw + skip0..],
+            mod_op,
+        );
+    }
+    // decomp<b_in>
+    decompose_r(rlwe_in.get_row_slice(1), scratch_matrix_d_ring, decomposer);
+    scratch_matrix_d_ring
+        .iter_mut()
+        .for_each(|r| ntt_op.forward(r.as_mut()));
+    // a_out += decomp<b_in> \cdot RLWE_A'(m)
+    routine(
+        scratch_rlwe_out[0].as_mut(),
+        scratch_matrix_d_ring[skip1..].as_ref(),
+        &rlwe_dash_m[skip1..d_rgsw],
+        mod_op,
+    );
+    // b_out += decomp<b_in> \cdot RLWE_B'(m)
+    routine(
+        scratch_rlwe_out[1].as_mut(),
+        scratch_matrix_d_ring[skip1..].as_ref(),
+        &rlwe_dash_m[d_rgsw + skip1..],
+        mod_op,
+    );
+
+    // transform rlwe_out to coefficient domain
+    scratch_rlwe_out
+        .iter_mut()
+        .for_each(|r| ntt_op.backward(r.as_mut()));
+
+    rlwe_in
+        .get_row_mut(0)
+        .copy_from_slice(scratch_rlwe_out[0].as_mut());
+    rlwe_in
+        .get_row_mut(1)
+        .copy_from_slice(scratch_rlwe_out[1].as_mut());
+    rlwe_in.set_not_trivial();
+}
+
+/// Returns RLWE(m0m1) = RLWE(m0) x RGSW(m1). Mutates rlwe_in inplace to equal
+/// RLWE(m0m1)
+///
+/// - rlwe_in: is RLWE(m0) with polynomials in coefficient domain
+/// - rgsw_in: is RGSW(m1) with polynomials in evaluation domain
+/// - scratch_matrix_d_ring: is a matrix of dimension (d_rgsw, ring_size) used
+///   as scratch space to store decomposed Ring elements temporarily
 pub(crate) fn rlwe_by_rgsw<
     Mmut: MatrixMut,
     MT: Matrix<MatElement = Mmut::MatElement> + MatrixMut<MatElement = Mmut::MatElement> + IsTrivial,

@@ -10,6 +10,7 @@ mod bool;
 mod decomposer;
 mod lwe;
 mod multi_party;
+mod noise;
 mod ntt;
 mod num;
 mod random;
