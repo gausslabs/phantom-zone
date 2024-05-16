@@ -1711,7 +1711,7 @@ pub(crate) mod tests {
         );
     }
 
-    fn _secret_encrypt_rlwe(
+    pub(crate) fn _secret_encrypt_rlwe(
         m: &[u64],
         s: &[i32],
         ntt_op: &NttBackendU64,
@@ -1786,7 +1786,7 @@ pub(crate) mod tests {
     }
 
     // Encrypt m as RGSW ciphertext RGSW(m) using supplied public key
-    fn _pk_encrypt_rgsw(
+    pub(crate) fn _pk_encrypt_rgsw(
         m: &[u64],
         public_key: &RlwePublicKey<Vec<Vec<u64>>, DefaultSecureRng>,
         gadget_vector: &[u64],
@@ -1820,7 +1820,7 @@ pub(crate) mod tests {
 
     /// Encrypts m as RGSW ciphertext RGSW(m) using supplied secret key. Returns
     /// unseeded RGSW ciphertext in coefficient domain
-    fn _sk_encrypt_rgsw(
+    pub(crate) fn _sk_encrypt_rgsw(
         m: &[u64],
         s: &[i32],
         gadget_vector: &[u64],
@@ -1975,7 +1975,7 @@ pub(crate) mod tests {
         let mut scratch_matrix_d_plus_rgsw_by_ring =
             vec![vec![0u64; ring_size as usize]; d_rgsw + (d_rgsw * 4)];
 
-        for i in 0..10 {
+        for i in 0..1 {
             let mut m = vec![0u64; ring_size as usize];
             m[thread_rng().gen_range(0..ring_size) as usize] = q - 1;
             let rgsw_m = {
@@ -1999,38 +1999,41 @@ pub(crate) mod tests {
             _measure_noise_rgsw(&rgsw_carrym.data, &carry_m, s.values(), &gadget_vector, q);
         }
 
-        // {
-        //     // RLWE(m) x RGSW(carry_m)
-        //     let mut m = vec![0u64; ring_size as usize];
-        //     RandomUniformDist::random_fill(&mut rng, &q, m.as_mut_slice());
-        //     let mut rlwe_ct = RlweCiphertext::<_,
-        // DefaultSecureRng>::from_raw(         vec![vec![0u64;
-        // ring_size as usize]; 2],         false,
-        //     );
-        //     let mut scratch_matrix_dplus2_ring = vec![vec![0u64; ring_size as
-        // usize]; d_rgsw + 2];     public_key_encrypt_rlwe(
-        //         &mut rlwe_ct,
-        //         &public_key.data,
-        //         &m,
-        //         &mod_op,
-        //         &ntt_op,
-        //         &mut rng,
-        //     );
-        //     rlwe_by_rgsw(
-        //         &mut rlwe_ct,
-        //         &RgswCiphertextEvaluationDomain::<_, DefaultSecureRng,
-        // NttBackendU64>::from(             &rgsw_carrym,
-        //         )
-        //         .data,
-        //         &mut scratch_matrix_dplus2_ring,
-        //         &decomposer,
-        //         &ntt_op,
-        //         &mod_op,
-        //     );
-        //     let m_expected = negacyclic_mul(&carry_m, &m, mul_mod, q);
-        //     let noise = measure_noise(&rlwe_ct, &m_expected, &ntt_op,
-        // &mod_op, s.values());     println!("RLWE(m) x RGSW(carry_m):
-        // {noise}"); }
+        {
+            // RLWE(m) x RGSW(carry_m)
+            let mut m = vec![0u64; ring_size as usize];
+            RandomUniformDist::random_fill(&mut rng, &q, m.as_mut_slice());
+            let mut rlwe_ct = RlweCiphertext::<_, DefaultSecureRng>::from_raw(
+                vec![vec![0u64; ring_size as usize]; 2],
+                false,
+            );
+            let mut scratch_matrix_dplus2_ring = vec![vec![0u64; ring_size as usize]; d_rgsw + 2];
+            public_key_encrypt_rlwe(
+                &mut rlwe_ct,
+                &public_key.data,
+                &m,
+                &mod_op,
+                &ntt_op,
+                &mut rng,
+            );
+            rlwe_by_rgsw(
+                &mut rlwe_ct,
+                &RgswCiphertextEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
+                    &rgsw_carrym,
+                )
+                .data,
+                &mut scratch_matrix_dplus2_ring,
+                &decomposer,
+                &ntt_op,
+                &mod_op,
+            );
+            let m_expected = negacyclic_mul(&carry_m, &m, mul_mod, q);
+            let noise = measure_noise(&rlwe_ct, &m_expected, &ntt_op, &mod_op, s.values());
+            println!(
+                "RLWE(m) x RGSW(carry_m):
+        {noise}"
+            );
+        }
     }
 
     #[test]
@@ -2040,8 +2043,8 @@ pub(crate) mod tests {
         let ring_size = 1 << 11;
         let q = generate_prime(logq, ring_size, 1u64 << logq).unwrap();
         let p = 1u64 << logp;
-        let d_rgsw = 3;
-        let logb = 15;
+        let d_rgsw = 5;
+        let logb = 12;
 
         let s = RlweSecret::random((ring_size >> 1) as usize, ring_size as usize);
 
@@ -2071,7 +2074,7 @@ pub(crate) mod tests {
         let mut scratch_matrix_d_plus_rgsw_by_ring =
             vec![vec![0u64; ring_size as usize]; d_rgsw + (d_rgsw * 4)];
 
-        for i in 0..10 {
+        for i in 0..1 {
             let mut m = vec![0u64; ring_size as usize];
             m[thread_rng().gen_range(0..ring_size) as usize] = if (i & 1) == 1 { q - 1 } else { 1 };
             let rgsw_m = _sk_encrypt_rgsw(&m, s.values(), &gadget_vector, &mod_op, &ntt_op);
@@ -2088,6 +2091,33 @@ pub(crate) mod tests {
             carry_m = negacyclic_mul(&carry_m, &m, mul_mod, q);
             println!("########### Noise RGSW(carrym) in {i}^th loop ###########");
             _measure_noise_rgsw(&rgsw_carrym, &carry_m, s.values(), &gadget_vector, q);
+        }
+        {
+            // RLWE(m) x RGSW(carry_m)
+            let mut m = vec![0u64; ring_size as usize];
+            RandomUniformDist::random_fill(&mut rng, &q, m.as_mut_slice());
+            let mut rlwe_ct = _secret_encrypt_rlwe(&m, s.values(), &ntt_op, &mod_op);
+            let mut scratch_matrix_dplus2_ring = vec![vec![0u64; ring_size as usize]; d_rgsw + 2];
+
+            // send rgsw to evaluation domain
+            rgsw_carrym
+                .iter_mut()
+                .for_each(|ri| ntt_op.forward(ri.as_mut_slice()));
+
+            rlwe_by_rgsw(
+                &mut rlwe_ct,
+                &rgsw_carrym,
+                &mut scratch_matrix_dplus2_ring,
+                &decomposer,
+                &ntt_op,
+                &mod_op,
+            );
+            let m_expected = negacyclic_mul(&carry_m, &m, mul_mod, q);
+            let noise = measure_noise(&rlwe_ct, &m_expected, &ntt_op, &mod_op, s.values());
+            println!(
+                "RLWE(m) x RGSW(carry_m):
+        {noise}"
+            );
         }
     }
 

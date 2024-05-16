@@ -45,7 +45,7 @@ pub(super) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     br_q: 1 << 11,
     rlwe_n: 1 << 11,
     lwe_n: 500,
-    d_rgsw: 4,
+    d_rgsw: 5,
     logb_rgsw: 12,
     d_lwe: 5,
     logb_lwe: 4,

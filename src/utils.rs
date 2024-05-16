@@ -210,3 +210,21 @@ impl TryConvertFrom<[i32]> for Vec<u64> {
             .collect_vec()
     }
 }
+
+impl TryConvertFrom<[u64]> for Vec<i64> {
+    type Parameters = u64;
+    fn try_convert_from(value: &[u64], parameters: &Self::Parameters) -> Self {
+        let q = *parameters;
+        let qby2 = q / 2;
+        value
+            .iter()
+            .map(|v| {
+                if *v > qby2 {
+                    -((q - v) as i64)
+                } else {
+                    *v as i64
+                }
+            })
+            .collect_vec()
+    }
+}

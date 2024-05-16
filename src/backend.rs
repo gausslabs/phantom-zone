@@ -14,6 +14,7 @@ pub trait VectorOps {
     fn elwise_add_mut(&self, a: &mut [Self::Element], b: &[Self::Element]);
     fn elwise_sub_mut(&self, a: &mut [Self::Element], b: &[Self::Element]);
     fn elwise_mul_mut(&self, a: &mut [Self::Element], b: &[Self::Element]);
+    fn elwise_scalar_mul_mut(&self, a: &mut [Self::Element], b: &Self::Element);
     fn elwise_neg_mut(&self, a: &mut [Self::Element]);
     /// inplace mutates `a`: a = a + b*c
     fn elwise_fma_mut(&self, a: &mut [Self::Element], b: &[Self::Element], c: &[Self::Element]);
@@ -174,6 +175,12 @@ impl VectorOps for ModularOpsU64 {
     fn elwise_mul(&self, out: &mut [Self::Element], a: &[Self::Element], b: &[Self::Element]) {
         izip!(out.iter_mut(), a.iter(), b.iter()).for_each(|(oi, ai, bi)| {
             *oi = self.mul_mod_fast(*ai, *bi);
+        });
+    }
+
+    fn elwise_scalar_mul_mut(&self, a: &mut [Self::Element], b: &Self::Element) {
+        a.iter_mut().for_each(|ai| {
+            *ai = self.mul_mod_fast(*ai, *b);
         });
     }
 

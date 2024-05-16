@@ -102,7 +102,7 @@ impl RandomUniformDist<[u64]> for DefaultSecureRng {
 impl RandomGaussianDist<u64> for DefaultSecureRng {
     type Parameters = u64;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut u64) {
-        let o = rand_distr::Normal::new(0.0, 3.2f64)
+        let o = rand_distr::Normal::new(0.0, 3.19f64)
             .unwrap()
             .sample(&mut self.rng)
             .round();
@@ -121,7 +121,7 @@ impl RandomGaussianDist<u64> for DefaultSecureRng {
 impl RandomGaussianDist<u32> for DefaultSecureRng {
     type Parameters = u32;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut u32) {
-        let o = rand_distr::Normal::new(0.0, 3.2f32)
+        let o = rand_distr::Normal::new(0.0, 3.19f32)
             .unwrap()
             .sample(&mut self.rng)
             .round();

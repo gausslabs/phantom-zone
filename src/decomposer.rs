@@ -20,6 +20,7 @@ pub trait Decomposer {
     fn d(&self) -> usize;
 }
 
+// TODO(Jay): Shouldn't Decompose also return corresponding gadget vector ?
 pub struct DefaultDecomposer<T> {
     q: T,
     logq: usize,
