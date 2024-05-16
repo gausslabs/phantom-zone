@@ -1,54 +1,204 @@
+use crate::decomposer::Decomposer;
+
 #[derive(Clone, PartialEq)]
 pub(super) struct BoolParameters<El> {
-    pub(super) rlwe_q: El,
-    pub(super) rlwe_logq: usize,
-    pub(super) lwe_q: El,
-    pub(super) lwe_logq: usize,
-    pub(super) br_q: usize,
-    pub(super) rlwe_n: usize,
-    pub(super) lwe_n: usize,
-    pub(super) d_rgsw: usize,
-    pub(super) logb_rgsw: usize,
-    pub(super) d_lwe: usize,
-    pub(super) logb_lwe: usize,
-    pub(super) g: usize,
-    pub(super) w: usize,
+    rlwe_q: Modulus<El>,
+    lwe_q: Modulus<El>,
+    br_q: Modulus<El>,
+    rlwe_n: PolynomialSize,
+    lwe_n: LweDimension,
+    lwe_decomposer_base: DecompostionLogBase,
+    lwe_decomposer_count: DecompositionCount,
+    rlrg_decomposer_base: DecompostionLogBase,
+    /// RLWE x RGSW decomposition count for (part A, part B)
+    rlrg_decomposer_count: (DecompositionCount, DecompositionCount),
+    rgrg_decomposer_base: DecompostionLogBase,
+    /// RGSW x RGSW decomposition count for (part A, part B)
+    rgrg_decomposer_count: (DecompositionCount, DecompositionCount),
+    auto_decomposer_base: DecompostionLogBase,
+    auto_decomposer_count: DecompositionCount,
+    g: usize,
+    w: usize,
 }
 
-// impl<El> BoolParameters<El> {
-//     fn rlwe_q(&self) -> &El {
-//         &self.rlwe_q
-//     }
-// }
+impl<El> BoolParameters<El> {
+    pub(crate) fn rlwe_q(&self) -> &Modulus<El> {
+        &self.rlwe_q
+    }
+
+    pub(crate) fn lwe_q(&self) -> &Modulus<El> {
+        &self.lwe_q
+    }
+
+    pub(crate) fn br_q(&self) -> &Modulus<El> {
+        &self.br_q
+    }
+
+    pub(crate) fn rlwe_n(&self) -> &PolynomialSize {
+        &self.rlwe_n
+    }
+
+    pub(crate) fn lwe_n(&self) -> &LweDimension {
+        &self.lwe_n
+    }
+
+    pub(crate) fn g(&self) -> usize {
+        self.g
+    }
+
+    pub(crate) fn w(&self) -> usize {
+        self.w
+    }
+
+    pub(crate) fn rlwe_rgsw_decomposition_base(&self) -> DecompostionLogBase {
+        self.rlrg_decomposer_base
+    }
+
+    pub(crate) fn rlwe_rgsw_decomposition_count(&self) -> (DecompositionCount, DecompositionCount) {
+        self.rlrg_decomposer_count
+    }
+
+    pub(crate) fn rgsw_rgsw_decomposition_base(&self) -> DecompostionLogBase {
+        self.rgrg_decomposer_base
+    }
+
+    pub(crate) fn rgsw_rgsw_decomposition_count(&self) -> (DecompositionCount, DecompositionCount) {
+        self.rgrg_decomposer_count
+    }
+
+    pub(crate) fn auto_decomposition_base(&self) -> DecompostionLogBase {
+        self.auto_decomposer_base
+    }
+
+    pub(crate) fn auto_decomposition_count(&self) -> DecompositionCount {
+        self.auto_decomposer_count
+    }
+
+    pub(crate) fn lwe_decomposition_base(&self) -> DecompostionLogBase {
+        self.lwe_decomposer_base
+    }
+
+    pub(crate) fn lwe_decomposition_count(&self) -> DecompositionCount {
+        self.lwe_decomposer_count
+    }
+
+    pub(crate) fn rgsw_rgsw_decomposer<D: Decomposer<Element = El>>(&self) -> (D, D)
+    where
+        El: Copy,
+    {
+        (
+            // A
+            D::new(
+                self.rlwe_q.0,
+                self.rgrg_decomposer_base.0,
+                self.rgrg_decomposer_count.0 .0,
+            ),
+            // B
+            D::new(
+                self.rlwe_q.0,
+                self.rgrg_decomposer_base.0,
+                self.rgrg_decomposer_count.1 .0,
+            ),
+        )
+    }
+
+    pub(crate) fn auto_decomposer<D: Decomposer<Element = El>>(&self) -> D
+    where
+        El: Copy,
+    {
+        D::new(
+            self.rlwe_q.0,
+            self.auto_decomposer_base.0,
+            self.auto_decomposer_count.0,
+        )
+    }
+
+    pub(crate) fn lwe_decomposer<D: Decomposer<Element = El>>(&self) -> D
+    where
+        El: Copy,
+    {
+        D::new(
+            self.lwe_q.0,
+            self.lwe_decomposer_base.0,
+            self.lwe_decomposer_count.0,
+        )
+    }
+
+    pub(crate) fn rlwe_rgsw_decomposer<D: Decomposer<Element = El>>(&self) -> (D, D)
+    where
+        El: Copy,
+    {
+        (
+            // A
+            D::new(
+                self.rlwe_q.0,
+                self.rlrg_decomposer_base.0,
+                self.rlrg_decomposer_count.0 .0,
+            ),
+            // B
+            D::new(
+                self.rlwe_q.0,
+                self.rlrg_decomposer_base.0,
+                self.rlrg_decomposer_count.1 .0,
+            ),
+        )
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct DecompostionLogBase(pub(crate) usize);
+impl AsRef<usize> for DecompostionLogBase {
+    fn as_ref(&self) -> &usize {
+        &self.0
+    }
+}
+#[derive(Clone, Copy, PartialEq)]
+struct DecompositionCount(pub(crate) usize);
+impl AsRef<usize> for DecompositionCount {
+    fn as_ref(&self) -> &usize {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct LweDimension(pub(crate) usize);
+#[derive(Clone, Copy, PartialEq)]
+struct PolynomialSize(pub(crate) usize);
+#[derive(Clone, Copy, PartialEq)]
+struct Modulus<T>(pub(crate) T);
 
 pub(super) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_q: 268369921u64,
-    rlwe_logq: 28,
-    lwe_q: 1 << 16,
-    lwe_logq: 16,
-    br_q: 1 << 10,
-    rlwe_n: 1 << 10,
-    lwe_n: 493,
-    d_rgsw: 4,
-    logb_rgsw: 7,
-    d_lwe: 4,
-    logb_lwe: 4,
+    rlwe_q: Modulus(268369921u64),
+    lwe_q: Modulus(1 << 16),
+    br_q: Modulus(1 << 10),
+    rlwe_n: PolynomialSize(1 << 10),
+    lwe_n: LweDimension(493),
+    lwe_decomposer_base: DecompostionLogBase(4),
+    lwe_decomposer_count: DecompositionCount(4),
+    rlrg_decomposer_base: DecompostionLogBase(7),
+    rlrg_decomposer_count: (DecompositionCount(4), DecompositionCount(4)),
+    rgrg_decomposer_base: DecompostionLogBase(7),
+    rgrg_decomposer_count: (DecompositionCount(4), DecompositionCount(4)),
+    auto_decomposer_base: DecompostionLogBase(7),
+    auto_decomposer_count: DecompositionCount(4),
     g: 5,
     w: 1,
 };
 
 pub(super) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_q: 1152921504606830593,
-    rlwe_logq: 60,
-    lwe_q: 1 << 20,
-    lwe_logq: 20,
-    br_q: 1 << 11,
-    rlwe_n: 1 << 11,
-    lwe_n: 500,
-    d_rgsw: 5,
-    logb_rgsw: 12,
-    d_lwe: 5,
-    logb_lwe: 4,
+    rlwe_q: Modulus(1152921504606830593),
+    lwe_q: Modulus(1 << 20),
+    br_q: Modulus(1 << 11),
+    rlwe_n: PolynomialSize(1 << 11),
+    lwe_n: LweDimension(500),
+    lwe_decomposer_base: DecompostionLogBase(4),
+    lwe_decomposer_count: DecompositionCount(5),
+    rlrg_decomposer_base: DecompostionLogBase(12),
+    rlrg_decomposer_count: (DecompositionCount(5), DecompositionCount(5)),
+    rgrg_decomposer_base: DecompostionLogBase(12),
+    rgrg_decomposer_count: (DecompositionCount(5), DecompositionCount(5)),
+    auto_decomposer_base: DecompostionLogBase(12),
+    auto_decomposer_count: DecompositionCount(5),
     g: 5,
     w: 1,
 };

@@ -145,15 +145,15 @@ where
         assert!(value.len() > 0);
 
         let parameters = &value[0].parameters;
-        let mut key = M::zeros(2, parameters.rlwe_n);
+        let mut key = M::zeros(2, parameters.rlwe_n().0);
 
         // sample A
         let seed = value[0].cr_seed;
         let mut main_rng = Rng::new_with_seed(seed);
-        RandomUniformDist::random_fill(&mut main_rng, &parameters.rlwe_q, key.get_row_mut(0));
+        RandomUniformDist::random_fill(&mut main_rng, &parameters.rlwe_q().0, key.get_row_mut(0));
 
         // Sum all Bs
-        let rlweq_modop = ModOp::new(parameters.rlwe_q);
+        let rlweq_modop = ModOp::new(parameters.rlwe_q().0);
         value.iter().for_each(|share_i| {
             assert!(share_i.cr_seed == seed);
             assert!(&share_i.parameters == parameters);
@@ -203,12 +203,10 @@ where
     let parameters = shares[0].parameters.clone();
     let cr_seed = shares[0].cr_seed;
 
-    let rlwe_n = parameters.rlwe_n;
-    let g = parameters.g as isize;
-    let d_rgsw = parameters.d_rgsw;
-    let d_lwe = parameters.d_lwe;
-    let rlwe_q = parameters.rlwe_q;
-    let lwe_q = parameters.lwe_q;
+    let rlwe_n = parameters.rlwe_n().0;
+    let g = parameters.g() as isize;
+    let rlwe_q = parameters.rlwe_q().0;
+    let lwe_q = parameters.lwe_q().0;
 
     // sanity checks
     shares.iter().skip(1).for_each(|s| {
@@ -222,11 +220,13 @@ where
     // auto keys
     let mut auto_keys = HashMap::new();
     for i in [g, -g] {
-        let mut key = M::zeros(d_rgsw, rlwe_n);
+        let mut key = M::zeros(parameters.auto_decomposition_count().0, rlwe_n);
 
         shares.iter().for_each(|s| {
             let auto_key_share_i = s.auto_keys.get(&i).expect("Auto key {i} missing");
-            assert!(auto_key_share_i.dimension() == (d_rgsw, rlwe_n));
+            assert!(
+                auto_key_share_i.dimension() == (parameters.auto_decomposition_count().0, rlwe_n)
+            );
             izip!(key.iter_rows_mut(), auto_key_share_i.iter_rows()).for_each(
                 |(partb_out, partb_share)| {
                     rlweq_modop.elwise_add_mut(partb_out.as_mut(), partb_share.as_ref());
@@ -238,8 +238,9 @@ where
     }
 
     // rgsw ciphertext (most expensive part!)
-    let lwe_n = parameters.lwe_n;
+    let lwe_n = parameters.lwe_n().0;
     let mut scratch_d_plus_rgsw_by_ring = M::zeros(d_rgsw + (d_rgsw * 4), rlwe_n);
+
     let mut tmp_rgsw = M::zeros(d_rgsw * 2 * 2, rlwe_n);
     let rgsw_cts = (0..lwe_n)
         .into_iter()
@@ -272,10 +273,10 @@ where
         .collect_vec();
 
     // LWE ksks
-    let mut lwe_ksk = M::R::zeros(rlwe_n * d_lwe);
+    let mut lwe_ksk = M::R::zeros(rlwe_n * parameters.lwe_decomposition_count().0);
     let lweq_modop = ModOp::new(lwe_q);
     shares.iter().for_each(|si| {
-        assert!(si.lwe_ksk.as_ref().len() == rlwe_n * d_lwe);
+        assert!(si.lwe_ksk.as_ref().len() == rlwe_n * parameters.lwe_decomposition_count().0);
         lweq_modop.elwise_add_mut(lwe_ksk.as_mut(), si.lwe_ksk.as_ref())
     });
 
@@ -288,6 +289,7 @@ where
     }
 }
 
+/// Seeded single party server key
 struct SeededServerKey<M: Matrix, P, S> {
     /// Rgsw cts of LWE secret elements
     pub(crate) rgsw_cts: Vec<M>,
@@ -310,13 +312,24 @@ impl<M: Matrix, S> SeededServerKey<M, BoolParameters<M::MatElement>, S> {
         seed: S,
     ) -> Self {
         // sanity checks
-        auto_keys
-            .iter()
-            .for_each(|v| assert!(v.1.dimension() == (parameters.d_rgsw, parameters.rlwe_n)));
-        rgsw_cts
-            .iter()
-            .for_each(|v| assert!(v.dimension() == (parameters.d_rgsw * 3, parameters.rlwe_n)));
-        assert!(lwe_ksk.as_ref().len() == (parameters.d_lwe * parameters.rlwe_n));
+        auto_keys.iter().for_each(|v| {
+            assert!(
+                v.1.dimension()
+                    == (
+                        parameters.auto_decomposition_count().0,
+                        parameters.rlwe_n().0
+                    )
+            )
+        });
+
+        let (part_a_d, part_b_d) = parameters.rlwe_rgsw_decomposition_count();
+        rgsw_cts.iter().for_each(|v| {
+            assert!(v.dimension() == (part_a_d.0 * 2 + part_b_d.0, parameters.rlwe_n().0))
+        });
+        assert!(
+            lwe_ksk.as_ref().len()
+                == (parameters.lwe_decomposition_count().0 * parameters.rlwe_n().0)
+        );
 
         SeededServerKey {
             rgsw_cts,
@@ -328,6 +341,7 @@ impl<M: Matrix, S> SeededServerKey<M, BoolParameters<M::MatElement>, S> {
     }
 }
 
+/// Server key in evaluation domain
 struct ServerKeyEvaluationDomain<M, R, N> {
     /// Rgsw cts of LWE secret elements
     rgsw_cts: Vec<M>,
@@ -351,33 +365,32 @@ where
 {
     fn from(value: &SeededServerKey<M, BoolParameters<M::MatElement>, R::Seed>) -> Self {
         let mut main_prng = R::new_with_seed(value.seed.clone());
-
-        let g = value.parameters.g as isize;
-        let ring_size = value.parameters.rlwe_n;
-        let lwe_n = value.parameters.lwe_n;
-        let d_rgsw = value.parameters.d_rgsw;
-        let d_lwe = value.parameters.d_lwe;
-        let rlwe_q = value.parameters.rlwe_q;
-        let lwq_q = value.parameters.lwe_q;
+        let parameters = &value.parameters;
+        let g = parameters.g() as isize;
+        let ring_size = value.parameters.rlwe_n().0;
+        let lwe_n = value.parameters.lwe_n().0;
+        let rlwe_q = value.parameters.rlwe_q().0;
+        let lwq_q = value.parameters.lwe_q().0;
 
         let nttop = N::new(rlwe_q, ring_size);
 
         // galois keys
         let mut auto_keys = HashMap::new();
+        let auto_decomp_count = parameters.auto_decomposition_count().0;
         for i in [g, -g] {
             let seeded_auto_key = value.auto_keys.get(&i).unwrap();
-            assert!(seeded_auto_key.dimension() == (d_rgsw, ring_size));
+            assert!(seeded_auto_key.dimension() == (auto_decomp_count, ring_size));
 
-            let mut data = M::zeros(d_rgsw * 2, ring_size);
+            let mut data = M::zeros(auto_decomp_count * 2, ring_size);
 
             // sample RLWE'_A(-s(X^k))
-            data.iter_rows_mut().take(d_rgsw).for_each(|ri| {
+            data.iter_rows_mut().take(auto_decomp_count).for_each(|ri| {
                 RandomUniformDist::random_fill(&mut main_prng, &rlwe_q, ri.as_mut())
             });
 
             // copy over RLWE'B_(-s(X^k))
             izip!(
-                data.iter_rows_mut().skip(d_rgsw),
+                data.iter_rows_mut().skip(auto_decomp_count),
                 seeded_auto_key.iter_rows()
             )
             .for_each(|(to_ri, from_ri)| to_ri.as_mut().copy_from_slice(from_ri.as_ref()));
@@ -390,33 +403,38 @@ where
         }
 
         // RGSW ciphertexts
+        let (rlrg_a_decomp, rlrg_b_decomp) = parameters.rlwe_rgsw_decomposition_count();
         let rgsw_cts = value
             .rgsw_cts
             .iter()
             .map(|seeded_rgsw_si| {
-                assert!(seeded_rgsw_si.dimension() == (3 * d_rgsw, ring_size));
+                assert!(
+                    seeded_rgsw_si.dimension()
+                        == (rlrg_a_decomp.0 * 2 + rlrg_b_decomp.0, ring_size)
+                );
 
-                let mut data = M::zeros(d_rgsw * 4, ring_size);
+                let mut data = M::zeros(rlrg_a_decomp.0 * 2 + rlrg_b_decomp.0 * 2, ring_size);
 
                 // copy over RLWE'(-sm)
                 izip!(
-                    data.iter_rows_mut().take(d_rgsw * 2),
-                    seeded_rgsw_si.iter_rows().take(d_rgsw * 2)
+                    data.iter_rows_mut().take(rlrg_a_decomp.0 * 2),
+                    seeded_rgsw_si.iter_rows().take(rlrg_a_decomp.0 * 2)
                 )
                 .for_each(|(to_ri, from_ri)| to_ri.as_mut().copy_from_slice(from_ri.as_ref()));
 
                 // sample RLWE'_A(m)
                 data.iter_rows_mut()
-                    .skip(2 * d_rgsw)
-                    .take(d_rgsw)
+                    .skip(rlrg_a_decomp.0 * 2)
+                    .take(rlrg_b_decomp.0)
                     .for_each(|ri| {
                         RandomUniformDist::random_fill(&mut main_prng, &rlwe_q, ri.as_mut())
                     });
 
                 // copy over RLWE'_B(m)
                 izip!(
-                    data.iter_rows_mut().skip(d_rgsw * 3),
-                    seeded_rgsw_si.iter_rows().skip(d_rgsw * 2)
+                    data.iter_rows_mut()
+                        .skip(rlrg_a_decomp.0 * 2 + rlrg_b_decomp.0),
+                    seeded_rgsw_si.iter_rows().skip(rlrg_a_decomp.0 * 2)
                 )
                 .for_each(|(to_ri, from_ri)| to_ri.as_mut().copy_from_slice(from_ri.as_ref()));
 
@@ -430,9 +448,10 @@ where
 
         // LWE ksk
         let lwe_ksk = {
-            assert!(value.lwe_ksk.as_ref().len() == d_lwe * ring_size);
+            let d = parameters.lwe_decomposition_count().0;
+            assert!(value.lwe_ksk.as_ref().len() == d * ring_size);
 
-            let mut data = M::zeros(d_lwe * ring_size, lwe_n + 1);
+            let mut data = M::zeros(d * ring_size, lwe_n + 1);
             izip!(data.iter_rows_mut(), value.lwe_ksk.as_ref().iter()).for_each(|(lwe_i, bi)| {
                 RandomUniformDist::random_fill(&mut main_prng, &lwq_q, &mut lwe_i.as_mut()[1..]);
                 lwe_i.as_mut()[0] = *bi;
@@ -465,12 +484,11 @@ where
     fn from(
         value: &SeededMultiPartyServerKey<M, Rng::Seed, BoolParameters<M::MatElement>>,
     ) -> Self {
-        let g = value.parameters.g as isize;
-        let rlwe_n = value.parameters.rlwe_n;
-        let lwe_n = value.parameters.lwe_n;
-        let rlwe_q = value.parameters.rlwe_q;
-        let lwe_q = value.parameters.lwe_q;
-        let d_rgsw = value.parameters.d_rgsw;
+        let g = value.parameters.g() as isize;
+        let rlwe_n = value.parameters.rlwe_n().0;
+        let lwe_n = value.parameters.lwe_n().0;
+        let rlwe_q = value.parameters.rlwe_q().0;
+        let lwe_q = value.parameters.lwe_q().0;
 
         let mut main_prng = Rng::new_with_seed(value.cr_seed);
 
@@ -478,21 +496,24 @@ where
 
         // auto keys
         let mut auto_keys = HashMap::new();
+        let auto_d_count = value.parameters.auto_decomposition_count().0;
         for i in [g, -g] {
-            let mut key = M::zeros(value.parameters.d_rgsw * 2, rlwe_n);
+            let mut key = M::zeros(auto_d_count * 2, rlwe_n);
 
             // sample a
-            key.iter_rows_mut().take(d_rgsw).for_each(|ri| {
+            key.iter_rows_mut().take(auto_d_count).for_each(|ri| {
                 RandomUniformDist::random_fill(&mut main_prng, &rlwe_q, ri.as_mut())
             });
 
             let key_part_b = value.auto_keys.get(&i).unwrap();
-            assert!(key_part_b.dimension() == (d_rgsw, rlwe_n));
-            izip!(key.iter_rows_mut().skip(d_rgsw), key_part_b.iter_rows()).for_each(
-                |(to_ri, from_ri)| {
-                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
-                },
-            );
+            assert!(key_part_b.dimension() == (auto_d_count, rlwe_n));
+            izip!(
+                key.iter_rows_mut().skip(auto_d_count),
+                key_part_b.iter_rows()
+            )
+            .for_each(|(to_ri, from_ri)| {
+                to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+            });
 
             // send to evaluation domain
             key.iter_rows_mut()
@@ -502,11 +523,14 @@ where
         }
 
         // rgsw cts
+        let (rlrg_d_a, rlrg_d_b) = value.parameters.rlwe_rgsw_decomposition_count();
+        let rgsw_ct_rows = rlrg_d_a.0 * 2 + rlrg_d_b.0 * 2;
         let rgsw_cts = value
             .rgsw_cts
             .iter()
             .map(|ct_i| {
-                let mut eval_ct_i = M::zeros(d_rgsw * 4, rlwe_n);
+                assert!(ct_i.dimension() == (rgsw_ct_rows, rlwe_n));
+                let mut eval_ct_i = M::zeros(rgsw_ct_rows, rlwe_n);
 
                 izip!(eval_ct_i.iter_rows_mut(), ct_i.iter_rows()).for_each(|(to_ri, from_ri)| {
                     to_ri.as_mut().copy_from_slice(from_ri.as_ref());
@@ -518,7 +542,7 @@ where
             .collect_vec();
 
         // lwe ksk
-        let d_lwe = value.parameters.d_lwe;
+        let d_lwe = value.parameters.lwe_decomposition_count().0;
         let mut lwe_ksk = M::zeros(rlwe_n * d_lwe, lwe_n + 1);
         izip!(lwe_ksk.iter_rows_mut(), value.lwe_ksk.as_ref().iter()).for_each(|(lwe_i, bi)| {
             RandomUniformDist::random_fill(&mut main_prng, &lwe_q, &mut lwe_i.as_mut()[1..]);
@@ -1439,8 +1463,11 @@ fn pbs<
         gb_monomial_sign = false
     }
     // monomial mul
-    let mut trivial_rlwe_test_poly =
-        RlweCiphertext::<_, DefaultSecureRng>::from_raw(M::zeros(2, rlwe_n), true);
+    let mut trivial_rlwe_test_poly = RlweCiphertext::<_, DefaultSecureRng> {
+        data: M::zeros(2, rlwe_n),
+        is_trivial: true,
+        _phatom: PhantomData,
+    };
     if parameters.embedding_factor() == 1 {
         monomial_mul(
             test_vec.as_ref(),
@@ -2242,7 +2269,7 @@ mod tests {
 
             // RGSW(carrym)
             let trivial_rlwect = vec![vec![0u64; rlwe_n], carry_m.clone()];
-            let mut rlwe_ct = RlweCiphertext::<_, DefaultSecureRng>::from_raw(trivial_rlwect, true);
+            let mut rlwe_ct = RlweCiphertext::<_, DefaultSecureRng>::new_trivial(trivial_rlwect);
 
             let mut scratch_matrix_dplus2_ring = vec![vec![0u64; rlwe_n]; d_rgsw + 2];
             let mul_mod =
@@ -2298,7 +2325,7 @@ mod tests {
                         rlwe_nttop,
                         &mut rng,
                     );
-                    RlweCiphertext::<_, DefaultSecureRng>::from_raw(data, false)
+                    RlweCiphertext::<_, DefaultSecureRng>::new_trivial(data, false)
                 };
 
                 let auto_key = server_key_eval.galois_key_for_auto(i);
@@ -2666,7 +2693,7 @@ mod tests {
                         Vec::<u64>::try_convert_from(ideal_client_key.sk_rlwe.values(), &rlwe_q);
                     rlwe_modop.elwise_neg_mut(&mut neg_s_eval);
                     rlwe_nttop.forward(&mut neg_s_eval);
-                    for j in 0..rlwe_decomposer.d() {
+                    for j in 0..rlwe_decomposer.decomposition_count() {
                         // -s[X]*X^{s_lwe[i]}*B_j
                         let mut m_ideal = m_si.clone();
                         rlwe_nttop.forward(m_ideal.as_mut_slice());
@@ -2678,7 +2705,8 @@ mod tests {
                         // RLWE(-s*X^{s_lwe[i]}*B_j)
                         let mut rlwe_ct = vec![vec![0u64; rlwe_n]; 2];
                         rlwe_ct[0].copy_from_slice(&rgsw_ct_i[j]);
-                        rlwe_ct[1].copy_from_slice(&rgsw_ct_i[j + rlwe_decomposer.d()]);
+                        rlwe_ct[1]
+                            .copy_from_slice(&rgsw_ct_i[j + rlwe_decomposer.decomposition_count()]);
 
                         let mut m_back = vec![0u64; rlwe_n];
                         decrypt_rlwe(
@@ -2695,7 +2723,7 @@ mod tests {
                     }
 
                     // RLWE'(m)
-                    for j in 0..rlwe_decomposer.d() {
+                    for j in 0..rlwe_decomposer.decomposition_count() {
                         // X^{s_lwe[i]}*B_j
                         let mut m_ideal = m_si.clone();
                         rlwe_modop
@@ -2703,8 +2731,12 @@ mod tests {
 
                         // RLWE(X^{s_lwe[i]}*B_j)
                         let mut rlwe_ct = vec![vec![0u64; rlwe_n]; 2];
-                        rlwe_ct[0].copy_from_slice(&rgsw_ct_i[j + (2 * rlwe_decomposer.d())]);
-                        rlwe_ct[1].copy_from_slice(&rgsw_ct_i[j + (3 * rlwe_decomposer.d())]);
+                        rlwe_ct[0].copy_from_slice(
+                            &rgsw_ct_i[j + (2 * rlwe_decomposer.decomposition_count())],
+                        );
+                        rlwe_ct[1].copy_from_slice(
+                            &rgsw_ct_i[j + (3 * rlwe_decomposer.decomposition_count())],
+                        );
 
                         let mut m_back = vec![0u64; rlwe_n];
                         decrypt_rlwe(
@@ -2759,13 +2791,14 @@ mod tests {
                     );
 
                     // RLWE(m*X^{s[i]}) = RLWE(m) x RGSW(X^{s[i]})
-                    let mut rlwe_after = RlweCiphertext::<_, DefaultSecureRng>::from_raw(
-                        vec![vec![0u64; rlwe_n], m.clone()],
-                        true,
-                    );
+                    let mut rlwe_after = RlweCiphertext::<_, DefaultSecureRng>::new_trivial(vec![
+                        vec![0u64; rlwe_n],
+                        m.clone(),
+                    ]);
                     // let mut rlwe_after =
                     //     RlweCiphertext::<_, DefaultSecureRng>::from_raw(rlwe_ct.clone(), false);
-                    let mut scratch = vec![vec![0u64; rlwe_n]; rlwe_decomposer.d() + 2];
+                    let mut scratch =
+                        vec![vec![0u64; rlwe_n]; rlwe_decomposer.decomposition_count() + 2];
                     rlwe_by_rgsw(
                         &mut rlwe_after,
                         &rgsw_ct_i,

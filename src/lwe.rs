@@ -111,7 +111,7 @@ pub(crate) fn lwe_key_switch<
     operator: &Op,
     decomposer: &D,
 ) {
-    assert!(lwe_ksk.dimension().0 == ((lwe_in.as_ref().len() - 1) * decomposer.d()));
+    assert!(lwe_ksk.dimension().0 == ((lwe_in.as_ref().len() - 1) * decomposer.decomposition_count()));
     assert!(lwe_out.as_ref().len() == lwe_ksk.dimension().1);
 
     let lwe_in_a_decomposed = lwe_in
@@ -274,7 +274,7 @@ mod tests {
 
     use crate::{
         backend::{ModInit, ModularOpsU64},
-        decomposer::DefaultDecomposer,
+        decomposer::{Decomposer, DefaultDecomposer},
         lwe::{lwe_key_switch, measure_noise_lwe},
         random::DefaultSecureRng,
         rgsw::measure_noise,

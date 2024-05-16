@@ -288,14 +288,14 @@ impl<R: RowEntity, S> SeededRlweCiphertext<R, S> {
 pub struct RlweCiphertext<M, Rng> {
     pub(crate) data: M,
     pub(crate) is_trivial: bool,
-    _phatom: PhantomData<Rng>,
+    pub(crate) _phatom: PhantomData<Rng>,
 }
 
 impl<M, Rng> RlweCiphertext<M, Rng> {
-    pub(crate) fn from_raw(data: M, is_trivial: bool) -> Self {
+    pub(crate) fn new_trivial(data: M) -> Self {
         RlweCiphertext {
             data,
-            is_trivial,
+            is_trivial: true,
             _phatom: PhantomData,
         }
     }
@@ -490,7 +490,7 @@ pub(crate) fn decompose_r<R: RowMut, D: Decomposer<Element = R::Element>>(
     R::Element: Copy,
 {
     let ring_size = r.len();
-    let d = decomposer.d();
+    let d = decomposer.decomposition_count();
 
     for ri in 0..ring_size {
         let el_decomposed = decomposer.decompose(&r[ri]);
@@ -521,7 +521,7 @@ pub(crate) fn galois_auto<
     <MT as Matrix>::R: RowMut,
     MT::MatElement: Copy + Zero,
 {
-    let d = decomposer.d();
+    let d = decomposer.decomposition_count();
 
     let (scratch_matrix_d_ring, tmp_rlwe_out) = scratch_matrix_dplus2_ring.split_at_row_mut(d);
 
@@ -625,7 +625,7 @@ pub(crate) fn less1_rlwe_by_rgsw<
     <Mmut as Matrix>::R: RowMut,
     <MT as Matrix>::R: RowMut,
 {
-    let d_rgsw = decomposer.d();
+    let d_rgsw = decomposer.decomposition_count();
     assert!(scratch_matrix_dplus2_ring.dimension() == (d_rgsw + 2, rlwe_in.dimension().1));
     assert!(rgsw_in.dimension() == (d_rgsw * 4, rlwe_in.dimension().1));
 
@@ -717,7 +717,7 @@ pub(crate) fn rlwe_by_rgsw<
     <Mmut as Matrix>::R: RowMut,
     <MT as Matrix>::R: RowMut,
 {
-    let d_rgsw = decomposer.d();
+    let d_rgsw = decomposer.decomposition_count();
     assert!(scratch_matrix_dplus2_ring.dimension() == (d_rgsw + 2, rlwe_in.dimension().1));
     assert!(rgsw_in.dimension() == (d_rgsw * 4, rlwe_in.dimension().1));
 
@@ -818,7 +818,7 @@ pub(crate) fn rgsw_by_rgsw_inplace<
     <Mmut as Matrix>::R: RowMut,
     Mmut::MatElement: Copy + Zero,
 {
-    let d_rgsw = decomposer.d();
+    let d_rgsw = decomposer.decomposition_count();
     assert!(rgsw_0.dimension().0 == 4 * d_rgsw);
     let ring_size = rgsw_0.dimension().1;
     assert!(rgsw_1_eval.dimension() == (4 * d_rgsw, ring_size));
@@ -1495,14 +1495,14 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{ops::Mul, vec};
+    use std::{marker::PhantomData, ops::Mul, vec};
 
     use itertools::{izip, Itertools};
     use rand::{thread_rng, Rng};
 
     use crate::{
         backend::{ModInit, ModularOpsU64, VectorOps},
-        decomposer::DefaultDecomposer,
+        decomposer::{Decomposer, DefaultDecomposer},
         ntt::{self, Ntt, NttBackendU64, NttInit},
         random::{DefaultSecureRng, NewWithSeed, RandomUniformDist},
         rgsw::{
@@ -2003,10 +2003,11 @@ pub(crate) mod tests {
             // RLWE(m) x RGSW(carry_m)
             let mut m = vec![0u64; ring_size as usize];
             RandomUniformDist::random_fill(&mut rng, &q, m.as_mut_slice());
-            let mut rlwe_ct = RlweCiphertext::<_, DefaultSecureRng>::from_raw(
-                vec![vec![0u64; ring_size as usize]; 2],
-                false,
-            );
+            let mut rlwe_ct = RlweCiphertext::<_, DefaultSecureRng> {
+                data: vec![vec![0u64; ring_size as usize]; 2],
+                is_trivial: false,
+                _phatom: PhantomData,
+            };
             let mut scratch_matrix_dplus2_ring = vec![vec![0u64; ring_size as usize]; d_rgsw + 2];
             public_key_encrypt_rlwe(
                 &mut rlwe_ct,

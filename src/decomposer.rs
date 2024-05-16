@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use num_traits::{AsPrimitive, One, PrimInt, ToPrimitive, WrappingSub, Zero};
+use num_traits::{AsPrimitive, Num, One, PrimInt, ToPrimitive, WrappingSub, Zero};
 use std::{fmt::Debug, marker::PhantomData, ops::Rem};
 
 use crate::backend::{ArithmeticOps, ModularOpsU64};
@@ -15,9 +15,10 @@ fn gadget_vector<T: PrimInt>(logq: usize, logb: usize, d: usize) -> Vec<T> {
 
 pub trait Decomposer {
     type Element;
+    fn new(q: Self::Element, logb: usize, d: usize) -> Self;
     //FIXME(Jay): there's no reason why it returns a vec instead of an iterator
     fn decompose(&self, v: &Self::Element) -> Vec<Self::Element>;
-    fn d(&self) -> usize;
+    fn decomposition_count(&self) -> usize;
 }
 
 // TODO(Jay): Shouldn't Decompose also return corresponding gadget vector ?
@@ -45,28 +46,6 @@ impl NumInfo for u128 {
 }
 
 impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
-    pub fn new(q: T, logb: usize, d: usize) -> DefaultDecomposer<T> {
-        // if q is power of 2, then `BITS - leading_zeros` outputs logq + 1.
-        let logq = if q & (q - T::one()) == T::zero() {
-            (T::BITS - q.leading_zeros() - 1) as usize
-        } else {
-            (T::BITS - q.leading_zeros()) as usize
-        };
-
-        let d_ideal = (logq as f64 / logb as f64).ceil().to_usize().unwrap();
-        let ignore_limbs = (d_ideal - d);
-        let ignore_bits = (d_ideal - d) * logb;
-
-        DefaultDecomposer {
-            q,
-            logq,
-            logb,
-            d,
-            ignore_bits,
-            ignore_limbs,
-        }
-    }
-
     fn recompose<Op>(&self, limbs: &[T], modq_op: &Op) -> T
     where
         Op: ArithmeticOps<Element = T>,
@@ -89,10 +68,33 @@ impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
     }
 }
 
-impl<T: PrimInt + WrappingSub + Debug> Decomposer for DefaultDecomposer<T> {
+impl<T: PrimInt + WrappingSub + Debug + NumInfo> Decomposer for DefaultDecomposer<T> {
     type Element = T;
+
+    fn new(q: T, logb: usize, d: usize) -> DefaultDecomposer<T> {
+        // if q is power of 2, then `BITS - leading_zeros` outputs logq + 1.
+        let logq = if q & (q - T::one()) == T::zero() {
+            (T::BITS - q.leading_zeros() - 1) as usize
+        } else {
+            (T::BITS - q.leading_zeros()) as usize
+        };
+
+        let d_ideal = (logq as f64 / logb as f64).ceil().to_usize().unwrap();
+        let ignore_limbs = (d_ideal - d);
+        let ignore_bits = (d_ideal - d) * logb;
+
+        DefaultDecomposer {
+            q,
+            logq,
+            logb,
+            d,
+            ignore_bits,
+            ignore_limbs,
+        }
+    }
+
     fn decompose(&self, value: &T) -> Vec<T> {
-        let mut value = round_value(*value, self.ignore_bits);
+        let value = round_value(*value, self.ignore_bits);
 
         let q = self.q;
         // if value >= (q >> 1) {
@@ -135,7 +137,7 @@ impl<T: PrimInt + WrappingSub + Debug> Decomposer for DefaultDecomposer<T> {
         return out;
     }
 
-    fn d(&self) -> usize {
+    fn decomposition_count(&self) -> usize {
         self.d
     }
 }
