@@ -1502,7 +1502,7 @@ pub(crate) mod tests {
 
     use crate::{
         backend::{ModInit, ModularOpsU64, VectorOps},
-        decomposer::{gadget_vector, DefaultDecomposer},
+        decomposer::DefaultDecomposer,
         ntt::{self, Ntt, NttBackendU64, NttInit},
         random::{DefaultSecureRng, NewWithSeed, RandomUniformDist},
         rgsw::{
@@ -1600,7 +1600,8 @@ pub(crate) mod tests {
 
         let ntt_op = NttBackendU64::new(q, ring_size as usize);
         let mod_op = ModularOpsU64::new(q);
-        let gadget_vector = gadget_vector(logq, logb, d_rgsw);
+        let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
+        let gadget_vector = decomposer.gadget_vector();
 
         // Encrypt m1 as RGSW(m1)
         let rgsw_ct = {
@@ -1665,7 +1666,6 @@ pub(crate) mod tests {
 
         // RLWE(m0m1) = RLWE(m0) x RGSW(m1)
         let mut scratch_space = vec![vec![0u64; ring_size as usize]; d_rgsw + 2];
-        let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
         rlwe_by_rgsw(
             &mut rlwe_in_ct,
             &rgsw_ct.data,
@@ -1752,8 +1752,8 @@ pub(crate) mod tests {
 
         let ntt_op = NttBackendU64::new(q, ring_size as usize);
         let mod_op = ModularOpsU64::new(q);
-        let gadget_vector = gadget_vector(logq, logb, d_rgsw);
         let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
+        let gadget_vector = decomposer.gadget_vector();
 
         let mul_mod = |v0: &u64, v1: &u64| ((*v0 as u128 * *v1 as u128) % (q as u128)) as u64;
 
@@ -1930,8 +1930,8 @@ pub(crate) mod tests {
         let mut rng = DefaultSecureRng::new();
         let ntt_op = NttBackendU64::new(q, ring_size as usize);
         let mod_op = ModularOpsU64::new(q);
-        let gadget_vector = gadget_vector(logq, logb, d_rgsw);
         let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
+        let gadget_vector = decomposer.gadget_vector();
 
         let mul_mod = |a: &u64, b: &u64| ((*a as u128 * *b as u128) % q as u128) as u64;
 
@@ -2051,8 +2051,8 @@ pub(crate) mod tests {
         let mut rng = DefaultSecureRng::new();
         let ntt_op = NttBackendU64::new(q, ring_size as usize);
         let mod_op = ModularOpsU64::new(q);
-        let gadget_vector = gadget_vector(logq, logb, d_rgsw);
         let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
+        let gadget_vector = decomposer.gadget_vector();
         let mul_mod = |a: &u64, b: &u64| ((*a as u128 * *b as u128) % q as u128) as u64;
 
         let mut carry_m = vec![0u64; ring_size as usize];
@@ -2167,7 +2167,8 @@ pub(crate) mod tests {
         rng.fill_bytes(&mut seed_auto);
         let mut seeded_auto_key = SeededAutoKey::empty(ring_size as usize, d_rgsw, seed_auto, q);
         let mut p_rng = DefaultSecureRng::new_seeded(seed_auto);
-        let gadget_vector = gadget_vector(logq, logb, d_rgsw);
+        let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
+        let gadget_vector = decomposer.gadget_vector();
         galois_key_gen(
             &mut seeded_auto_key.data,
             s.values(),
@@ -2186,7 +2187,6 @@ pub(crate) mod tests {
         // Send RLWE_{s}(m) -> RLWE_{s}(m^k)
         let mut scratch_space = vec![vec![0u64; ring_size as usize]; d_rgsw + 2];
         let (auto_map_index, auto_map_sign) = generate_auto_map(ring_size as usize, auto_k);
-        let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
         galois_auto(
             &mut rlwe_m,
             &auto_key.data,

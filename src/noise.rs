@@ -4,7 +4,7 @@ mod tests {
 
     use crate::{
         backend::{ArithmeticOps, ModInit, ModularOpsU64},
-        decomposer::{gadget_vector, Decomposer, DefaultDecomposer},
+        decomposer::{Decomposer, DefaultDecomposer},
         ntt::{Ntt, NttBackendU64, NttInit},
         random::{DefaultSecureRng, RandomGaussianDist, RandomUniformDist},
         rgsw::{
@@ -30,7 +30,8 @@ mod tests {
         let sk = RlweSecret::random((ring_size >> 1) as usize, ring_size as usize);
 
         let mut rng = DefaultSecureRng::new();
-        let gadget_vector = gadget_vector(logq, logb, d0);
+        let decomposer = DefaultDecomposer::new(q, logb, d0);
+        let gadget_vector = decomposer.gadget_vector();
 
         for i in 0..100 {
             // m should have norm 1
@@ -82,7 +83,6 @@ mod tests {
 
             // RLWE(m0m1) = RLWE(m1) x RGSW(m0)
             let mut scratch = vec![vec![0u64; ring_size]; d0 + 2];
-            let decomposer = DefaultDecomposer::new(q, logb, d0);
             less1_rlwe_by_rgsw(
                 &mut rlwe,
                 &rgsw.data,
@@ -122,9 +122,9 @@ mod tests {
         let sk = RlweSecret::random((ring_size >> 1) as usize, ring_size as usize);
 
         let mut rng = DefaultSecureRng::new();
-        let gadget_vector = gadget_vector(logq, logb, d0);
 
         let decomposer = DefaultDecomposer::new(q, logb, d0);
+        let gadget_vector = decomposer.gadget_vector();
 
         for i in 0..100 {
             let modq_op = ModularOpsU64::new(q);

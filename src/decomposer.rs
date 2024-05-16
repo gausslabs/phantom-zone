@@ -4,7 +4,7 @@ use std::{fmt::Debug, marker::PhantomData, ops::Rem};
 
 use crate::backend::{ArithmeticOps, ModularOpsU64};
 
-pub fn gadget_vector<T: PrimInt>(logq: usize, logb: usize, d: usize) -> Vec<T> {
+fn gadget_vector<T: PrimInt>(logq: usize, logb: usize, d: usize) -> Vec<T> {
     let d_ideal = (logq as f64 / logb as f64).ceil().to_usize().unwrap();
     let ignored_limbs = d_ideal - d;
     (ignored_limbs..ignored_limbs + d)
@@ -82,6 +82,10 @@ impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
             )
         }
         value
+    }
+
+    pub(crate) fn gadget_vector(&self) -> Vec<T> {
+        return gadget_vector(self.logq, self.logb, self.d);
     }
 }
 

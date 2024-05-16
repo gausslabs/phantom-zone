@@ -274,7 +274,7 @@ mod tests {
 
     use crate::{
         backend::{ModInit, ModularOpsU64},
-        decomposer::{gadget_vector, DefaultDecomposer},
+        decomposer::DefaultDecomposer,
         lwe::{lwe_key_switch, measure_noise_lwe},
         random::DefaultSecureRng,
         rgsw::measure_noise,
@@ -342,7 +342,8 @@ mod tests {
             let mut seeded_ksk =
                 SeededLweKeySwitchingKey::empty(lwe_in_n, lwe_out_n, d_ks, ksk_seed, q);
             let mut p_rng = DefaultSecureRng::new_seeded(ksk_seed);
-            let gadget = gadget_vector(logq, logb, d_ks);
+            let decomposer = DefaultDecomposer::new(q, logb, d_ks);
+            let gadget = decomposer.gadget_vector();
             lwe_ksk_keygen(
                 &lwe_sk_in.values(),
                 &lwe_sk_out.values(),

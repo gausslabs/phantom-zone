@@ -10,7 +10,7 @@ use num_traits::{FromPrimitive, Num, One, PrimInt, ToPrimitive, WrappingSub, Zer
 
 use crate::{
     backend::{ArithmeticOps, ModInit, ModularOpsU64, VectorOps},
-    decomposer::{gadget_vector, Decomposer, DefaultDecomposer, NumInfo},
+    decomposer::{Decomposer, DefaultDecomposer, NumInfo},
     lwe::{decrypt_lwe, encrypt_lwe, lwe_key_switch, lwe_ksk_keygen, measure_noise_lwe, LweSecret},
     multi_party::public_key_share,
     ntt::{self, Ntt, NttBackendU64, NttInit},
@@ -715,11 +715,7 @@ where
             let sk_rlwe = &client_key.sk_rlwe;
             let sk_lwe = &client_key.sk_lwe;
 
-            let d_rgsw_gadget_vec = gadget_vector(
-                self.parameters.rlwe_logq,
-                self.parameters.logb_rgsw,
-                self.parameters.d_rgsw,
-            );
+            let d_rgsw_gadget_vec = self.decomposer_rlwe.gadget_vector();
 
             // generate auto keys -g, g
             let mut auto_keys = HashMap::new();
@@ -775,11 +771,7 @@ where
                 .collect_vec();
 
             // LWE KSK from RLWE secret s -> LWE secret z
-            let d_lwe_gadget = gadget_vector(
-                self.parameters.lwe_logq,
-                self.parameters.logb_lwe,
-                self.parameters.d_lwe,
-            );
+            let d_lwe_gadget = self.decomposer_lwe.gadget_vector();
 
             let mut lwe_ksk = M::R::zeros(self.parameters.d_lwe * ring_size);
             lwe_ksk_keygen(
@@ -822,8 +814,7 @@ where
             let rlwe_q = self.parameters.rlwe_q;
             let lwe_q = self.parameters.lwe_q;
 
-            let d_rgsw_gadget_vec =
-                gadget_vector(self.parameters.rlwe_logq, self.parameters.logb_rgsw, d_rgsw);
+            let d_rgsw_gadget_vec = self.decomposer_rlwe.gadget_vector();
 
             let rlweq_modop = ModOp::new(rlwe_q);
             let rlweq_nttop = NttOp::new(rlwe_q, ring_size);
@@ -887,8 +878,7 @@ where
             // LWE ksk
             let mut lwe_ksk = M::R::zeros(d_lwe * ring_size);
             let lwe_modop = ModOp::new(lwe_q);
-            let d_lwe_gadget_vec =
-                gadget_vector(self.parameters.lwe_logq, self.parameters.logb_lwe, d_lwe);
+            let d_lwe_gadget_vec = self.decomposer_lwe.gadget_vector();
             lwe_ksk_keygen(
                 sk_rlwe.values(),
                 sk_lwe.values(),
@@ -1944,8 +1934,10 @@ mod tests {
         let lwe_q = 1 << lwe_logq;
         let d_lwe = 1;
         let logb_lwe = 6;
-        let lwe_gadgect_vec = gadget_vector(lwe_logq, logb_lwe, d_lwe);
         let lweq_modop = ModularOpsU64::new(lwe_q);
+
+        let decomposer = DefaultDecomposer::new(lwe_q, logb_lwe, d_lwe);
+        let lwe_gadgect_vec = decomposer.gadget_vector();
         let logp = 2;
 
         let from_lwe_n = 2048;
@@ -2020,7 +2012,6 @@ mod tests {
             // Key switch
             let lwe_ct_key_switched = {
                 let mut lwe_ct_key_switched = vec![0u64; to_lwe_n + 1];
-                let decomposer = DefaultDecomposer::new(lwe_q, logb_lwe, d_lwe);
                 lwe_key_switch(
                     &mut lwe_ct_key_switched,
                     &lwe_ct,
@@ -2214,12 +2205,7 @@ mod tests {
 
         // Measure noise in RGSW ciphertexts of ideal LWE secrets
         if true {
-            let gadget_vec = gadget_vector(
-                bool_evaluator.parameters.rlwe_logq,
-                bool_evaluator.parameters.logb_rgsw,
-                bool_evaluator.parameters.d_rgsw,
-            );
-
+            let gadget_vec = rlwe_decomposer.gadget_vector();
             for i in 0..20 {
                 // measure noise in RGSW(s[i])
                 let si =
@@ -2548,11 +2534,7 @@ mod tests {
         let rlwe_nttop = &bool_evaluator.rlwe_nttop;
         let rlwe_modop = &bool_evaluator.rlwe_modop;
         let rlwe_decomposer = &bool_evaluator.decomposer_rlwe;
-        let rlwe_gadget_vector = gadget_vector(
-            bool_evaluator.parameters.rlwe_logq,
-            bool_evaluator.parameters.logb_rgsw,
-            d_rgsw,
-        );
+        let rlwe_gadget_vector = rlwe_decomposer.gadget_vector();
 
         let parties = (0..no_of_parties)
             .map(|_| bool_evaluator.client_key())
