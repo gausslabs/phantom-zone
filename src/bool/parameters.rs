@@ -146,26 +146,25 @@ impl<El> BoolParameters<El> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-struct DecompostionLogBase(pub(crate) usize);
+pub(crate) struct DecompostionLogBase(pub(crate) usize);
 impl AsRef<usize> for DecompostionLogBase {
     fn as_ref(&self) -> &usize {
         &self.0
     }
 }
 #[derive(Clone, Copy, PartialEq)]
-struct DecompositionCount(pub(crate) usize);
+pub(crate) struct DecompositionCount(pub(crate) usize);
 impl AsRef<usize> for DecompositionCount {
     fn as_ref(&self) -> &usize {
         &self.0
     }
 }
-
 #[derive(Clone, Copy, PartialEq)]
-struct LweDimension(pub(crate) usize);
+pub(crate) struct LweDimension(pub(crate) usize);
 #[derive(Clone, Copy, PartialEq)]
-struct PolynomialSize(pub(crate) usize);
+pub(crate) struct PolynomialSize(pub(crate) usize);
 #[derive(Clone, Copy, PartialEq)]
-struct Modulus<T>(pub(crate) T);
+pub(crate) struct Modulus<T>(pub(crate) T);
 
 pub(super) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_q: Modulus(268369921u64),

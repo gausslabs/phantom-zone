@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{OnceCell, RefCell},
     collections::HashMap,
     fmt::{Debug, Display},
     marker::PhantomData,
@@ -10,15 +10,16 @@ use num_traits::{FromPrimitive, Num, One, PrimInt, ToPrimitive, WrappingSub, Zer
 
 use crate::{
     backend::{ArithmeticOps, ModInit, ModularOpsU64, VectorOps},
-    decomposer::{Decomposer, DefaultDecomposer, NumInfo},
+    bool::parameters::{MP_BOOL_PARAMS, SP_BOOL_PARAMS},
+    decomposer::{Decomposer, DefaultDecomposer, NumInfo, RlweDecomposer},
     lwe::{decrypt_lwe, encrypt_lwe, lwe_key_switch, lwe_ksk_keygen, measure_noise_lwe, LweSecret},
     multi_party::public_key_share,
     ntt::{self, Ntt, NttBackendU64, NttInit},
     random::{DefaultSecureRng, NewWithSeed, RandomGaussianDist, RandomUniformDist},
     rgsw::{
         decrypt_rlwe, galois_auto, galois_key_gen, generate_auto_map, public_key_encrypt_rgsw,
-        rgsw_by_rgsw_inplace, rlwe_by_rgsw, secret_key_encrypt_rgsw, IsTrivial, RlweCiphertext,
-        RlweSecret,
+        rgsw_by_rgsw_inplace, rlwe_by_rgsw, secret_key_encrypt_rgsw, IsTrivial, RgswCiphertext,
+        RlweCiphertext, RlweSecret,
     },
     utils::{
         fill_random_ternary_secret_with_hamming_weight, generate_prime, mod_exponent,
@@ -27,7 +28,65 @@ use crate::{
     Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
 };
 
-use super::parameters::{self, BoolParameters};
+use super::parameters::BoolParameters;
+
+thread_local! {
+    static BOOL_EVALUATOR: RefCell<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64>> = RefCell::new(BoolEvaluator::new(MP_BOOL_PARAMS));
+}
+
+pub fn set_parameter_set(parameter: &BoolParameters<u64>) {
+    BoolEvaluator::with_local_mut(|e| *e = BoolEvaluator::new(parameter.clone()))
+}
+
+impl WithLocal for BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64> {
+    fn with_local<F, R>(func: F) -> R
+    where
+        F: Fn(&Self) -> R,
+    {
+        BOOL_EVALUATOR.with_borrow(|s| func(s))
+    }
+
+    fn with_local_mut<F, R>(func: F) -> R
+    where
+        F: Fn(&mut Self) -> R,
+    {
+        BOOL_EVALUATOR.with_borrow_mut(|s| func(s))
+    }
+}
+
+struct ScratchMemory<M>
+where
+    M: Matrix,
+{
+    lwe_vector: M::R,
+    decomposition_matrix: M,
+}
+
+impl<M: MatrixEntity> ScratchMemory<M>
+where
+    M::R: RowEntity,
+{
+    fn new(parameters: &BoolParameters<M::MatElement>) -> Self {
+        // Vector to store LWE ciphertext with LWE dimesnion n
+        let lwe_vector = M::R::zeros(parameters.lwe_n().0 + 1);
+
+        // Matrix to store decomposed polynomials
+        // Max decompistion count + space for temporary RLWE
+        let d = std::cmp::max(
+            parameters.auto_decomposition_count().0,
+            std::cmp::max(
+                parameters.rlwe_rgsw_decomposition_count().0 .0,
+                parameters.rlwe_rgsw_decomposition_count().1 .0,
+            ),
+        ) + 2;
+        let decomposition_matrix = M::zeros(d, parameters.rlwe_n().0);
+
+        Self {
+            lwe_vector,
+            decomposition_matrix,
+        }
+    }
+}
 
 // thread_local! {
 //     pub(crate) static CLIENT_KEY: RefCell<ClientKey> =
@@ -44,22 +103,31 @@ trait PbsKey {
     fn lwe_ksk(&self) -> &Self::M;
 }
 
-trait PbsParameters {
+trait PbsInfo {
     type Element;
+    type ModOp: VectorOps<Element = Self::Element> + ArithmeticOps<Element = Self::Element>;
+    type NttOp: Ntt<Element = Self::Element>;
     type D: Decomposer<Element = Self::Element>;
     fn rlwe_q(&self) -> Self::Element;
     fn lwe_q(&self) -> Self::Element;
     fn br_q(&self) -> usize;
-    fn d_rgsw(&self) -> usize;
-    fn d_lwe(&self) -> usize;
     fn rlwe_n(&self) -> usize;
     fn lwe_n(&self) -> usize;
     /// Embedding fator for ring X^{q}+1 inside
     fn embedding_factor(&self) -> usize;
     /// generator g
     fn g(&self) -> isize;
-    fn decomoposer_lwe(&self) -> &Self::D;
-    fn decomoposer_rlwe(&self) -> &Self::D;
+    /// Decomposers
+    fn lwe_decomposer(&self) -> &Self::D;
+    fn rlwe_rgsw_decomposer(&self) -> &(Self::D, Self::D);
+    fn auto_decomposer(&self) -> &Self::D;
+
+    /// Modulus operators
+    fn modop_lweq(&self) -> &Self::ModOp;
+    fn modop_rlweq(&self) -> &Self::ModOp;
+
+    /// Ntt operators
+    fn nttop_rlweq(&self) -> &Self::NttOp;
 
     /// Maps a \in Z^*_{q} to discrete log k, with generator g (i.e. g^k =
     /// a). Returned vector is of size q that stores dlog of a at `vec[a]`.
@@ -187,12 +255,11 @@ struct SeededMultiPartyServerKey<M: Matrix, S, P> {
 fn aggregate_multi_party_server_key_shares<
     M: MatrixMut + MatrixEntity,
     S: Copy + PartialEq,
-    D: Decomposer<Element = M::MatElement>,
+    D: RlweDecomposer<Element = M::MatElement>,
     ModOp: VectorOps<Element = M::MatElement> + ModInit<Element = M::MatElement>,
     NttOp: Ntt<Element = M::MatElement> + NttInit<Element = M::MatElement>,
 >(
     shares: &[CommonReferenceSeededMultiPartyServerKeyShare<M, BoolParameters<M::MatElement>, S>],
-    d_rgsw_decomposer: &D,
 ) -> SeededMultiPartyServerKey<M, S, BoolParameters<M::MatElement>>
 where
     <M as Matrix>::R: RowMut + RowEntity,
@@ -239,9 +306,17 @@ where
 
     // rgsw ciphertext (most expensive part!)
     let lwe_n = parameters.lwe_n().0;
-    let mut scratch_d_plus_rgsw_by_ring = M::zeros(d_rgsw + (d_rgsw * 4), rlwe_n);
+    let rgsw_by_rgsw_decomposer = parameters.rgsw_rgsw_decomposer::<D::D>();
+    let mut scratch_matrix = M::zeros(
+        std::cmp::max(
+            rgsw_by_rgsw_decomposer.a().decomposition_count(),
+            rgsw_by_rgsw_decomposer.b().decomposition_count(),
+        ) + (rgsw_by_rgsw_decomposer.a().decomposition_count() * 2
+            + rgsw_by_rgsw_decomposer.b().decomposition_count() * 2),
+        rlwe_n,
+    );
 
-    let mut tmp_rgsw = M::zeros(d_rgsw * 2 * 2, rlwe_n);
+    let mut tmp_rgsw = RgswCiphertext::<M>::empty(rlwe_n, &rgsw_by_rgsw_decomposer, rlwe_q).data;
     let rgsw_cts = (0..lwe_n)
         .into_iter()
         .map(|index| {
@@ -261,8 +336,8 @@ where
                 rgsw_by_rgsw_inplace(
                     &mut rgsw_i,
                     &tmp_rgsw,
-                    d_rgsw_decomposer,
-                    &mut scratch_d_plus_rgsw_by_ring,
+                    &rgsw_by_rgsw_decomposer,
+                    &mut scratch_matrix,
                     &rlweq_nttop,
                     &rlweq_modop,
                 );
@@ -523,21 +598,78 @@ where
         }
 
         // rgsw cts
+        let (rgswrgsw_d_a, rgswrgsw_d_b) = value.parameters.rgsw_rgsw_decomposition_count();
         let (rlrg_d_a, rlrg_d_b) = value.parameters.rlwe_rgsw_decomposition_count();
-        let rgsw_ct_rows = rlrg_d_a.0 * 2 + rlrg_d_b.0 * 2;
+        // d_a and d_b may differ for RGSWxRGSW multiplication and RLWExRGSW
+        // multiplication. After this point RGSW ciphertexts will only be used for
+        // RLWExRGSW multiplication (in blind rotation). Thus we drop any additional
+        // RLWE ciphertexts in incoming collective RGSW ciphertexts, which are
+        // result of RGSWxRGSW multiplications.
+        let rgsw_ct_rows_in = rgswrgsw_d_a.0 * 2 + rgswrgsw_d_b.0 * 2;
+        let rgsw_ct_rows_out = rlrg_d_a.0 * 2 + rlrg_d_b.0 * 2;
         let rgsw_cts = value
             .rgsw_cts
             .iter()
-            .map(|ct_i| {
-                assert!(ct_i.dimension() == (rgsw_ct_rows, rlwe_n));
-                let mut eval_ct_i = M::zeros(rgsw_ct_rows, rlwe_n);
+            .map(|ct_i_in| {
+                assert!(ct_i_in.dimension() == (rgsw_ct_rows_in, rlwe_n));
+                let mut eval_ct_i_out = M::zeros(rgsw_ct_rows_out, rlwe_n);
 
-                izip!(eval_ct_i.iter_rows_mut(), ct_i.iter_rows()).for_each(|(to_ri, from_ri)| {
+                // RLWE'(-sm) part A
+                izip!(
+                    eval_ct_i_out.iter_rows_mut().take(rlrg_d_a.0),
+                    ct_i_in.iter_rows().take(rlrg_d_a.0)
+                )
+                .for_each(|(to_ri, from_ri)| {
                     to_ri.as_mut().copy_from_slice(from_ri.as_ref());
                     rlwe_nttop.forward(to_ri.as_mut());
                 });
 
-                eval_ct_i
+                // RLWE'(-sm) part B
+                izip!(
+                    eval_ct_i_out
+                        .iter_rows_mut()
+                        .skip(rlrg_d_a.0)
+                        .take(rlrg_d_a.0),
+                    ct_i_in.iter_rows().skip(rgswrgsw_d_a.0).take(rlrg_d_a.0)
+                )
+                .for_each(|(to_ri, from_ri)| {
+                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+                    rlwe_nttop.forward(to_ri.as_mut());
+                });
+
+                // RLWE'(m) Part A
+                izip!(
+                    eval_ct_i_out
+                        .iter_rows_mut()
+                        .skip(rlrg_d_a.0 * 2)
+                        .take(rlrg_d_b.0),
+                    ct_i_in
+                        .iter_rows()
+                        .skip(rgswrgsw_d_a.0 * 2)
+                        .take(rlrg_d_b.0)
+                )
+                .for_each(|(to_ri, from_ri)| {
+                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+                    rlwe_nttop.forward(to_ri.as_mut());
+                });
+
+                // RLWE'(m) Part B
+                izip!(
+                    eval_ct_i_out
+                        .iter_rows_mut()
+                        .skip(rlrg_d_a.0 * 2 + rlrg_d_b.0)
+                        .take(rlrg_d_b.0),
+                    ct_i_in
+                        .iter_rows()
+                        .skip(rgswrgsw_d_a.0 * 2 + rgswrgsw_d_b.0)
+                        .take(rlrg_d_b.0)
+                )
+                .for_each(|(to_ri, from_ri)| {
+                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+                    rlwe_nttop.forward(to_ri.as_mut());
+                });
+
+                eval_ct_i_out
             })
             .collect_vec();
 
@@ -575,13 +707,13 @@ impl<M: Matrix, R, N> PbsKey for ServerKeyEvaluationDomain<M, R, N> {
     }
 }
 
-struct BoolEvaluator<M, E, Ntt, ModOp>
-where
-    M: Matrix,
-{
-    parameters: BoolParameters<E>,
-    decomposer_rlwe: DefaultDecomposer<E>,
-    decomposer_lwe: DefaultDecomposer<E>,
+struct BoolPbsInfo<M: Matrix, Ntt, ModOp> {
+    auto_decomposer: DefaultDecomposer<M::MatElement>,
+    rlwe_rgsw_decomposer: (
+        DefaultDecomposer<M::MatElement>,
+        DefaultDecomposer<M::MatElement>,
+    ),
+    lwe_decomposer: DefaultDecomposer<M::MatElement>,
     g_k_dlog_map: Vec<usize>,
     rlwe_nttop: Ntt,
     rlwe_modop: ModOp,
@@ -591,10 +723,83 @@ where
     rlweq_by8: M::MatElement,
     rlwe_qby4: M::MatElement,
     rlwe_auto_maps: Vec<(Vec<usize>, Vec<bool>)>,
+    parameters: BoolParameters<M::MatElement>,
+}
+
+impl<M: Matrix, NttOp, ModOp> PbsInfo for BoolPbsInfo<M, NttOp, ModOp>
+where
+    M::MatElement: PrimInt + WrappingSub + NumInfo + Debug,
+    ModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
+    NttOp: Ntt<Element = M::MatElement>,
+{
+    type Element = M::MatElement;
+    type D = DefaultDecomposer<M::MatElement>;
+    type ModOp = ModOp;
+    type NttOp = NttOp;
+    fn rlwe_auto_map(&self, k: isize) -> &(Vec<usize>, Vec<bool>) {
+        let g = self.parameters.g() as isize;
+        if k == g {
+            &self.rlwe_auto_maps[0]
+        } else if k == -g {
+            &self.rlwe_auto_maps[1]
+        } else {
+            panic!("RLWE auto map only supports k in [-g, g], but got k={k}");
+        }
+    }
+    fn br_q(&self) -> usize {
+        self.parameters.br_q().0.to_usize().unwrap()
+    }
+    fn lwe_decomposer(&self) -> &Self::D {
+        &self.lwe_decomposer
+    }
+    fn rlwe_rgsw_decomposer(&self) -> &(Self::D, Self::D) {
+        &self.rlwe_rgsw_decomposer
+    }
+    fn auto_decomposer(&self) -> &Self::D {
+        &self.auto_decomposer
+    }
+    fn embedding_factor(&self) -> usize {
+        self.embedding_factor
+    }
+    fn g(&self) -> isize {
+        self.parameters.g() as isize
+    }
+    fn g_k_dlog_map(&self) -> &[usize] {
+        &self.g_k_dlog_map
+    }
+    fn lwe_n(&self) -> usize {
+        self.parameters.lwe_n().0
+    }
+    fn lwe_q(&self) -> Self::Element {
+        self.parameters.lwe_q().0
+    }
+    fn rlwe_n(&self) -> usize {
+        self.parameters.rlwe_n().0
+    }
+    fn rlwe_q(&self) -> Self::Element {
+        self.parameters.rlwe_q().0
+    }
+    fn modop_lweq(&self) -> &Self::ModOp {
+        &self.lwe_modop
+    }
+    fn modop_rlweq(&self) -> &Self::ModOp {
+        &self.rlwe_modop
+    }
+    fn nttop_rlweq(&self) -> &Self::NttOp {
+        &self.rlwe_nttop
+    }
+}
+
+struct BoolEvaluator<M, Ntt, ModOp>
+where
+    M: Matrix,
+{
+    pbs_info: BoolPbsInfo<M, Ntt, ModOp>,
+    scratch_memory: ScratchMemory<M>,
     _phantom: PhantomData<M>,
 }
 
-impl<M, NttOp, ModOp> BoolEvaluator<M, M::MatElement, NttOp, ModOp>
+impl<M, NttOp, ModOp> BoolEvaluator<M, NttOp, ModOp>
 where
     NttOp: NttInit<Element = M::MatElement> + Ntt<Element = M::MatElement>,
     ModOp: ModInit<Element = M::MatElement>
@@ -612,16 +817,10 @@ where
 {
     fn new(parameters: BoolParameters<M::MatElement>) -> Self {
         //TODO(Jay): Run sanity checks for modulus values in parameters
-        assert!(parameters.br_q.is_power_of_two());
-
-        let decomposer_rlwe =
-            DefaultDecomposer::new(parameters.rlwe_q, parameters.logb_rgsw, parameters.d_rgsw);
-        let decomposer_lwe =
-            DefaultDecomposer::new(parameters.lwe_q, parameters.logb_lwe, parameters.d_lwe);
 
         // generatr dlog map s.t. g^{k} % q = a, for all a \in Z*_{q}
-        let g = parameters.g;
-        let q = parameters.br_q;
+        let g = parameters.g();
+        let q = parameters.br_q().0.to_usize().unwrap();
         let mut g_k_dlog_map = vec![0usize; q];
         for i in 0..q / 2 {
             let v = mod_exponent(g as u64, i as u64, q as u64) as usize;
@@ -631,48 +830,30 @@ where
             g_k_dlog_map[q - v] = i + (q / 2);
         }
 
-        let embedding_factor = (2 * parameters.rlwe_n) / q;
+        let embedding_factor = (2 * parameters.rlwe_n().0) / q;
 
-        let rlwe_nttop = NttOp::new(parameters.rlwe_q, parameters.rlwe_n);
-        let rlwe_modop = ModInit::new(parameters.rlwe_q);
-        let lwe_modop = ModInit::new(parameters.lwe_q);
+        let rlwe_nttop = NttOp::new(parameters.rlwe_q().0, parameters.rlwe_n().0);
+        let rlwe_modop = ModInit::new(parameters.rlwe_q().0);
+        let lwe_modop = ModInit::new(parameters.lwe_q().0);
 
         // set test vectors
-        let el_one = M::MatElement::one();
-        let nand_map = |index: usize, qby8: usize| {
-            if index < (3 * qby8) {
-                true
-            } else {
-                false
-            }
-        };
-
-        let q = parameters.br_q;
+        let rlwe_q = parameters.rlwe_q().0;
+        let q = parameters.br_q().0.to_usize().unwrap();
         let qby2 = q >> 1;
         let qby8 = q >> 3;
         let mut nand_test_vec = M::R::zeros(qby2);
         // Q/8 (Q: rlwe_q)
-        let rlwe_qby8 =
-            M::MatElement::from_f64((parameters.rlwe_q.to_f64().unwrap() / 8.0).round()).unwrap();
+        let rlwe_qby8 = M::MatElement::from_f64((rlwe_q.to_f64().unwrap() / 8.0).round()).unwrap();
         let true_m_el = rlwe_qby8;
         // -Q/8
-        let false_m_el = parameters.rlwe_q - rlwe_qby8;
+        let false_m_el = rlwe_q - rlwe_qby8;
         for i in 0..qby2 {
-            let v = nand_map(i, qby8);
-            if v {
+            if i < (3 * qby8) {
                 nand_test_vec.as_mut()[i] = true_m_el;
             } else {
                 nand_test_vec.as_mut()[i] = false_m_el;
             }
         }
-        // // Rotate and negate by q/8
-        // let mut tmp = M::R::zeros(qby2);
-        // tmp.as_mut()[..qby2 - qby8].copy_from_slice(&nand_test_vec.as_ref()[qby8..]);
-        // tmp.as_mut()[qby2 - qby8..].copy_from_slice(&nand_test_vec.as_ref()[..qby8]);
-        // tmp.as_mut()[qby2 - qby8..].iter_mut().for_each(|v| {
-        //     *v = parameters.rlwe_q - *v;
-        // });
-        // let nand_test_vec = tmp;
 
         // v(X) -> v(X^{-g})
         let (auto_map_index, auto_map_sign) = generate_auto_map(qby2, -(g as isize));
@@ -685,7 +866,7 @@ where
         .for_each(|(v, to_index, to_sign)| {
             if !to_sign {
                 // negate
-                nand_test_vec_autog.as_mut()[*to_index] = parameters.rlwe_q - *v;
+                nand_test_vec_autog.as_mut()[*to_index] = parameters.rlwe_q().0 - *v;
             } else {
                 nand_test_vec_autog.as_mut()[*to_index] = *v;
             }
@@ -693,19 +874,20 @@ where
 
         // auto map indices and sign
         let mut rlwe_auto_maps = vec![];
-        let ring_size = parameters.rlwe_n;
-        let g = parameters.g as isize;
+        let ring_size = parameters.rlwe_n().0;
+        let g = parameters.g() as isize;
         for i in [g, -g] {
             rlwe_auto_maps.push(generate_auto_map(ring_size, i))
         }
 
-        let rlwe_qby4 =
-            M::MatElement::from_f64((parameters.rlwe_q.to_f64().unwrap() / 4.0).round()).unwrap();
+        let rlwe_qby4 = M::MatElement::from_f64((rlwe_q.to_f64().unwrap() / 4.0).round()).unwrap();
 
-        BoolEvaluator {
-            parameters: parameters,
-            decomposer_lwe,
-            decomposer_rlwe,
+        let scratch_memory = ScratchMemory::new(&parameters);
+
+        let pbs_info = BoolPbsInfo {
+            auto_decomposer: parameters.auto_decomposer(),
+            lwe_decomposer: parameters.lwe_decomposer(),
+            rlwe_rgsw_decomposer: parameters.rlwe_rgsw_decomposer(),
             g_k_dlog_map,
             embedding_factor,
             lwe_modop,
@@ -715,14 +897,25 @@ where
             rlweq_by8: rlwe_qby8,
             rlwe_qby4: rlwe_qby4,
             rlwe_auto_maps,
+            parameters: parameters,
+        };
 
+        BoolEvaluator {
+            pbs_info,
+            scratch_memory,
             _phantom: PhantomData,
         }
     }
 
     fn client_key(&self) -> ClientKey {
-        let sk_lwe = LweSecret::random(self.parameters.lwe_n >> 1, self.parameters.lwe_n);
-        let sk_rlwe = RlweSecret::random(self.parameters.rlwe_n >> 1, self.parameters.rlwe_n);
+        let sk_lwe = LweSecret::random(
+            self.pbs_info.parameters.lwe_n().0 >> 1,
+            self.pbs_info.parameters.lwe_n().0,
+        );
+        let sk_rlwe = RlweSecret::random(
+            self.pbs_info.parameters.rlwe_n().0 >> 1,
+            self.pbs_info.parameters.rlwe_n().0,
+        );
         ClientKey { sk_rlwe, sk_lwe }
     }
 
@@ -736,23 +929,23 @@ where
 
             let mut main_prng = DefaultSecureRng::new_seeded(main_seed);
 
+            let rlwe_n = self.pbs_info.parameters.rlwe_n().0;
             let sk_rlwe = &client_key.sk_rlwe;
             let sk_lwe = &client_key.sk_lwe;
 
-            let d_rgsw_gadget_vec = self.decomposer_rlwe.gadget_vector();
-
             // generate auto keys -g, g
             let mut auto_keys = HashMap::new();
-            let g = self.parameters.g as isize;
+            let auto_gadget = self.pbs_info.auto_decomposer.gadget_vector();
+            let g = self.pbs_info.parameters.g() as isize;
             for i in [g, -g] {
-                let mut gk = M::zeros(self.parameters.d_rgsw, self.parameters.rlwe_n);
+                let mut gk = M::zeros(self.pbs_info.auto_decomposer.decomposition_count(), rlwe_n);
                 galois_key_gen(
                     &mut gk,
                     sk_rlwe.values(),
                     i,
-                    &d_rgsw_gadget_vec,
-                    &self.rlwe_modop,
-                    &self.rlwe_nttop,
+                    &auto_gadget,
+                    &self.pbs_info.rlwe_modop,
+                    &self.pbs_info.rlwe_nttop,
                     &mut main_prng,
                     rng,
                 );
@@ -760,15 +953,21 @@ where
             }
 
             // generate rgsw ciphertexts RGSW(si) where si is i^th LWE secret element
-            let ring_size = self.parameters.rlwe_n;
-            let rlwe_q = self.parameters.rlwe_q;
+            let ring_size = self.pbs_info.parameters.rlwe_n().0;
+            let rlwe_q = self.pbs_info.parameters.rlwe_q().0;
+            let (rlrg_d_a, rlrg_d_b) = (
+                self.pbs_info.rlwe_rgsw_decomposer.0.decomposition_count(),
+                self.pbs_info.rlwe_rgsw_decomposer.1.decomposition_count(),
+            );
+            let rlrg_gadget_a = self.pbs_info.rlwe_rgsw_decomposer.0.gadget_vector();
+            let rlrg_gadget_b = self.pbs_info.rlwe_rgsw_decomposer.1.gadget_vector();
             let rgsw_cts = sk_lwe
                 .values()
                 .iter()
                 .map(|si| {
                     // X^{si}; assume |emebedding_factor * si| < N
                     let mut m = M::R::zeros(ring_size);
-                    let si = (self.embedding_factor as i32) * si;
+                    let si = (self.pbs_info.embedding_factor as i32) * si;
                     // dbg!(si);
                     if si < 0 {
                         // X^{-i} = X^{2N - i} = -X^{N-i}
@@ -778,14 +977,15 @@ where
                         m.as_mut()[si.abs() as usize] = M::MatElement::one();
                     }
 
-                    let mut rgsw_si = M::zeros(self.parameters.d_rgsw * 3, ring_size);
+                    let mut rgsw_si = M::zeros(rlrg_d_a * 2 + rlrg_d_b, ring_size);
                     secret_key_encrypt_rgsw(
                         &mut rgsw_si,
                         m.as_ref(),
-                        &d_rgsw_gadget_vec,
+                        &rlrg_gadget_a,
+                        &rlrg_gadget_b,
                         sk_rlwe.values(),
-                        &self.rlwe_modop,
-                        &self.rlwe_nttop,
+                        &self.pbs_info.rlwe_modop,
+                        &self.pbs_info.rlwe_nttop,
                         &mut main_prng,
                         rng,
                     );
@@ -795,15 +995,15 @@ where
                 .collect_vec();
 
             // LWE KSK from RLWE secret s -> LWE secret z
-            let d_lwe_gadget = self.decomposer_lwe.gadget_vector();
-
-            let mut lwe_ksk = M::R::zeros(self.parameters.d_lwe * ring_size);
+            let d_lwe_gadget = self.pbs_info.lwe_decomposer.gadget_vector();
+            let mut lwe_ksk =
+                M::R::zeros(self.pbs_info.lwe_decomposer.decomposition_count() * ring_size);
             lwe_ksk_keygen(
                 &sk_rlwe.values(),
                 &sk_lwe.values(),
                 &mut lwe_ksk,
                 &d_lwe_gadget,
-                &self.lwe_modop,
+                &self.pbs_info.lwe_modop,
                 &mut main_prng,
                 rng,
             );
@@ -812,13 +1012,13 @@ where
                 auto_keys,
                 rgsw_cts,
                 lwe_ksk,
-                self.parameters.clone(),
+                self.pbs_info.parameters.clone(),
                 main_seed,
             )
         })
     }
 
-    fn multi_party_sever_key_share(
+    fn multi_party_server_key_share(
         &self,
         cr_seed: [u8; 32],
         collective_pk: &M,
@@ -831,31 +1031,31 @@ where
             let sk_rlwe = &client_key.sk_rlwe;
             let sk_lwe = &client_key.sk_lwe;
 
-            let g = self.parameters.g as isize;
-            let ring_size = self.parameters.rlwe_n;
-            let d_rgsw = self.parameters.d_rgsw;
-            let d_lwe = self.parameters.d_lwe;
-            let rlwe_q = self.parameters.rlwe_q;
-            let lwe_q = self.parameters.lwe_q;
-
-            let d_rgsw_gadget_vec = self.decomposer_rlwe.gadget_vector();
+            let g = self.pbs_info.parameters.g() as isize;
+            let ring_size = self.pbs_info.parameters.rlwe_n().0;
+            let rlwe_q = self.pbs_info.parameters.rlwe_q().0;
+            let lwe_q = self.pbs_info.parameters.lwe_q().0;
 
             let rlweq_modop = ModOp::new(rlwe_q);
             let rlweq_nttop = NttOp::new(rlwe_q, ring_size);
 
             // sanity check
             assert!(sk_rlwe.values().len() == ring_size);
-            assert!(sk_lwe.values().len() == self.parameters.lwe_n);
+            assert!(sk_lwe.values().len() == self.pbs_info.parameters.lwe_n().0);
 
             // auto keys
             let mut auto_keys = HashMap::new();
+            let auto_gadget = self.pbs_info.auto_decomposer.gadget_vector();
             for i in [g, -g] {
-                let mut ksk_out = M::zeros(d_rgsw, ring_size);
+                let mut ksk_out = M::zeros(
+                    self.pbs_info.auto_decomposer.decomposition_count(),
+                    ring_size,
+                );
                 galois_key_gen(
                     &mut ksk_out,
                     sk_rlwe.values(),
                     i,
-                    &d_rgsw_gadget_vec,
+                    &auto_gadget,
                     &rlweq_modop,
                     &rlweq_nttop,
                     &mut main_prng,
@@ -865,6 +1065,18 @@ where
             }
 
             // rgsw ciphertexts of lwe secret elements
+            let rgsw_rgsw_decomposer = self
+                .pbs_info
+                .parameters
+                .rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
+            let (rgrg_d_a, rgrg_d_b) = (
+                rgsw_rgsw_decomposer.0.decomposition_count(),
+                rgsw_rgsw_decomposer.1.decomposition_count(),
+            );
+            let (rgrg_gadget_a, rgrg_gadget_b) = (
+                rgsw_rgsw_decomposer.0.gadget_vector(),
+                rgsw_rgsw_decomposer.1.gadget_vector(),
+            );
             let rgsw_cts = sk_lwe
                 .values()
                 .iter()
@@ -873,7 +1085,7 @@ where
                     //TODO(Jay): It will be nice to have a function that returns polynomial
                     // (monomial infact!) corresponding to secret element embedded in ring X^{2N+1}.
                     // Save lots of mistakes where one forgest to emebed si in bigger ring.
-                    let si = *si * (self.embedding_factor as i32);
+                    let si = *si * (self.pbs_info.embedding_factor as i32);
                     if si < 0 {
                         // X^{-si} = X^{2N-si} = -X^{N-si}, assuming abs(si) < N
                         // (which it is given si is secret element)
@@ -884,12 +1096,13 @@ where
 
                     // public key RGSW encryption has no part that can be seeded, unlike secret key
                     // RGSW encryption where RLWE'_A(m) is seeded
-                    let mut out_rgsw = M::zeros(d_rgsw * 4, ring_size);
+                    let mut out_rgsw = M::zeros(rgrg_d_a * 2 + rgrg_d_b * 2, ring_size);
                     public_key_encrypt_rgsw(
                         &mut out_rgsw,
                         &m.as_ref(),
                         collective_pk,
-                        &d_rgsw_gadget_vec,
+                        &rgrg_gadget_a,
+                        &rgrg_gadget_b,
                         &rlweq_modop,
                         &rlweq_nttop,
                         rng,
@@ -900,9 +1113,10 @@ where
                 .collect_vec();
 
             // LWE ksk
-            let mut lwe_ksk = M::R::zeros(d_lwe * ring_size);
+            let mut lwe_ksk =
+                M::R::zeros(self.pbs_info.lwe_decomposer.decomposition_count() * ring_size);
             let lwe_modop = ModOp::new(lwe_q);
-            let d_lwe_gadget_vec = self.decomposer_lwe.gadget_vector();
+            let d_lwe_gadget_vec = self.pbs_info.lwe_decomposer.gadget_vector();
             lwe_ksk_keygen(
                 sk_rlwe.values(),
                 sk_lwe.values(),
@@ -918,7 +1132,7 @@ where
                 rgsw_cts,
                 lwe_ksk,
                 cr_seed,
-                parameters: self.parameters.clone(),
+                parameters: self.pbs_info.parameters.clone(),
             }
         })
     }
@@ -933,9 +1147,12 @@ where
         BoolParameters<<M as Matrix>::MatElement>,
     > {
         DefaultSecureRng::with_local_mut(|rng| {
-            let mut share_out = M::R::zeros(self.parameters.rlwe_n);
-            let modop = ModOp::new(self.parameters.rlwe_q);
-            let nttop = NttOp::new(self.parameters.rlwe_q, self.parameters.rlwe_n);
+            let mut share_out = M::R::zeros(self.pbs_info.parameters.rlwe_n().0);
+            let modop = ModOp::new(self.pbs_info.parameters.rlwe_q().0);
+            let nttop = NttOp::new(
+                self.pbs_info.parameters.rlwe_q().0,
+                self.pbs_info.parameters.rlwe_n().0,
+            );
             let mut main_prng = DefaultSecureRng::new_seeded(cr_seed);
             public_key_share(
                 &mut share_out,
@@ -949,7 +1166,7 @@ where
             CommonReferenceSeededCollectivePublicKeyShare {
                 share: share_out,
                 cr_seed: cr_seed,
-                parameters: self.parameters.clone(),
+                parameters: self.pbs_info.parameters.clone(),
             }
         })
     }
@@ -959,10 +1176,12 @@ where
         lwe_ct: &M::R,
         client_key: &ClientKey,
     ) -> MultiPartyDecryptionShare<<M as Matrix>::MatElement> {
-        assert!(lwe_ct.as_ref().len() == self.parameters.rlwe_n + 1);
-        let modop = &self.rlwe_modop;
-        let mut neg_s =
-            M::R::try_convert_from(client_key.sk_rlwe.values(), &self.parameters.rlwe_q);
+        assert!(lwe_ct.as_ref().len() == self.pbs_info.parameters.rlwe_n().0 + 1);
+        let modop = &self.pbs_info.rlwe_modop;
+        let mut neg_s = M::R::try_convert_from(
+            client_key.sk_rlwe.values(),
+            &self.pbs_info.parameters.rlwe_q().0,
+        );
         modop.elwise_neg_mut(neg_s.as_mut());
 
         let mut neg_sa = M::MatElement::zero();
@@ -972,7 +1191,7 @@ where
 
         let e = DefaultSecureRng::with_local_mut(|rng| {
             let mut e = M::MatElement::zero();
-            RandomGaussianDist::random_fill(rng, &self.parameters.rlwe_q, &mut e);
+            RandomGaussianDist::random_fill(rng, &self.pbs_info.parameters.rlwe_q().0, &mut e);
             e
         });
         let share = modop.add(&neg_sa, &e);
@@ -985,7 +1204,7 @@ where
         shares: &[MultiPartyDecryptionShare<M::MatElement>],
         lwe_ct: &M::R,
     ) -> bool {
-        let modop = &self.rlwe_modop;
+        let modop = &self.pbs_info.rlwe_modop;
         let mut sum_a = M::MatElement::zero();
         shares
             .iter()
@@ -993,8 +1212,8 @@ where
 
         let encoded_m = modop.add(&lwe_ct.as_ref()[0], &sum_a);
 
-        let m = (((encoded_m + self.rlweq_by8).to_f64().unwrap() * 4f64)
-            / self.parameters.rlwe_q.to_f64().unwrap())
+        let m = (((encoded_m + self.pbs_info.rlweq_by8).to_f64().unwrap() * 4f64)
+            / self.pbs_info.parameters.rlwe_q().0.to_f64().unwrap())
         .round() as usize
             % 4usize;
 
@@ -1011,15 +1230,15 @@ where
     /// LWE ciphertext
     pub(crate) fn pk_encrypt(&self, pk: &M, m: bool) -> M::R {
         DefaultSecureRng::with_local_mut(|rng| {
-            let modop = &self.rlwe_modop;
-            let nttop = &self.rlwe_nttop;
+            let modop = &self.pbs_info.rlwe_modop;
+            let nttop = &self.pbs_info.rlwe_nttop;
 
             // RLWE(0)
             // sample ephemeral key u
-            let ring_size = self.parameters.rlwe_n;
+            let ring_size = self.pbs_info.parameters.rlwe_n().0;
             let mut u = vec![0i32; ring_size];
             fill_random_ternary_secret_with_hamming_weight(u.as_mut(), ring_size >> 1, rng);
-            let mut u = M::R::try_convert_from(&u, &self.parameters.rlwe_q);
+            let mut u = M::R::try_convert_from(&u, &self.pbs_info.parameters.rlwe_q().0);
             nttop.forward(u.as_mut());
 
             let mut ua = M::R::zeros(ring_size);
@@ -1040,7 +1259,11 @@ where
             let mut rlwe = M::zeros(2, ring_size);
             // sample error
             rlwe.iter_rows_mut().for_each(|ri| {
-                RandomGaussianDist::random_fill(rng, &self.parameters.rlwe_q, ri.as_mut());
+                RandomGaussianDist::random_fill(
+                    rng,
+                    &self.pbs_info.parameters.rlwe_q().0,
+                    ri.as_mut(),
+                );
             });
 
             // a*u + e0
@@ -1050,10 +1273,10 @@ where
 
             let m = if m {
                 // Q/8
-                self.rlweq_by8
+                self.pbs_info.rlweq_by8
             } else {
                 // -Q/8
-                self.parameters.rlwe_q - self.rlweq_by8
+                self.pbs_info.parameters.rlwe_q().0 - self.pbs_info.rlweq_by8
             };
 
             // b*u + e1 + m, where m is constant polynomial
@@ -1071,19 +1294,19 @@ where
     pub fn sk_encrypt(&self, m: bool, client_key: &ClientKey) -> M::R {
         let m = if m {
             // Q/8
-            self.rlweq_by8
+            self.pbs_info.rlweq_by8
         } else {
             // -Q/8
-            self.parameters.rlwe_q - self.rlweq_by8
+            self.pbs_info.parameters.rlwe_q().0 - self.pbs_info.rlweq_by8
         };
 
         DefaultSecureRng::with_local_mut(|rng| {
-            let mut lwe_out = M::R::zeros(self.parameters.rlwe_n + 1);
+            let mut lwe_out = M::R::zeros(self.pbs_info.parameters.rlwe_n().0 + 1);
             encrypt_lwe(
                 &mut lwe_out,
                 &m,
                 client_key.sk_rlwe.values(),
-                &self.rlwe_modop,
+                &self.pbs_info.rlwe_modop,
                 rng,
             );
             lwe_out
@@ -1091,11 +1314,15 @@ where
     }
 
     pub fn sk_decrypt(&self, lwe_ct: &M::R, client_key: &ClientKey) -> bool {
-        let m = decrypt_lwe(lwe_ct, client_key.sk_rlwe.values(), &self.rlwe_modop);
+        let m = decrypt_lwe(
+            lwe_ct,
+            client_key.sk_rlwe.values(),
+            &self.pbs_info.rlwe_modop,
+        );
         let m = {
             // m + q/8 => {0,q/4 1}
-            (((m + self.rlweq_by8).to_f64().unwrap() * 4.0)
-                / self.parameters.rlwe_q.to_f64().unwrap())
+            (((m + self.pbs_info.rlweq_by8).to_f64().unwrap() * 4.0)
+                / self.pbs_info.parameters.rlwe_q().0.to_f64().unwrap())
             .round()
             .to_usize()
             .unwrap()
@@ -1113,30 +1340,13 @@ where
 
     // TODO(Jay): scratch spaces must be thread local. Don't pass them as arguments
     pub fn nand(
-        &self,
+        &mut self,
         c0: &M::R,
         c1: &M::R,
         server_key: &ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>,
-        scratch_lwen_plus1: &mut M::R,
-        scratch_matrix_dplus2_ring: &mut M,
     ) -> M::R {
-        // ClientKey::with_local(|ck| {
-        //     let c0_noise = measure_noise_lwe(
-        //         c0,
-        //         ck.sk_rlwe.values(),
-        //         &self.rlwe_modop,
-        //         &(self.rlwe_q() - self.rlweq_by8),
-        //     );
-        //     let c1_noise =
-        //         measure_noise_lwe(c1, ck.sk_rlwe.values(), &self.rlwe_modop,
-        // &(self.rlweq_by8));     println!(
-        //         "c0 noise: {c0_noise}; c1 noise:
-        // {c1_noise}"
-        //     );
-        // });
-
         let mut c_out = M::R::zeros(c0.as_ref().len());
-        let modop = &self.rlwe_modop;
+        let modop = &self.pbs_info.rlwe_modop;
         izip!(
             c_out.as_mut().iter_mut(),
             c0.as_ref().iter(),
@@ -1145,94 +1355,26 @@ where
         .for_each(|(o, i0, i1)| {
             *o = modop.add(i0, i1);
         });
-        // +Q/8
-        c_out.as_mut()[0] = modop.add(&c_out.as_ref()[0], &self.rlwe_qby4);
-
-        // ClientKey::with_local(|ck| {
-        //     let noise = measure_noise_lwe(
-        //         &c_out,
-        //         ck.sk_rlwe.values(),
-        //         &self.rlwe_modop,
-        //         &(self.rlweq_by8),
-        //     );
-        //     println!("cout_noise: {noise}");
-        // });
+        // +Q/4
+        c_out.as_mut()[0] = modop.add(&c_out.as_ref()[0], &self.pbs_info.rlwe_qby4);
 
         // PBS
         pbs(
-            self,
-            &self.nand_test_vec,
+            &self.pbs_info,
+            &self.pbs_info.nand_test_vec,
             &mut c_out,
-            scratch_lwen_plus1,
-            scratch_matrix_dplus2_ring,
-            &self.lwe_modop,
-            &self.rlwe_modop,
-            &self.rlwe_nttop,
             server_key,
+            &mut self.scratch_memory.lwe_vector,
+            &mut self.scratch_memory.decomposition_matrix,
         );
 
         c_out
     }
 }
 
-impl<M: Matrix, NttOp, ModOp> PbsParameters for BoolEvaluator<M, M::MatElement, NttOp, ModOp>
-where
-    M::MatElement: PrimInt + WrappingSub + Debug,
-{
-    type Element = M::MatElement;
-    type D = DefaultDecomposer<M::MatElement>;
-    fn rlwe_auto_map(&self, k: isize) -> &(Vec<usize>, Vec<bool>) {
-        let g = self.parameters.g as isize;
-        if k == g {
-            &self.rlwe_auto_maps[0]
-        } else if k == -g {
-            &self.rlwe_auto_maps[1]
-        } else {
-            panic!("RLWE auto map only supports k in [-g, g], but got k={k}");
-        }
-    }
-
-    fn br_q(&self) -> usize {
-        self.parameters.br_q
-    }
-    fn d_lwe(&self) -> usize {
-        self.parameters.d_lwe
-    }
-    fn d_rgsw(&self) -> usize {
-        self.parameters.d_rgsw
-    }
-    fn decomoposer_lwe(&self) -> &Self::D {
-        &self.decomposer_lwe
-    }
-    fn decomoposer_rlwe(&self) -> &Self::D {
-        &self.decomposer_rlwe
-    }
-    fn embedding_factor(&self) -> usize {
-        self.embedding_factor
-    }
-    fn g(&self) -> isize {
-        self.parameters.g as isize
-    }
-    fn g_k_dlog_map(&self) -> &[usize] {
-        &self.g_k_dlog_map
-    }
-    fn lwe_n(&self) -> usize {
-        self.parameters.lwe_n
-    }
-    fn lwe_q(&self) -> Self::Element {
-        self.parameters.lwe_q
-    }
-    fn rlwe_n(&self) -> usize {
-        self.parameters.rlwe_n
-    }
-    fn rlwe_q(&self) -> Self::Element {
-        self.parameters.rlwe_q
-    }
-}
-
 /// LMKCY+ Blind rotation
 ///
-/// gk_to_si: [-g^0, -g^1, .., -g^{q/2-1}, g^0, ..., g^{q/2-1}]
+/// gk_to_si: [g^0, ..., g^{q/2-1}, -g^0, -g^1, .., -g^{q/2-1}]
 fn blind_rotation<
     MT: IsTrivial + MatrixMut,
     Mmut: MatrixMut<MatElement = MT::MatElement> + Matrix,
@@ -1240,15 +1382,16 @@ fn blind_rotation<
     NttOp: Ntt<Element = MT::MatElement>,
     ModOp: ArithmeticOps<Element = MT::MatElement> + VectorOps<Element = MT::MatElement>,
     K: PbsKey<M = Mmut>,
-    P: PbsParameters<Element = MT::MatElement>,
+    P: PbsInfo<Element = MT::MatElement>,
 >(
     trivial_rlwe_test_poly: &mut MT,
-    scratch_matrix_dplus2_ring: &mut Mmut,
+    scratch_matrix: &mut Mmut,
     g: isize,
     w: usize,
     q: usize,
     gk_to_si: &[Vec<usize>],
-    decomposer: &D,
+    rlwe_rgsw_decomposer: &(D, D),
+    auto_decomposer: &D,
     ntt_op: &NttOp,
     mod_op: &ModOp,
     parameters: &P,
@@ -1266,8 +1409,8 @@ fn blind_rotation<
             rlwe_by_rgsw(
                 trivial_rlwe_test_poly,
                 pbs_key.rgsw_ct_lwe_si(*s_index),
-                scratch_matrix_dplus2_ring,
-                decomposer,
+                scratch_matrix,
+                rlwe_rgsw_decomposer,
                 ntt_op,
                 mod_op,
             );
@@ -1277,12 +1420,12 @@ fn blind_rotation<
         galois_auto(
             trivial_rlwe_test_poly,
             pbs_key.galois_key_for_auto(g),
-            scratch_matrix_dplus2_ring,
+            scratch_matrix,
             &auto_map_index,
             &auto_map_sign,
             mod_op,
             ntt_op,
-            decomposer,
+            auto_decomposer,
         );
     }
 
@@ -1291,8 +1434,8 @@ fn blind_rotation<
         rlwe_by_rgsw(
             trivial_rlwe_test_poly,
             pbs_key.rgsw_ct_lwe_si(*s_index),
-            scratch_matrix_dplus2_ring,
-            decomposer,
+            scratch_matrix,
+            rlwe_rgsw_decomposer,
             ntt_op,
             mod_op,
         );
@@ -1301,12 +1444,12 @@ fn blind_rotation<
     galois_auto(
         trivial_rlwe_test_poly,
         pbs_key.galois_key_for_auto(-g),
-        scratch_matrix_dplus2_ring,
+        scratch_matrix,
         &auto_map_index,
         &auto_map_sign,
         mod_op,
         ntt_op,
-        decomposer,
+        auto_decomposer,
     );
 
     // +(g^k)
@@ -1315,8 +1458,8 @@ fn blind_rotation<
             rlwe_by_rgsw(
                 trivial_rlwe_test_poly,
                 pbs_key.rgsw_ct_lwe_si(*s_index),
-                scratch_matrix_dplus2_ring,
-                decomposer,
+                scratch_matrix,
+                rlwe_rgsw_decomposer,
                 ntt_op,
                 mod_op,
             );
@@ -1326,12 +1469,12 @@ fn blind_rotation<
         galois_auto(
             trivial_rlwe_test_poly,
             pbs_key.galois_key_for_auto(g),
-            scratch_matrix_dplus2_ring,
+            scratch_matrix,
             &auto_map_index,
             &auto_map_sign,
             mod_op,
             ntt_op,
-            decomposer,
+            auto_decomposer,
         );
     }
 
@@ -1340,8 +1483,8 @@ fn blind_rotation<
         rlwe_by_rgsw(
             trivial_rlwe_test_poly,
             pbs_key.rgsw_ct_lwe_si(gk_to_si[q_by_2][*s_index]),
-            scratch_matrix_dplus2_ring,
-            decomposer,
+            scratch_matrix,
+            rlwe_rgsw_decomposer,
             ntt_op,
             mod_op,
         );
@@ -1354,31 +1497,28 @@ fn blind_rotation<
 /// - blind rotate
 fn pbs<
     M: Matrix + MatrixMut + MatrixEntity,
-    P: PbsParameters<Element = M::MatElement>,
-    NttOp: Ntt<Element = M::MatElement>,
-    ModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
+    P: PbsInfo<Element = M::MatElement>,
+    // NttOp: Ntt<Element = M::MatElement>,
+    // ModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     K: PbsKey<M = M>,
 >(
-    parameters: &P,
+    pbs_info: &P,
     test_vec: &M::R,
     lwe_in: &mut M::R,
-    scratch_lwen_plus1: &mut M::R,
-    scratch_matrix_dplus2_ring: &mut M,
-    modop_lweq: &ModOp,
-    modop_rlweq: &ModOp,
-    nttop_rlweq: &NttOp,
     pbs_key: &K,
+    scratch_lwe_vec: &mut M::R,
+    scratch_blind_rotate_matrix: &mut M,
 ) where
     <M as Matrix>::R: RowMut,
     M::MatElement: PrimInt + ToPrimitive + FromPrimitive + One + Copy + Zero + Display,
 {
-    let rlwe_q = parameters.rlwe_q();
-    let lwe_q = parameters.lwe_q();
-    let br_q = parameters.br_q();
+    let rlwe_q = pbs_info.rlwe_q();
+    let lwe_q = pbs_info.lwe_q();
+    let br_q = pbs_info.br_q();
     let rlwe_qf64 = rlwe_q.to_f64().unwrap();
     let lwe_qf64 = lwe_q.to_f64().unwrap();
     let br_qf64 = br_q.to_f64().unwrap();
-    let rlwe_n = parameters.rlwe_n();
+    let rlwe_n = pbs_info.rlwe_n();
 
     PBSTracer::with_local_mut(|t| {
         let out = lwe_in
@@ -1405,17 +1545,17 @@ fn pbs<
     });
 
     // key switch RLWE secret to LWE secret
-    scratch_lwen_plus1.as_mut().fill(M::MatElement::zero());
+    scratch_lwe_vec.as_mut().fill(M::MatElement::zero());
     lwe_key_switch(
-        scratch_lwen_plus1,
+        scratch_lwe_vec,
         lwe_in,
         pbs_key.lwe_ksk(),
-        modop_lweq,
-        parameters.decomoposer_lwe(),
+        pbs_info.modop_lweq(),
+        pbs_info.lwe_decomposer(),
     );
 
     PBSTracer::with_local_mut(|t| {
-        let out = scratch_lwen_plus1
+        let out = scratch_lwe_vec
             .as_ref()
             .iter()
             .map(|v| v.to_u64().unwrap())
@@ -1424,9 +1564,9 @@ fn pbs<
     });
 
     // odd mowdown Q_ks -> q
-    let g_k_dlog_map = parameters.g_k_dlog_map();
+    let g_k_dlog_map = pbs_info.g_k_dlog_map();
     let mut g_k_si = vec![vec![]; br_q];
-    scratch_lwen_plus1
+    scratch_lwe_vec
         .as_ref()
         .iter()
         .skip(1)
@@ -1438,7 +1578,7 @@ fn pbs<
         });
 
     PBSTracer::with_local_mut(|t| {
-        let out = scratch_lwen_plus1
+        let out = scratch_lwe_vec
             .as_ref()
             .iter()
             .map(|v| mod_switch_odd(v.to_f64().unwrap(), lwe_qf64, br_qf64) as u64)
@@ -1447,9 +1587,9 @@ fn pbs<
     });
 
     // handle b and set trivial test RLWE
-    let g = parameters.g() as usize;
+    let g = pbs_info.g() as usize;
     let g_times_b = (g * mod_switch_odd(
-        scratch_lwen_plus1.as_ref()[0].to_f64().unwrap(),
+        scratch_lwe_vec.as_ref()[0].to_f64().unwrap(),
         lwe_qf64,
         br_qf64,
     )) % (br_q);
@@ -1468,14 +1608,14 @@ fn pbs<
         is_trivial: true,
         _phatom: PhantomData,
     };
-    if parameters.embedding_factor() == 1 {
+    if pbs_info.embedding_factor() == 1 {
         monomial_mul(
             test_vec.as_ref(),
             trivial_rlwe_test_poly.get_row_mut(1).as_mut(),
             gb_monomial_exp,
             gb_monomial_sign,
             br_qby2,
-            modop_rlweq,
+            pbs_info.modop_rlweq(),
         );
     } else {
         // use lwe_in to store the `t = v(X) * X^{g*2} mod X^{q/2}+1` temporarily. This
@@ -1486,11 +1626,11 @@ fn pbs<
             gb_monomial_exp,
             gb_monomial_sign,
             br_qby2,
-            modop_rlweq,
+            pbs_info.modop_rlweq(),
         );
 
         // emebed poly `t` in ring X^{q/2}+1 inside the bigger ring X^{N}+1
-        let embed_factor = parameters.embedding_factor();
+        let embed_factor = pbs_info.embedding_factor();
         let partb_trivial_rlwe = trivial_rlwe_test_poly.get_row_mut(1);
         lwe_in.as_ref()[..br_qby2]
             .iter()
@@ -1503,15 +1643,16 @@ fn pbs<
     // blind rotate
     blind_rotation(
         &mut trivial_rlwe_test_poly,
-        scratch_matrix_dplus2_ring,
-        parameters.g(),
+        scratch_blind_rotate_matrix,
+        pbs_info.g(),
         1,
         br_q,
         &g_k_si,
-        parameters.decomoposer_rlwe(),
-        nttop_rlweq,
-        modop_rlweq,
-        parameters,
+        pbs_info.rlwe_rgsw_decomposer(),
+        pbs_info.auto_decomposer(),
+        pbs_info.nttop_rlweq(),
+        pbs_info.modop_rlweq(),
+        pbs_info,
         pbs_key,
     );
 
@@ -1541,7 +1682,7 @@ fn pbs<
     // });
 
     // sample extract
-    sample_extract(lwe_in, &trivial_rlwe_test_poly, modop_rlweq, 0);
+    sample_extract(lwe_in, &trivial_rlwe_test_poly, pbs_info.modop_rlweq(), 0);
 }
 
 fn mod_switch_odd(v: f64, from_q: f64, to_q: f64) -> usize {
@@ -1626,21 +1767,21 @@ where
 
 impl PBSTracer<Vec<Vec<u64>>> {
     fn trace(&self, parameters: &BoolParameters<u64>, sk_lwe: &[i32], sk_rlwe: &[i32]) {
-        assert!(parameters.rlwe_n == sk_rlwe.len());
-        assert!(parameters.lwe_n == sk_lwe.len());
+        assert!(parameters.rlwe_n().0 == sk_rlwe.len());
+        assert!(parameters.lwe_n().0 == sk_lwe.len());
 
-        let modop_rlweq = ModularOpsU64::new(parameters.rlwe_q as u64);
+        let modop_rlweq = ModularOpsU64::new(parameters.rlwe_q().0);
         // noise after mod down Q -> Q_ks
         let m_back0 = decrypt_lwe(&self.ct_rlwe_q_mod, sk_rlwe, &modop_rlweq);
 
-        let modop_lweq = ModularOpsU64::new(parameters.lwe_q as u64);
+        let modop_lweq = ModularOpsU64::new(parameters.lwe_q().0);
         // noise after mod down Q -> Q_ks
         let m_back1 = decrypt_lwe(&self.ct_lwe_q_mod, sk_rlwe, &modop_lweq);
         // noise after key switch from RLWE -> LWE
         let m_back2 = decrypt_lwe(&self.ct_lwe_q_mod_after_ksk, sk_lwe, &modop_lweq);
 
         // noise after mod down odd from Q_ks -> q
-        let modop_br_q = ModularOpsU64::new(parameters.br_q as u64);
+        let modop_br_q = ModularOpsU64::new(parameters.br_q().0);
         let m_back3 = decrypt_lwe(&self.ct_br_q_mod, sk_lwe, &modop_br_q);
 
         println!(
@@ -1684,30 +1825,20 @@ mod tests {
         random::DEFAULT_RNG,
         rgsw::{
             self, measure_noise, public_key_encrypt_rlwe, secret_key_encrypt_rlwe,
-            tests::{_measure_noise_rgsw, _secret_encrypt_rlwe},
+            tests::{_measure_noise_rgsw, _sk_encrypt_rlwe},
             RgswCiphertext, RgswCiphertextEvaluationDomain, SeededRgswCiphertext,
             SeededRlweCiphertext,
         },
         utils::negacyclic_mul,
     };
 
-    use self::parameters::{MP_BOOL_PARAMS, SP_BOOL_PARAMS};
-
     use super::*;
-
-    // #[test]
-    // fn trial() {
-    //     dbg!(generate_prime(28, 1 << 11, 1 << 28));
-    // }
 
     #[test]
     fn bool_encrypt_decrypt_works() {
-        // let prime = generate_prime(32, 2 * 1024, 1 << 32);
-        // dbg!(prime);
         let bool_evaluator =
-            BoolEvaluator::<Vec<Vec<u64>>, u64, NttBackendU64, ModularOpsU64>::new(SP_BOOL_PARAMS);
+            BoolEvaluator::<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64>::new(SP_BOOL_PARAMS);
         let client_key = bool_evaluator.client_key();
-        // let sever_key = bool_evaluator.server_key(&client_key);
 
         let mut m = true;
         for _ in 0..1000 {
@@ -1725,8 +1856,8 @@ mod tests {
             *r = rng;
         });
 
-        let bool_evaluator =
-            BoolEvaluator::<Vec<Vec<u64>>, u64, NttBackendU64, ModularOpsU64>::new(SP_BOOL_PARAMS);
+        let mut bool_evaluator =
+            BoolEvaluator::<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64>::new(SP_BOOL_PARAMS);
 
         // println!("{:?}", bool_evaluator.nand_test_vec);
         let client_key = bool_evaluator.client_key();
@@ -1736,25 +1867,13 @@ mod tests {
                 &seeded_server_key,
             );
 
-        let mut scratch_lwen_plus1 = vec![0u64; bool_evaluator.parameters.lwe_n + 1];
-        let mut scratch_matrix_dplus2_ring = vec![
-            vec![0u64; bool_evaluator.parameters.rlwe_n];
-            bool_evaluator.parameters.d_rgsw + 2
-        ];
-
         let mut m0 = false;
         let mut m1 = true;
         let mut ct0 = bool_evaluator.sk_encrypt(m0, &client_key);
         let mut ct1 = bool_evaluator.sk_encrypt(m1, &client_key);
 
         for _ in 0..1000 {
-            let ct_back = bool_evaluator.nand(
-                &ct0,
-                &ct1,
-                &server_key_eval_domain,
-                &mut scratch_lwen_plus1,
-                &mut scratch_matrix_dplus2_ring,
-            );
+            let ct_back = bool_evaluator.nand(&ct0, &ct1, &server_key_eval_domain);
 
             let m_out = !(m0 && m1);
 
@@ -1762,39 +1881,39 @@ mod tests {
             {
                 let noise0 = {
                     let ideal = if m0 {
-                        bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlweq_by8
                     } else {
-                        bool_evaluator.rlwe_q() - bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlwe_q() - bool_evaluator.pbs_info.rlweq_by8
                     };
                     let n = measure_noise_lwe(
                         &ct0,
                         client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                         &ideal,
                     );
                     let v = decrypt_lwe(
                         &ct0,
                         client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                     );
                     (n, v)
                 };
                 let noise1 = {
                     let ideal = if m1 {
-                        bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlweq_by8
                     } else {
-                        bool_evaluator.rlwe_q() - bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlwe_q() - bool_evaluator.pbs_info.rlweq_by8
                     };
                     let n = measure_noise_lwe(
                         &ct1,
                         client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                         &ideal,
                     );
                     let v = decrypt_lwe(
                         &ct1,
                         client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                     );
                     (n, v)
                 };
@@ -1811,20 +1930,20 @@ mod tests {
                 // Calculate noise in ciphertext post PBS
                 let noise_out = {
                     let ideal = if m_out {
-                        bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlweq_by8
                     } else {
-                        bool_evaluator.rlwe_q() - bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlwe_q() - bool_evaluator.pbs_info.rlweq_by8
                     };
                     let n = measure_noise_lwe(
                         &ct_back,
                         client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                         &ideal,
                     );
                     let v = decrypt_lwe(
                         &ct_back,
                         client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                     );
                     (n, v)
                 };
@@ -1848,14 +1967,14 @@ mod tests {
     #[test]
     fn multi_party_encryption_decryption() {
         let bool_evaluator =
-            BoolEvaluator::<Vec<Vec<u64>>, u64, NttBackendU64, ModularOpsU64>::new(MP_BOOL_PARAMS);
+            BoolEvaluator::<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64>::new(MP_BOOL_PARAMS);
 
         let no_of_parties = 500;
         let parties = (0..no_of_parties)
             .map(|_| bool_evaluator.client_key())
             .collect_vec();
 
-        let mut ideal_rlwe_sk = vec![0i32; bool_evaluator.rlwe_n()];
+        let mut ideal_rlwe_sk = vec![0i32; bool_evaluator.pbs_info.rlwe_n()];
         parties.iter().for_each(|k| {
             izip!(ideal_rlwe_sk.iter_mut(), k.sk_rlwe.values()).for_each(|(ideal_i, s_i)| {
                 *ideal_i = *ideal_i + s_i;
@@ -1887,14 +2006,14 @@ mod tests {
 
             {
                 let ideal_m = if m {
-                    bool_evaluator.rlweq_by8
+                    bool_evaluator.pbs_info.rlweq_by8
                 } else {
-                    bool_evaluator.parameters.rlwe_q - bool_evaluator.rlweq_by8
+                    bool_evaluator.pbs_info.rlwe_q() - bool_evaluator.pbs_info.rlweq_by8
                 };
                 let noise = measure_noise_lwe(
                     &lwe_ct,
                     &ideal_rlwe_sk,
-                    &bool_evaluator.rlwe_modop,
+                    &bool_evaluator.pbs_info.rlwe_modop,
                     &ideal_m,
                 );
                 println!("Noise: {noise}");
@@ -1902,155 +2021,6 @@ mod tests {
 
             assert_eq!(m_back, m);
             m = !m;
-        }
-    }
-
-    #[test]
-    fn ms() {
-        let logbig_q = 50;
-        let logsmall_q = 20;
-        let big_q = 1 << logbig_q;
-        let small_q = 1 << logsmall_q;
-        let lwe_n = 493;
-
-        let no_of_parties = 10;
-        let parties_lwe_sk = (0..no_of_parties)
-            .map(|_| LweSecret::random(lwe_n >> 1, lwe_n))
-            .collect_vec();
-
-        // Ideal secrets
-        let mut ideal_lwe_sk = vec![0i32; lwe_n];
-        parties_lwe_sk.iter().for_each(|k| {
-            izip!(ideal_lwe_sk.iter_mut(), k.values()).for_each(|(ideal_i, s_i)| {
-                *ideal_i = *ideal_i + s_i;
-            });
-        });
-
-        let mut rng = DefaultSecureRng::new();
-
-        let logp = 3;
-        let modop_bigq = ModularOpsU64::new(big_q);
-        let modop_smallq = ModularOpsU64::new(small_q);
-
-        for i in 0..100 {
-            let m = thread_rng().sample(Uniform::new(0u64, (1u64 << logp)));
-            let bigq_m = m << (logbig_q - logp);
-            let smallq_m = m << (logsmall_q - logp);
-
-            // encrypt
-            let mut lwe_ct = vec![0u64; lwe_n + 1];
-            encrypt_lwe(&mut lwe_ct, &bigq_m, &ideal_lwe_sk, &modop_bigq, &mut rng);
-
-            let noise = measure_noise_lwe(&lwe_ct, &ideal_lwe_sk, &modop_bigq, &bigq_m);
-            println!("Noise Before: {noise}");
-
-            // mod switch
-            let lwe_ct_ms = lwe_ct
-                .iter()
-                .map(|v| (((*v as f64) * small_q as f64) / (big_q as f64)).round() as u64)
-                .collect_vec();
-
-            let noise = measure_noise_lwe(&lwe_ct_ms, &ideal_lwe_sk, &modop_smallq, &smallq_m);
-            println!("Noise After: {noise}");
-        }
-    }
-
-    #[test]
-    fn multi_party_lwe_keyswitch() {
-        let lwe_logq = 18;
-        let lwe_q = 1 << lwe_logq;
-        let d_lwe = 1;
-        let logb_lwe = 6;
-        let lweq_modop = ModularOpsU64::new(lwe_q);
-
-        let decomposer = DefaultDecomposer::new(lwe_q, logb_lwe, d_lwe);
-        let lwe_gadgect_vec = decomposer.gadget_vector();
-        let logp = 2;
-
-        let from_lwe_n = 2048;
-        let to_lwe_n = 500;
-
-        let no_of_parties = 10;
-        let parties_from_lwe_sk = (0..no_of_parties)
-            .map(|_| LweSecret::random(from_lwe_n >> 1, from_lwe_n))
-            .collect_vec();
-        let parties_to_lwe_sk = (0..no_of_parties)
-            .map(|_| LweSecret::random(to_lwe_n >> 1, to_lwe_n))
-            .collect_vec();
-
-        // Ideal secrets
-        let mut ideal_from_lwe_sk = vec![0i32; from_lwe_n];
-        parties_from_lwe_sk.iter().for_each(|k| {
-            izip!(ideal_from_lwe_sk.iter_mut(), k.values()).for_each(|(ideal_i, s_i)| {
-                *ideal_i = *ideal_i + s_i;
-            });
-        });
-        let mut ideal_to_lwe_sk = vec![0i32; to_lwe_n];
-        parties_to_lwe_sk.iter().for_each(|k| {
-            izip!(ideal_to_lwe_sk.iter_mut(), k.values()).for_each(|(ideal_i, s_i)| {
-                *ideal_i = *ideal_i + s_i;
-            });
-        });
-
-        // Generate Lwe KSK share
-        let mut rng = DefaultSecureRng::new();
-        let mut ksk_seed = [0u8; 32];
-        rng.fill_bytes(&mut ksk_seed);
-        let lwe_ksk_shares = izip!(parties_from_lwe_sk.iter(), parties_to_lwe_sk.iter())
-            .map(|(from_sk, to_sk)| {
-                let mut ksk_out = vec![0u64; from_lwe_n * d_lwe];
-                let mut p_rng = DefaultSecureRng::new_seeded(ksk_seed);
-                lwe_ksk_keygen(
-                    from_sk.values(),
-                    to_sk.values(),
-                    &mut ksk_out,
-                    &lwe_gadgect_vec,
-                    &lweq_modop,
-                    &mut p_rng,
-                    &mut rng,
-                );
-                ksk_out
-            })
-            .collect_vec();
-
-        // Create collective LWE ksk
-        let mut sum_partb = vec![0u64; d_lwe * from_lwe_n];
-        lwe_ksk_shares.iter().for_each(|share| {
-            lweq_modop.elwise_add_mut(sum_partb.as_mut_slice(), share.as_slice())
-        });
-        let mut lwe_ksk = vec![vec![0u64; to_lwe_n + 1]; d_lwe * from_lwe_n];
-        let mut p_rng = DefaultSecureRng::new_seeded(ksk_seed);
-        izip!(lwe_ksk.iter_mut(), sum_partb.iter()).for_each(|(lwe_i, part_bi)| {
-            RandomUniformDist::random_fill(&mut p_rng, &lwe_q, &mut lwe_i.as_mut_slice()[1..]);
-            lwe_i[0] = *part_bi;
-        });
-
-        for i in 0..128 {
-            println!("############## ITERATION {i} ##############");
-
-            // Encrypt m
-            let m = 1;
-            let mut lwe_ct = vec![0u64; from_lwe_n + 1];
-            encrypt_lwe(&mut lwe_ct, &m, &ideal_from_lwe_sk, &lweq_modop, &mut rng);
-
-            let noise = measure_noise_lwe(&lwe_ct, &ideal_from_lwe_sk, &lweq_modop, &m);
-            println!("Noise before key switch: {noise}");
-
-            // Key switch
-            let lwe_ct_key_switched = {
-                let mut lwe_ct_key_switched = vec![0u64; to_lwe_n + 1];
-                lwe_key_switch(
-                    &mut lwe_ct_key_switched,
-                    &lwe_ct,
-                    &lwe_ksk,
-                    &lweq_modop,
-                    &decomposer,
-                );
-                lwe_ct_key_switched
-            };
-
-            let noise = measure_noise_lwe(&lwe_ct_key_switched, &ideal_to_lwe_sk, &lweq_modop, &m);
-            println!("Noise after key switch: {noise}");
         }
     }
 
@@ -2087,7 +2057,7 @@ mod tests {
     }
 
     fn _multi_party_all_keygen(
-        bool_evaluator: &BoolEvaluator<Vec<Vec<u64>>, u64, NttBackendU64, ModularOpsU64>,
+        bool_evaluator: &BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64>,
         no_of_parties: usize,
     ) -> (
         Vec<ClientKey>,
@@ -2107,8 +2077,11 @@ mod tests {
             .map(|_| bool_evaluator.client_key())
             .collect_vec();
 
+        let mut rng = DefaultSecureRng::new();
+
         // Collective public key
-        let pk_cr_seed = [0u8; 32];
+        let mut pk_cr_seed = [0u8; 32];
+        rng.fill_bytes(&mut pk_cr_seed);
         let public_key_share = parties
             .iter()
             .map(|k| bool_evaluator.multi_party_public_key_share(pk_cr_seed, k))
@@ -2118,29 +2091,34 @@ mod tests {
         );
 
         // Server key
-        let pbs_cr_seed = [1u8; 32];
+        let mut pbs_cr_seed = [1u8; 32];
+        rng.fill_bytes(&mut pbs_cr_seed);
         let server_key_shares = parties
             .iter()
-            .map(|k| bool_evaluator.multi_party_sever_key_share(pbs_cr_seed, &collective_pk.key, k))
+            .map(|k| {
+                bool_evaluator.multi_party_server_key_share(pbs_cr_seed, &collective_pk.key, k)
+            })
             .collect_vec();
-        let seeded_server_key =
-            aggregate_multi_party_server_key_shares::<_, _, _, ModularOpsU64, NttBackendU64>(
-                &server_key_shares,
-                &bool_evaluator.decomposer_rlwe,
-            );
+        let seeded_server_key = aggregate_multi_party_server_key_shares::<
+            _,
+            _,
+            (DefaultDecomposer<u64>, DefaultDecomposer<u64>),
+            ModularOpsU64,
+            NttBackendU64,
+        >(&server_key_shares);
         let server_key_eval = ServerKeyEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
             &seeded_server_key,
         );
 
         // construct ideal rlwe sk for meauring noise
         let ideal_client_key = {
-            let mut ideal_rlwe_sk = vec![0i32; bool_evaluator.rlwe_n()];
+            let mut ideal_rlwe_sk = vec![0i32; bool_evaluator.pbs_info.rlwe_n()];
             parties.iter().for_each(|k| {
                 izip!(ideal_rlwe_sk.iter_mut(), k.sk_rlwe.values()).for_each(|(ideal_i, s_i)| {
                     *ideal_i = *ideal_i + s_i;
                 });
             });
-            let mut ideal_lwe_sk = vec![0i32; bool_evaluator.lwe_n()];
+            let mut ideal_lwe_sk = vec![0i32; bool_evaluator.pbs_info.lwe_n()];
             parties.iter().for_each(|k| {
                 izip!(ideal_lwe_sk.iter_mut(), k.sk_lwe.values()).for_each(|(ideal_i, s_i)| {
                     *ideal_i = *ideal_i + s_i;
@@ -2168,219 +2146,12 @@ mod tests {
     }
 
     #[test]
-    fn mp_key_correcntess() {
-        let bool_evaluator =
-            BoolEvaluator::<Vec<Vec<u64>>, u64, NttBackendU64, ModularOpsU64>::new(MP_BOOL_PARAMS);
-
-        let (_, collective_pk, _, _, server_key_eval, ideal_client_key) =
-            _multi_party_all_keygen(&bool_evaluator, 20);
-
-        let lwe_q = bool_evaluator.parameters.lwe_q;
-        let rlwe_q = bool_evaluator.parameters.rlwe_q;
-        let d_rgsw = bool_evaluator.parameters.d_rgsw;
-        let lwe_logq = bool_evaluator.parameters.lwe_logq;
-        let lwe_n = bool_evaluator.parameters.lwe_n;
-        let rlwe_n = bool_evaluator.parameters.rlwe_n;
-        let lwe_modop = &bool_evaluator.lwe_modop;
-        let rlwe_nttop = &bool_evaluator.rlwe_nttop;
-        let rlwe_modop = &bool_evaluator.rlwe_modop;
-        let rlwe_decomposer = &bool_evaluator.decomposer_rlwe;
-
-        // test LWE ksk from RLWE -> LWE
-        if false {
-            let logp = 2;
-            let mut rng = DefaultSecureRng::new();
-
-            let m = 1;
-            let encoded_m = m << (lwe_logq - logp);
-
-            // Encrypt
-            let mut lwe_ct = vec![0u64; rlwe_n + 1];
-            encrypt_lwe(
-                &mut lwe_ct,
-                &encoded_m,
-                ideal_client_key.sk_rlwe.values(),
-                lwe_modop,
-                &mut rng,
-            );
-
-            // key switch
-            let lwe_decomposer = &bool_evaluator.decomposer_lwe;
-            let mut lwe_out = vec![0u64; lwe_n + 1];
-            lwe_key_switch(
-                &mut lwe_out,
-                &lwe_ct,
-                &server_key_eval.lwe_ksk,
-                lwe_modop,
-                lwe_decomposer,
-            );
-
-            let encoded_m_back = decrypt_lwe(&lwe_out, ideal_client_key.sk_lwe.values(), lwe_modop);
-            let m_back =
-                ((encoded_m_back as f64 * (1 << logp) as f64) / (lwe_q as f64)).round() as u64;
-            dbg!(m_back, m);
-
-            let noise = measure_noise_lwe(
-                &lwe_out,
-                ideal_client_key.sk_lwe.values(),
-                lwe_modop,
-                &encoded_m,
-            );
-
-            println!("Noise: {noise}");
-        }
-
-        // Measure noise in RGSW ciphertexts of ideal LWE secrets
-        if true {
-            let gadget_vec = rlwe_decomposer.gadget_vector();
-            for i in 0..20 {
-                // measure noise in RGSW(s[i])
-                let si =
-                    ideal_client_key.sk_lwe.values[i] * (bool_evaluator.embedding_factor as i32);
-                let mut si_poly = vec![0u64; rlwe_n];
-                if si < 0 {
-                    si_poly[rlwe_n - (si.abs() as usize)] = rlwe_q - 1;
-                } else {
-                    si_poly[(si.abs() as usize)] = 1;
-                }
-
-                let mut rgsw_si = server_key_eval.rgsw_cts[i].clone();
-                rgsw_si
-                    .iter_mut()
-                    .for_each(|ri| rlwe_nttop.backward(ri.as_mut()));
-
-                println!("####### Noise in RGSW(X^s_{i}) #######");
-                _measure_noise_rgsw(
-                    &rgsw_si,
-                    &si_poly,
-                    ideal_client_key.sk_rlwe.values(),
-                    &gadget_vec,
-                    rlwe_q,
-                );
-                println!("####### ##################### #######");
-            }
-        }
-
-        // measure noise grwoth in RLWExRGSW
-        if true {
-            let mut rng = DefaultSecureRng::new();
-            let mut carry_m = vec![0u64; rlwe_n];
-            RandomUniformDist::random_fill(&mut rng, &rlwe_q, carry_m.as_mut_slice());
-
-            // RGSW(carrym)
-            let trivial_rlwect = vec![vec![0u64; rlwe_n], carry_m.clone()];
-            let mut rlwe_ct = RlweCiphertext::<_, DefaultSecureRng>::new_trivial(trivial_rlwect);
-
-            let mut scratch_matrix_dplus2_ring = vec![vec![0u64; rlwe_n]; d_rgsw + 2];
-            let mul_mod =
-                |v0: &u64, v1: &u64| (((*v0 as u128 * *v1 as u128) % (rlwe_q as u128)) as u64);
-
-            for i in 0..bool_evaluator.parameters.lwe_n {
-                rlwe_by_rgsw(
-                    &mut rlwe_ct,
-                    server_key_eval.rgsw_ct_lwe_si(i),
-                    &mut scratch_matrix_dplus2_ring,
-                    rlwe_decomposer,
-                    rlwe_nttop,
-                    rlwe_modop,
-                );
-
-                // carry_m[X] * s_i[X]
-                let si =
-                    ideal_client_key.sk_lwe.values[i] * (bool_evaluator.embedding_factor as i32);
-                let mut si_poly = vec![0u64; rlwe_n];
-                if si < 0 {
-                    si_poly[rlwe_n - (si.abs() as usize)] = rlwe_q - 1;
-                } else {
-                    si_poly[(si.abs() as usize)] = 1;
-                }
-                carry_m = negacyclic_mul(&carry_m, &si_poly, mul_mod, rlwe_q);
-
-                let noise = measure_noise(
-                    &rlwe_ct,
-                    &carry_m,
-                    rlwe_nttop,
-                    rlwe_modop,
-                    ideal_client_key.sk_rlwe.values(),
-                );
-                println!("Noise RLWE(carry_m) accumulating {i}^th secret monomial: {noise}");
-            }
-        }
-
-        // Check galois keys
-        if false {
-            let g = bool_evaluator.g() as isize;
-            let mut rng = DefaultSecureRng::new();
-            let mut scratch_matrix_dplus2_ring = vec![vec![0u64; rlwe_n]; d_rgsw + 2];
-            for i in [g, -g] {
-                let mut m = vec![0u64; rlwe_n];
-                RandomUniformDist::random_fill(&mut rng, &rlwe_q, m.as_mut_slice());
-                let mut rlwe_ct = {
-                    let mut data = vec![vec![0u64; rlwe_n]; 2];
-                    public_key_encrypt_rlwe(
-                        &mut data,
-                        &collective_pk.key,
-                        &m,
-                        rlwe_modop,
-                        rlwe_nttop,
-                        &mut rng,
-                    );
-                    RlweCiphertext::<_, DefaultSecureRng>::new_trivial(data, false)
-                };
-
-                let auto_key = server_key_eval.galois_key_for_auto(i);
-                let (auto_map_index, auto_map_sign) = generate_auto_map(rlwe_n, i);
-                galois_auto(
-                    &mut rlwe_ct,
-                    auto_key,
-                    &mut scratch_matrix_dplus2_ring,
-                    &auto_map_index,
-                    &auto_map_sign,
-                    rlwe_modop,
-                    rlwe_nttop,
-                    rlwe_decomposer,
-                );
-
-                // send m(X) -> m(X^i)
-                let mut m_k = vec![0u64; rlwe_n];
-                izip!(m.iter(), auto_map_index.iter(), auto_map_sign.iter()).for_each(
-                    |(mi, to_index, to_sign)| {
-                        if !to_sign {
-                            m_k[*to_index] = rlwe_q - *mi;
-                        } else {
-                            m_k[*to_index] = *mi;
-                        }
-                    },
-                );
-
-                // measure noise
-                let noise = measure_noise(
-                    &rlwe_ct,
-                    &m_k,
-                    rlwe_nttop,
-                    rlwe_modop,
-                    ideal_client_key.sk_rlwe.values(),
-                );
-
-                println!("Noise after auto k={i}: {noise}");
-            }
-        }
-    }
-
-    #[test]
     fn multi_party_nand() {
-        let bool_evaluator =
-            BoolEvaluator::<Vec<Vec<u64>>, u64, NttBackendU64, ModularOpsU64>::new(MP_BOOL_PARAMS);
+        let mut bool_evaluator =
+            BoolEvaluator::<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64>::new(MP_BOOL_PARAMS);
 
         let (parties, collective_pk, _, _, server_key_eval, ideal_client_key) =
-            _multi_party_all_keygen(&bool_evaluator, 50);
-
-        // PBS
-        let mut scratch_lwen_plus1 = vec![0u64; bool_evaluator.parameters.lwe_n + 1];
-        let mut scratch_matrix_dplus2_ring = vec![
-            vec![0u64; bool_evaluator.parameters.rlwe_n];
-            bool_evaluator.parameters.d_rgsw + 2
-        ];
+            _multi_party_all_keygen(&bool_evaluator, 2);
 
         let mut m0 = true;
         let mut m1 = false;
@@ -2389,13 +2160,7 @@ mod tests {
         let mut lwe1 = bool_evaluator.pk_encrypt(&collective_pk.key, m1);
 
         for _ in 0..2000 {
-            let lwe_out = bool_evaluator.nand(
-                &lwe0,
-                &lwe1,
-                &server_key_eval,
-                &mut scratch_lwen_plus1,
-                &mut scratch_matrix_dplus2_ring,
-            );
+            let lwe_out = bool_evaluator.nand(&lwe0, &lwe1, &server_key_eval);
 
             let m_expected = !(m0 & m1);
 
@@ -2403,39 +2168,39 @@ mod tests {
             {
                 let noise0 = {
                     let ideal = if m0 {
-                        bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlweq_by8
                     } else {
-                        bool_evaluator.rlwe_q() - bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlwe_q() - bool_evaluator.pbs_info.rlweq_by8
                     };
                     let n = measure_noise_lwe(
                         &lwe0,
                         ideal_client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                         &ideal,
                     );
                     let v = decrypt_lwe(
                         &lwe0,
                         ideal_client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                     );
                     (n, v)
                 };
                 let noise1 = {
                     let ideal = if m1 {
-                        bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlweq_by8
                     } else {
-                        bool_evaluator.rlwe_q() - bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlwe_q() - bool_evaluator.pbs_info.rlweq_by8
                     };
                     let n = measure_noise_lwe(
                         &lwe1,
                         ideal_client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                         &ideal,
                     );
                     let v = decrypt_lwe(
                         &lwe1,
                         ideal_client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                     );
                     (n, v)
                 };
@@ -2451,20 +2216,21 @@ mod tests {
 
                 let noise_out = {
                     let ideal_m = if m_expected {
-                        bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.rlweq_by8
                     } else {
-                        bool_evaluator.parameters.rlwe_q - bool_evaluator.rlweq_by8
+                        bool_evaluator.pbs_info.parameters.rlwe_q().0
+                            - bool_evaluator.pbs_info.rlweq_by8
                     };
                     let n = measure_noise_lwe(
                         &lwe_out,
                         ideal_client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                         &ideal_m,
                     );
                     let v = decrypt_lwe(
                         &lwe_out,
                         ideal_client_key.sk_rlwe.values(),
-                        &bool_evaluator.rlwe_modop,
+                        &bool_evaluator.pbs_info.rlwe_modop,
                     );
                     (n, v)
                 };
@@ -2546,35 +2312,42 @@ mod tests {
         // };
 
         let bool_evaluator =
-            BoolEvaluator::<Vec<Vec<u64>>, u64, NttBackendU64, ModularOpsU64>::new(MP_BOOL_PARAMS);
+            BoolEvaluator::<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64>::new(MP_BOOL_PARAMS);
 
         // let (_, collective_pk, _, _, server_key_eval, ideal_client_key) =
         //     _multi_party_all_keygen(&bool_evaluator, 20);
         let no_of_parties = 2;
-        let lwe_q = bool_evaluator.parameters.lwe_q;
-        let rlwe_q = bool_evaluator.parameters.rlwe_q;
-        let d_rgsw = bool_evaluator.parameters.d_rgsw;
-        let lwe_logq = bool_evaluator.parameters.lwe_logq;
-        let lwe_n = bool_evaluator.parameters.lwe_n;
-        let rlwe_n = bool_evaluator.parameters.rlwe_n;
-        let lwe_modop = &bool_evaluator.lwe_modop;
-        let rlwe_nttop = &bool_evaluator.rlwe_nttop;
-        let rlwe_modop = &bool_evaluator.rlwe_modop;
-        let rlwe_decomposer = &bool_evaluator.decomposer_rlwe;
-        let rlwe_gadget_vector = rlwe_decomposer.gadget_vector();
+        let lwe_q = bool_evaluator.pbs_info.parameters.lwe_q().0;
+        let rlwe_q = bool_evaluator.pbs_info.parameters.rlwe_q().0;
+        let lwe_n = bool_evaluator.pbs_info.parameters.lwe_n().0;
+        let rlwe_n = bool_evaluator.pbs_info.parameters.rlwe_n().0;
+        let lwe_modop = &bool_evaluator.pbs_info.lwe_modop;
+        let rlwe_nttop = &bool_evaluator.pbs_info.rlwe_nttop;
+        let rlwe_modop = &bool_evaluator.pbs_info.rlwe_modop;
+
+        let rlwe_rgsw_decomposer = &bool_evaluator.pbs_info.rlwe_rgsw_decomposer;
+        let rlwe_rgsw_gadget_a = rlwe_rgsw_decomposer.0.gadget_vector();
+        let rlwe_rgsw_gadget_b = rlwe_rgsw_decomposer.1.gadget_vector();
+
+        // let rgsw_rgsw_decomposer = &bool_evaluator
+        //     .pbs_info
+        //     .parameters
+        //     .rgsw_rgsw_decomposer::<DefaultDecomposer<u64>>();
+        // let rgsw_rgsw_gagdet_a = rgsw_rgsw_decomposer.a().gadget_vector();
+        // let rgsw_rgsw_gagdet_b = rgsw_rgsw_decomposer.b().gadget_vector();
 
         let parties = (0..no_of_parties)
             .map(|_| bool_evaluator.client_key())
             .collect_vec();
 
         let ideal_client_key = {
-            let mut ideal_rlwe_sk = vec![0i32; bool_evaluator.rlwe_n()];
+            let mut ideal_rlwe_sk = vec![0i32; bool_evaluator.pbs_info.rlwe_n()];
             parties.iter().for_each(|k| {
                 izip!(ideal_rlwe_sk.iter_mut(), k.sk_rlwe.values()).for_each(|(ideal_i, s_i)| {
                     *ideal_i = *ideal_i + s_i;
                 });
             });
-            let mut ideal_lwe_sk = vec![0i32; bool_evaluator.lwe_n()];
+            let mut ideal_lwe_sk = vec![0i32; bool_evaluator.pbs_info.lwe_n()];
             parties.iter().for_each(|k| {
                 izip!(ideal_lwe_sk.iter_mut(), k.sk_lwe.values()).for_each(|(ideal_i, s_i)| {
                     *ideal_i = *ideal_i + s_i;
@@ -2608,7 +2381,8 @@ mod tests {
                         public_key_share.as_slice(),
                     );
 
-                let m = vec![0u64; rlwe_n];
+                let mut m = vec![0u64; rlwe_n];
+                RandomUniformDist::random_fill(&mut rng, &rlwe_q, m.as_mut_slice());
                 let mut rlwe_ct = vec![vec![0u64; rlwe_n]; 2];
                 public_key_encrypt_rlwe(
                     &mut rlwe_ct,
@@ -2653,15 +2427,17 @@ mod tests {
             let server_key_shares = parties
                 .iter()
                 .map(|k| {
-                    bool_evaluator.multi_party_sever_key_share(pbs_cr_seed, &collective_pk.key, k)
+                    bool_evaluator.multi_party_server_key_share(pbs_cr_seed, &collective_pk.key, k)
                 })
                 .collect_vec();
 
-            let seeded_server_key =
-                aggregate_multi_party_server_key_shares::<_, _, _, ModularOpsU64, NttBackendU64>(
-                    &server_key_shares,
-                    rlwe_decomposer,
-                );
+            let seeded_server_key = aggregate_multi_party_server_key_shares::<
+                _,
+                _,
+                (DefaultDecomposer<u64>, DefaultDecomposer<u64>),
+                ModularOpsU64,
+                NttBackendU64,
+            >(&server_key_shares);
 
             // Check noise in RGSW ciphertexts of ideal LWE secret elements
             if true {
@@ -2673,40 +2449,33 @@ mod tests {
                 .for_each(|(s_i, rgsw_ct_i)| {
                     // X^{s[i]}
                     let mut m_si = vec![0u64; rlwe_n];
-                    let s_i = *s_i * (bool_evaluator.embedding_factor as i32);
+                    let s_i = *s_i * (bool_evaluator.pbs_info.embedding_factor as i32);
                     if s_i < 0 {
                         m_si[rlwe_n - (s_i.abs() as usize)] = rlwe_q - 1;
                     } else {
                         m_si[s_i as usize] = 1;
                     }
 
-                    _measure_noise_rgsw(
-                        &rgsw_ct_i,
-                        &m_si,
-                        ideal_client_key.sk_rlwe.values(),
-                        &rlwe_gadget_vector,
-                        rlwe_q,
-                    );
-
                     // RLWE(-sm)
                     let mut neg_s_eval =
                         Vec::<u64>::try_convert_from(ideal_client_key.sk_rlwe.values(), &rlwe_q);
                     rlwe_modop.elwise_neg_mut(&mut neg_s_eval);
                     rlwe_nttop.forward(&mut neg_s_eval);
-                    for j in 0..rlwe_decomposer.decomposition_count() {
+                    for j in 0..rlwe_rgsw_decomposer.a().decomposition_count() {
                         // -s[X]*X^{s_lwe[i]}*B_j
                         let mut m_ideal = m_si.clone();
                         rlwe_nttop.forward(m_ideal.as_mut_slice());
                         rlwe_modop.elwise_mul_mut(m_ideal.as_mut_slice(), neg_s_eval.as_slice());
                         rlwe_nttop.backward(m_ideal.as_mut_slice());
                         rlwe_modop
-                            .elwise_scalar_mul_mut(m_ideal.as_mut_slice(), &rlwe_gadget_vector[j]);
+                            .elwise_scalar_mul_mut(m_ideal.as_mut_slice(), &rlwe_rgsw_gadget_a[j]);
 
                         // RLWE(-s*X^{s_lwe[i]}*B_j)
                         let mut rlwe_ct = vec![vec![0u64; rlwe_n]; 2];
                         rlwe_ct[0].copy_from_slice(&rgsw_ct_i[j]);
-                        rlwe_ct[1]
-                            .copy_from_slice(&rgsw_ct_i[j + rlwe_decomposer.decomposition_count()]);
+                        rlwe_ct[1].copy_from_slice(
+                            &rgsw_ct_i[j + rlwe_rgsw_decomposer.a().decomposition_count()],
+                        );
 
                         let mut m_back = vec![0u64; rlwe_n];
                         decrypt_rlwe(
@@ -2723,19 +2492,21 @@ mod tests {
                     }
 
                     // RLWE'(m)
-                    for j in 0..rlwe_decomposer.decomposition_count() {
+                    for j in 0..rlwe_rgsw_decomposer.b().decomposition_count() {
                         // X^{s_lwe[i]}*B_j
                         let mut m_ideal = m_si.clone();
                         rlwe_modop
-                            .elwise_scalar_mul_mut(m_ideal.as_mut_slice(), &rlwe_gadget_vector[j]);
+                            .elwise_scalar_mul_mut(m_ideal.as_mut_slice(), &rlwe_rgsw_gadget_b[j]);
 
                         // RLWE(X^{s_lwe[i]}*B_j)
                         let mut rlwe_ct = vec![vec![0u64; rlwe_n]; 2];
                         rlwe_ct[0].copy_from_slice(
-                            &rgsw_ct_i[j + (2 * rlwe_decomposer.decomposition_count())],
+                            &rgsw_ct_i[j + (2 * rlwe_rgsw_decomposer.a().decomposition_count())],
                         );
                         rlwe_ct[1].copy_from_slice(
-                            &rgsw_ct_i[j + (3 * rlwe_decomposer.decomposition_count())],
+                            &rgsw_ct_i[j
+                                + (2 * rlwe_rgsw_decomposer.a().decomposition_count()
+                                    + rlwe_rgsw_decomposer.b().decomposition_count())],
                         );
 
                         let mut m_back = vec![0u64; rlwe_n];
@@ -2797,20 +2568,25 @@ mod tests {
                     ]);
                     // let mut rlwe_after =
                     //     RlweCiphertext::<_, DefaultSecureRng>::from_raw(rlwe_ct.clone(), false);
-                    let mut scratch =
-                        vec![vec![0u64; rlwe_n]; rlwe_decomposer.decomposition_count() + 2];
+                    let mut scratch = vec![
+                        vec![0u64; rlwe_n];
+                        std::cmp::max(
+                            rlwe_rgsw_decomposer.0.decomposition_count(),
+                            rlwe_rgsw_decomposer.1.decomposition_count()
+                        ) + 2
+                    ];
                     rlwe_by_rgsw(
                         &mut rlwe_after,
                         &rgsw_ct_i,
                         &mut scratch,
-                        rlwe_decomposer,
+                        rlwe_rgsw_decomposer,
                         rlwe_nttop,
                         rlwe_modop,
                     );
 
                     // m1 = X^{s[i]}
                     let mut m1 = vec![0u64; rlwe_n];
-                    let s_i = *s_i * (bool_evaluator.embedding_factor as i32);
+                    let s_i = *s_i * (bool_evaluator.pbs_info.embedding_factor as i32);
                     if s_i < 0 {
                         m1[rlwe_n - (s_i.abs() as usize)] = rlwe_q - 1;
                     } else {
@@ -3063,10 +2839,5 @@ mod tests {
         //         println!("Noise after auto k={i}: {noise}");
         //     }
         // }
-    }
-
-    fn test_2() {
-        let bool_evaluator =
-            BoolEvaluator::<Vec<Vec<u64>>, u64, NttBackendU64, ModularOpsU64>::new(SP_BOOL_PARAMS);
     }
 }

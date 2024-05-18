@@ -42,6 +42,9 @@ pub trait Matrix: AsRef<[Self::R]> {
     fn split_at_row(&self, idx: usize) -> (&[<Self as Matrix>::R], &[<Self as Matrix>::R]) {
         self.as_ref().split_at(idx)
     }
+
+    /// Does the matrix fit sub-matrix of dimension row x col
+    fn fits(&self, row: usize, col: usize) -> bool;
 }
 
 pub trait MatrixMut: Matrix + AsMut<[<Self as Matrix>::R]>
@@ -96,6 +99,10 @@ impl<T> Matrix for Vec<Vec<T>> {
     fn dimension(&self) -> (usize, usize) {
         (self.len(), self[0].len())
     }
+
+    fn fits(&self, row: usize, col: usize) -> bool {
+        self.len() >= row && self[0].len() >= col
+    }
 }
 
 impl<T> Matrix for &[Vec<T>] {
@@ -105,6 +112,10 @@ impl<T> Matrix for &[Vec<T>] {
     fn dimension(&self) -> (usize, usize) {
         (self.len(), self[0].len())
     }
+
+    fn fits(&self, row: usize, col: usize) -> bool {
+        self.len() >= row && self[0].len() >= col
+    }
 }
 
 impl<T> Matrix for &mut [Vec<T>] {
@@ -113,6 +124,10 @@ impl<T> Matrix for &mut [Vec<T>] {
 
     fn dimension(&self) -> (usize, usize) {
         (self.len(), self[0].len())
+    }
+
+    fn fits(&self, row: usize, col: usize) -> bool {
+        self.len() >= row && self[0].len() >= col
     }
 }
 

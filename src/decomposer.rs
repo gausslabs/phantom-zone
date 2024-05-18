@@ -13,6 +13,30 @@ fn gadget_vector<T: PrimInt>(logq: usize, logb: usize, d: usize) -> Vec<T> {
         .collect_vec()
 }
 
+pub trait RlweDecomposer {
+    type Element;
+    type D: Decomposer<Element = Self::Element>;
+
+    /// Decomposer for RLWE Part A
+    fn a(&self) -> &Self::D;
+    /// Decomposer for RLWE Part B
+    fn b(&self) -> &Self::D;
+}
+
+impl<D> RlweDecomposer for (D, D)
+where
+    D: Decomposer,
+{
+    type D = D;
+    type Element = D::Element;
+    fn a(&self) -> &Self::D {
+        &self.0
+    }
+    fn b(&self) -> &Self::D {
+        &self.1
+    }
+}
+
 pub trait Decomposer {
     type Element;
     fn new(q: Self::Element, logb: usize, d: usize) -> Self;
@@ -141,6 +165,44 @@ impl<T: PrimInt + WrappingSub + Debug + NumInfo> Decomposer for DefaultDecompose
         self.d
     }
 }
+
+// impl<T> Decomposer for dyn AsRef<DefaultDecomposer<T>>
+// where
+//     DefaultDecomposer<T>: Decomposer<Element = T>,
+// {
+//     type Element = T;
+
+//     fn new(q: Self::Element, logb: usize, d: usize) -> Self {
+//         DefaultDecomposer::<T>::new(q, logb, d)
+//     }
+
+//     fn decompose(&self, v: &Self::Element) -> Vec<Self::Element> {
+//         todo!()
+//     }
+
+//     fn decomposition_count(&self) -> usize {
+//         todo!()
+//     }
+// }
+
+// impl<U: AsRef<DefaultDecomposer<T>>> Decomposer for U
+// where
+//     DefaultDecomposer<T>: Decomposer,
+// {
+//     type Element = T;
+
+//     fn new(q: Self::Element, logb: usize, d: usize) -> Self {
+//         todo!()
+//     }
+
+//     fn decompose(&self, v: &Self::Element) -> Vec<Self::Element> {
+//         todo!()
+//     }
+
+//     fn decomposition_count(&self) -> usize {
+//         todo!()
+//     }
+// }
 
 fn round_value<T: PrimInt>(value: T, ignore_bits: usize) -> T {
     if ignore_bits == 0 {
