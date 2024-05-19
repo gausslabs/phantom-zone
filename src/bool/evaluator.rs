@@ -1829,7 +1829,7 @@ mod tests {
             RgswCiphertext, RgswCiphertextEvaluationDomain, SeededRgswCiphertext,
             SeededRlweCiphertext,
         },
-        utils::negacyclic_mul,
+        utils::{negacyclic_mul, Stats},
     };
 
     use super::*;
@@ -2255,41 +2255,6 @@ mod tests {
 
             lwe1 = lwe0;
             lwe0 = lwe_out;
-        }
-    }
-
-    struct Stats<T> {
-        samples: Vec<T>,
-    }
-
-    impl<T: PrimInt + FromPrimitive + Debug> Stats<T>
-    where
-        // T: for<'a> Sum<&'a T>,
-        T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
-    {
-        fn mean(&self) -> f64 {
-            self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
-        }
-
-        fn std_dev(&self) -> f64 {
-            let mean = self.mean();
-
-            // diff
-            let diff_sq = self
-                .samples
-                .iter()
-                .map(|v| {
-                    let t = v.to_f64().unwrap() - mean;
-                    t * t
-                })
-                .into_iter()
-                .sum::<f64>();
-
-            (diff_sq / (self.samples.len() as f64)).sqrt()
-        }
-
-        fn add_more(&mut self, values: &[T]) {
-            self.samples.extend(values.iter());
         }
     }
 

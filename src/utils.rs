@@ -1,7 +1,7 @@
-use std::usize;
+use std::{fmt::Debug, usize};
 
 use itertools::Itertools;
-use num_traits::{PrimInt, Signed};
+use num_traits::{FromPrimitive, PrimInt, Signed};
 
 use crate::RandomUniformDist;
 pub trait WithLocal {
@@ -226,5 +226,40 @@ impl TryConvertFrom<[u64]> for Vec<i64> {
                 }
             })
             .collect_vec()
+    }
+}
+
+pub(crate) struct Stats<T> {
+    pub(crate) samples: Vec<T>,
+}
+
+impl<T: PrimInt + FromPrimitive + Debug> Stats<T>
+where
+    // T: for<'a> Sum<&'a T>,
+    T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
+{
+    pub(crate) fn mean(&self) -> f64 {
+        self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
+    }
+
+    pub(crate) fn std_dev(&self) -> f64 {
+        let mean = self.mean();
+
+        // diff
+        let diff_sq = self
+            .samples
+            .iter()
+            .map(|v| {
+                let t = v.to_f64().unwrap() - mean;
+                t * t
+            })
+            .into_iter()
+            .sum::<f64>();
+
+        (diff_sq / (self.samples.len() as f64)).sqrt()
+    }
+
+    pub(crate) fn add_more(&mut self, values: &[T]) {
+        self.samples.extend(values.iter());
     }
 }
