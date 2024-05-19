@@ -118,7 +118,7 @@ where
             container.iter_mut()
         )
         .for_each(|(from, to)| {
-            *to = modulus.from_f64(from);
+            *to = modulus.map_element_from_f64(from);
         });
     }
 }
@@ -152,13 +152,13 @@ where
     T: PrimInt + SampleUniform,
 {
     fn random(&mut self, modulus: &T) -> T {
-        Uniform::new_inclusive(T::zero(), modulus).sample(&mut self.rng)
+        Uniform::new(T::zero(), modulus).sample(&mut self.rng)
     }
 }
 
 impl<T, M: Modulus<Element = T>> RandomGaussianElementInModulus<T, M> for DefaultSecureRng {
     fn random(&mut self, modulus: &M) -> T {
-        modulus.from_f64(
+        modulus.map_element_from_f64(
             rand_distr::Normal::new(0.0, 3.19f64)
                 .unwrap()
                 .sample(&mut self.rng),

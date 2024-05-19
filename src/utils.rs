@@ -146,7 +146,10 @@ pub trait TryConvertFrom1<T: ?Sized, P> {
 
 impl<P: Modulus<Element = u64>> TryConvertFrom1<[i64], P> for Vec<u64> {
     fn try_convert_from(value: &[i64], parameters: &P) -> Self {
-        value.iter().map(|v| parameters.from_i64(*v)).collect_vec()
+        value
+            .iter()
+            .map(|v| parameters.map_element_from_i64(*v))
+            .collect_vec()
     }
 }
 
@@ -154,14 +157,17 @@ impl<P: Modulus<Element = u64>> TryConvertFrom1<[i32], P> for Vec<u64> {
     fn try_convert_from(value: &[i32], parameters: &P) -> Self {
         value
             .iter()
-            .map(|v| parameters.from_i64(*v as i64))
+            .map(|v| parameters.map_element_from_i64(*v as i64))
             .collect_vec()
     }
 }
 
 impl<P: Modulus> TryConvertFrom1<[P::Element], P> for Vec<i64> {
     fn try_convert_from(value: &[P::Element], parameters: &P) -> Self {
-        value.iter().map(|v| parameters.to_i64(v)).collect_vec()
+        value
+            .iter()
+            .map(|v| parameters.map_element_to_i64(v))
+            .collect_vec()
     }
 }
 

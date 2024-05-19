@@ -13,8 +13,8 @@ use crate::{
     decomposer::{self, Decomposer, RlweDecomposer},
     ntt::{self, Ntt, NttInit},
     random::{
-        DefaultSecureRng, NewWithSeed, RandomElementInModulus, RandomFill, RandomFillGaussianInModulus,
-        RandomFillUniformInModulus,
+        DefaultSecureRng, NewWithSeed, RandomElementInModulus, RandomFill,
+        RandomFillGaussianInModulus, RandomFillUniformInModulus,
     },
     utils::{fill_random_ternary_secret_with_hamming_weight, TryConvertFrom1, WithLocal},
     Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
@@ -1528,7 +1528,7 @@ where
 
     let mut max_diff_bits = f64::MIN;
     m_plus_e.as_ref().iter().for_each(|v| {
-        let bits = (q.to_i64(v).to_f64().unwrap()).log2();
+        let bits = (q.map_element_to_i64(v).to_f64().unwrap()).log2();
 
         if max_diff_bits < bits {
             max_diff_bits = bits;
@@ -1744,7 +1744,11 @@ pub(crate) mod tests {
 
         // sample m0
         let mut m0 = vec![0u64; ring_size as usize];
-        RandomFillUniformInModulus::<[u64], u64>::random_fill(&mut rng, &(1u64 << logp), m0.as_mut_slice());
+        RandomFillUniformInModulus::<[u64], u64>::random_fill(
+            &mut rng,
+            &(1u64 << logp),
+            m0.as_mut_slice(),
+        );
 
         let ntt_op = NttBackendU64::new(&q, ring_size as usize);
         let mod_op = ModularOpsU64::new(q);
@@ -1787,7 +1791,11 @@ pub(crate) mod tests {
         let s = RlweSecret::random((ring_size >> 1) as usize, ring_size as usize);
 
         let mut m0 = vec![0u64; ring_size as usize];
-        RandomFillUniformInModulus::<[u64], _>::random_fill(&mut rng, &(1u64 << logp), m0.as_mut_slice());
+        RandomFillUniformInModulus::<[u64], _>::random_fill(
+            &mut rng,
+            &(1u64 << logp),
+            m0.as_mut_slice(),
+        );
         let mut m1 = vec![0u64; ring_size as usize];
         m1[thread_rng().gen_range(0..ring_size) as usize] = 1;
 

@@ -12,8 +12,8 @@ use crate::{
     backend::{ArithmeticOps, GetModulus, Modulus, VectorOps},
     decomposer::Decomposer,
     random::{
-        DefaultSecureRng, NewWithSeed, RandomFillGaussianInModulus, RandomGaussianElementInModulus,
-        RandomFillUniformInModulus, DEFAULT_RNG,
+        DefaultSecureRng, NewWithSeed, RandomFillGaussianInModulus, RandomFillUniformInModulus,
+        RandomGaussianElementInModulus, DEFAULT_RNG,
     },
     utils::{fill_random_ternary_secret_with_hamming_weight, TryConvertFrom1, WithLocal},
     Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
@@ -65,7 +65,11 @@ where
         let mut p_rng = R::new_with_seed(value.seed.clone());
         let mut data = M::zeros(value.data.as_ref().len(), value.to_lwe_n + 1);
         izip!(value.data.as_ref().iter(), data.iter_rows_mut()).for_each(|(bi, lwe_i)| {
-            RandomFillUniformInModulus::random_fill(&mut p_rng, &value.modulus, &mut lwe_i.as_mut()[1..]);
+            RandomFillUniformInModulus::random_fill(
+                &mut p_rng,
+                &value.modulus,
+                &mut lwe_i.as_mut()[1..],
+            );
             lwe_i.as_mut()[0] = *bi;
         });
         LweKeySwitchingKey {
@@ -189,7 +193,8 @@ pub fn lwe_ksk_keygen<
 pub fn encrypt_lwe<
     Ro: Row + RowMut,
     Op: ArithmeticOps<Element = Ro::Element> + GetModulus<Element = Ro::Element>,
-    R: RandomGaussianElementInModulus<Ro::Element, Op::M> + RandomFillUniformInModulus<[Ro::Element], Op::M>,
+    R: RandomGaussianElementInModulus<Ro::Element, Op::M>
+        + RandomFillUniformInModulus<[Ro::Element], Op::M>,
     S,
 >(
     lwe_out: &mut Ro,
@@ -273,7 +278,7 @@ where
 
     let mut diff = operator.sub(&m, ideal_m);
     let q = operator.modulus();
-    return q.to_i64(&diff).to_f64().unwrap().abs().log2();
+    return q.map_element_to_i64(&diff).to_f64().unwrap().abs().log2();
 }
 
 #[cfg(test)]

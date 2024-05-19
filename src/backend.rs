@@ -7,6 +7,8 @@ pub trait Modulus {
     type Element;
     /// Modulus value if it fits in Element
     fn q(&self) -> Option<Self::Element>;
+    /// Modulus value as f64 if it fits in f64
+    fn q_as_f64(&self) -> Option<f64>;
     /// Is modulus native?
     fn is_native(&self) -> bool;
     /// -1 in signed representaiton
@@ -17,11 +19,11 @@ pub trait Modulus {
     /// Always assmed to be 0.
     fn smallest_unsigned_value(&self) -> Self::Element;
     /// Convert unsigned value in signed represetation to i64
-    fn to_i64(&self, v: &Self::Element) -> i64;
+    fn map_element_to_i64(&self, v: &Self::Element) -> i64;
     /// Convert f64 to signed represented in modulus
-    fn from_f64(&self, v: f64) -> Self::Element;
+    fn map_element_from_f64(&self, v: f64) -> Self::Element;
     /// Convert i64 to signed represented in modulus
-    fn from_i64(&self, v: i64) -> Self::Element;
+    fn map_element_from_i64(&self, v: i64) -> Self::Element;
 }
 
 impl Modulus for u64 {
@@ -39,7 +41,7 @@ impl Modulus for u64 {
     fn smallest_unsigned_value(&self) -> Self::Element {
         0
     }
-    fn to_i64(&self, v: &Self::Element) -> i64 {
+    fn map_element_to_i64(&self, v: &Self::Element) -> i64 {
         assert!(v < self);
 
         if *v > (self >> 1) {
@@ -48,7 +50,7 @@ impl Modulus for u64 {
             ToPrimitive::to_i64(v).unwrap()
         }
     }
-    fn from_f64(&self, v: f64) -> Self::Element {
+    fn map_element_from_f64(&self, v: f64) -> Self::Element {
         //FIXME (Jay): Before I check whether v is smaller than 0 with `let is_neg =
         // o.is_sign_negative() && o != 0.0; I'm ocnfused why didn't I simply check <
         // 0.0?
@@ -59,7 +61,7 @@ impl Modulus for u64 {
             v.to_u64().unwrap()
         }
     }
-    fn from_i64(&self, v: i64) -> Self::Element {
+    fn map_element_from_i64(&self, v: i64) -> Self::Element {
         if v < 0 {
             self - v.to_u64().unwrap()
         } else {
@@ -68,6 +70,9 @@ impl Modulus for u64 {
     }
     fn q(&self) -> Option<Self::Element> {
         Some(*self)
+    }
+    fn q_as_f64(&self) -> Option<f64> {
+        self.to_f64()
     }
 }
 

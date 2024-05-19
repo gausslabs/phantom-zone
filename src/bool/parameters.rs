@@ -1,4 +1,4 @@
-use num_traits::{ConstZero, PrimInt, Zero};
+use num_traits::{ConstZero, FromPrimitive, PrimInt, ToPrimitive, Zero};
 
 use crate::{backend::Modulus, decomposer::Decomposer};
 
@@ -183,23 +183,52 @@ impl<T: ConstZero> CiphertextModulus<T> {
     }
 }
 
-impl<T> Modulus for CiphertextModulus<T>
+impl<T> CiphertextModulus<T>
 where
     T: PrimInt,
 {
+    pub(crate) fn _bits() -> usize {
+        std::mem::size_of::<T>() as usize * 8
+    }
+
+    fn _native(&self) -> bool {
+        self.1
+    }
+
+    fn _half_q(&self) -> T {
+        if self._native() {
+            T::one() << (Self::_bits() - 1)
+        } else {
+            self.0 >> 1
+        }
+    }
+
+    fn _q(&self) -> Option<T> {
+        if self._native() {
+            None
+        } else {
+            Some(self.0)
+        }
+    }
+}
+
+impl<T> Modulus for CiphertextModulus<T>
+where
+    T: PrimInt + FromPrimitive,
+{
     type Element = T;
     fn is_native(&self) -> bool {
-        false
+        self._native()
     }
     fn largest_unsigned_value(&self) -> Self::Element {
-        if self.1 {
+        if self._native() {
             T::max_value()
         } else {
             self.0 - T::one()
         }
     }
     fn neg_one(&self) -> Self::Element {
-        if self.1 {
+        if self._native() {
             T::max_value()
         } else {
             self.0 - T::one()
@@ -211,20 +240,43 @@ where
         T::zero()
     }
 
-    fn to_i64(&self, v: &Self::Element) -> i64 {
-        todo!()
+    fn map_element_to_i64(&self, v: &Self::Element) -> i64 {
+        if *v > self._half_q() {
+            -((self.largest_unsigned_value() - *v) + T::one())
+                .to_i64()
+                .unwrap()
+        } else {
+            v.to_i64().unwrap()
+        }
     }
 
-    fn from_f64(&self, v: f64) -> Self::Element {
-        todo!()
+    fn map_element_from_f64(&self, v: f64) -> Self::Element {
+        let v = v.round();
+        if v < 0.0 {
+            self.largest_unsigned_value() - T::from_f64(v.abs()).unwrap() + T::one()
+        } else {
+            T::from_f64(v.abs()).unwrap()
+        }
     }
 
-    fn from_i64(&self, v: i64) -> Self::Element {
-        todo!()
+    fn map_element_from_i64(&self, v: i64) -> Self::Element {
+        if v < 0 {
+            self.largest_unsigned_value() - T::from_i64(v.abs()).unwrap() + T::one()
+        } else {
+            T::from_i64(v.abs()).unwrap()
+        }
     }
 
     fn q(&self) -> Option<Self::Element> {
-        todo!()
+        self._q()
+    }
+
+    fn q_as_f64(&self) -> Option<f64> {
+        if self._native() {
+            Some(T::max_value().to_f64().unwrap() + 1.0)
+        } else {
+            self.0.to_f64()
+        }
     }
 }
 
