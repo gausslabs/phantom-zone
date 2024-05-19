@@ -1,4 +1,23 @@
+use std::marker::PhantomData;
+
 use itertools::izip;
+use num_traits::{WrappingAdd, WrappingMul, WrappingSub};
+
+pub trait Modulus {
+    type Element;
+    fn is_native() -> bool;
+    /// -1 in signed representaiton
+    fn neg_one(&self) -> Self::Element;
+    /// Largest unsigned value that fits in the modulus. That is, q - 1.
+    fn largest_unsigned_value(&self) -> Self::Element;
+    /// Smallest unsigned value that fits in the modulus
+    /// Always assmed to be 0.
+    fn smallest_unsigned_value(&self) -> Self::Element;
+    /// Max +value in signed representation
+    fn signed_max(&self) -> Self::Element;
+    /// Min -value in signed representation
+    fn signed_min(&self) -> Self::Element;
+}
 
 pub trait ModInit {
     type Element;
@@ -205,3 +224,27 @@ impl VectorOps for ModularOpsU64 {
         self.q
     }
 }
+
+pub struct WordSizeModulus<T> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T> ModInit for WordSizeModulus<T> {
+    type Element = T;
+    fn new<M>(q: M) -> Self {
+        // For now assume ModulusOpsU64 is only used for u64
+        Self {
+            _phantom: PhantomData,
+        }
+    }
+}
+
+// impl<T: WrappingAdd + WrappingSub + WrappingMul> ArithmeticOps for
+// WordSizeModulus<T> {     fn add(&self, a: &Self::Element, b: &Self::Element)
+// -> Self::Element {         T::wrapping_add(*a, *b)
+//     }
+
+//     fn modulus(&self) -> Self::Element {
+
+//     }
+// }

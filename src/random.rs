@@ -1,11 +1,12 @@
 use std::cell::RefCell;
 
 use itertools::izip;
+use num_traits::PrimInt;
 use rand::{distributions::Uniform, thread_rng, CryptoRng, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use rand_distr::Distribution;
+use rand_distr::{uniform::SampleUniform, Distribution};
 
-use crate::utils::WithLocal;
+use crate::{backend::Modulus, utils::WithLocal};
 
 thread_local! {
     pub(crate) static DEFAULT_RNG: RefCell<DefaultSecureRng> = RefCell::new(DefaultSecureRng::new_seeded([0u8;32]));
@@ -30,6 +31,13 @@ where
 {
     type Parameters: ?Sized;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut M);
+}
+
+pub trait RandomUniformDist1<M, P>
+where
+    M: ?Sized,
+{
+    fn random_fill(&mut self, modulus: &P, container: &mut M);
 }
 
 pub(crate) struct DefaultSecureRng {
@@ -78,6 +86,25 @@ impl RandomUniformDist<[u32]> for DefaultSecureRng {
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u32]) {
         izip!(
             (&mut self.rng).sample_iter(Uniform::new(0, parameters)),
+            container.iter_mut()
+        )
+        .for_each(|(from, to)| {
+            *to = from;
+        });
+    }
+}
+
+impl<T, C> RandomUniformDist1<[T], C> for DefaultSecureRng
+where
+    T: PrimInt + SampleUniform,
+    C: Modulus<Element = T>,
+{
+    fn random_fill(&mut self, modulus: &C, container: &mut [T]) {
+        izip!(
+            (&mut self.rng).sample_iter(Uniform::new_inclusive(
+                T::zero(),
+                modulus.largest_unsigned_value()
+            )),
             container.iter_mut()
         )
         .for_each(|(from, to)| {

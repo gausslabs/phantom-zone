@@ -2,9 +2,9 @@ use crate::decomposer::Decomposer;
 
 #[derive(Clone, PartialEq)]
 pub(super) struct BoolParameters<El> {
-    rlwe_q: Modulus<El>,
-    lwe_q: Modulus<El>,
-    br_q: Modulus<El>,
+    rlwe_q: CiphertextModulus<El>,
+    lwe_q: CiphertextModulus<El>,
+    br_q: CiphertextModulus<El>,
     rlwe_n: PolynomialSize,
     lwe_n: LweDimension,
     lwe_decomposer_base: DecompostionLogBase,
@@ -22,15 +22,15 @@ pub(super) struct BoolParameters<El> {
 }
 
 impl<El> BoolParameters<El> {
-    pub(crate) fn rlwe_q(&self) -> &Modulus<El> {
+    pub(crate) fn rlwe_q(&self) -> &CiphertextModulus<El> {
         &self.rlwe_q
     }
 
-    pub(crate) fn lwe_q(&self) -> &Modulus<El> {
+    pub(crate) fn lwe_q(&self) -> &CiphertextModulus<El> {
         &self.lwe_q
     }
 
-    pub(crate) fn br_q(&self) -> &Modulus<El> {
+    pub(crate) fn br_q(&self) -> &CiphertextModulus<El> {
         &self.br_q
     }
 
@@ -164,12 +164,12 @@ pub(crate) struct LweDimension(pub(crate) usize);
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) struct PolynomialSize(pub(crate) usize);
 #[derive(Clone, Copy, PartialEq)]
-pub(crate) struct Modulus<T>(pub(crate) T);
+pub(crate) struct CiphertextModulus<T>(T);
 
 pub(super) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_q: Modulus(268369921u64),
-    lwe_q: Modulus(1 << 16),
-    br_q: Modulus(1 << 10),
+    rlwe_q: CiphertextModulus(268369921u64),
+    lwe_q: CiphertextModulus(1 << 16),
+    br_q: CiphertextModulus(1 << 10),
     rlwe_n: PolynomialSize(1 << 10),
     lwe_n: LweDimension(493),
     lwe_decomposer_base: DecompostionLogBase(4),
@@ -185,9 +185,9 @@ pub(super) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
 };
 
 pub(super) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_q: Modulus(1152921504606830593),
-    lwe_q: Modulus(1 << 20),
-    br_q: Modulus(1 << 11),
+    rlwe_q: CiphertextModulus(1152921504606830593),
+    lwe_q: CiphertextModulus(1 << 20),
+    br_q: CiphertextModulus(1 << 11),
     rlwe_n: PolynomialSize(1 << 11),
     lwe_n: LweDimension(500),
     lwe_decomposer_base: DecompostionLogBase(4),
