@@ -1,10 +1,12 @@
-use crate::decomposer::Decomposer;
+use num_traits::{ConstZero, PrimInt, Zero};
+
+use crate::{backend::Modulus, decomposer::Decomposer};
 
 #[derive(Clone, PartialEq)]
 pub(super) struct BoolParameters<El> {
     rlwe_q: CiphertextModulus<El>,
     lwe_q: CiphertextModulus<El>,
-    br_q: CiphertextModulus<El>,
+    br_q: usize,
     rlwe_n: PolynomialSize,
     lwe_n: LweDimension,
     lwe_decomposer_base: DecompostionLogBase,
@@ -30,7 +32,7 @@ impl<El> BoolParameters<El> {
         &self.lwe_q
     }
 
-    pub(crate) fn br_q(&self) -> &CiphertextModulus<El> {
+    pub(crate) fn br_q(&self) -> &usize {
         &self.br_q
     }
 
@@ -164,12 +166,72 @@ pub(crate) struct LweDimension(pub(crate) usize);
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) struct PolynomialSize(pub(crate) usize);
 #[derive(Clone, Copy, PartialEq)]
-pub(crate) struct CiphertextModulus<T>(T);
+
+/// T eqauls modulus when modulus is non-native. Otherwise T equals 0. bool is
+/// true when modulus is native, false otherwise.
+pub(crate) struct CiphertextModulus<T>(T, bool);
+
+impl<T: ConstZero> CiphertextModulus<T> {
+    const fn new_native() -> Self {
+        // T::zero is stored only for convenience. It has no use when modulus
+        // is native. That is, either u128,u64,u32,u16
+        Self(T::ZERO, true)
+    }
+
+    const fn new_non_native(q: T) -> Self {
+        Self(q, false)
+    }
+}
+
+impl<T> Modulus for CiphertextModulus<T>
+where
+    T: PrimInt,
+{
+    type Element = T;
+    fn is_native(&self) -> bool {
+        false
+    }
+    fn largest_unsigned_value(&self) -> Self::Element {
+        if self.1 {
+            T::max_value()
+        } else {
+            self.0 - T::one()
+        }
+    }
+    fn neg_one(&self) -> Self::Element {
+        if self.1 {
+            T::max_value()
+        } else {
+            self.0 - T::one()
+        }
+    }
+    // fn signed_max(&self) -> Self::Element {}
+    // fn signed_min(&self) -> Self::Element {}
+    fn smallest_unsigned_value(&self) -> Self::Element {
+        T::zero()
+    }
+
+    fn to_i64(&self, v: &Self::Element) -> i64 {
+        todo!()
+    }
+
+    fn from_f64(&self, v: f64) -> Self::Element {
+        todo!()
+    }
+
+    fn from_i64(&self, v: i64) -> Self::Element {
+        todo!()
+    }
+
+    fn q(&self) -> Option<Self::Element> {
+        todo!()
+    }
+}
 
 pub(super) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_q: CiphertextModulus(268369921u64),
-    lwe_q: CiphertextModulus(1 << 16),
-    br_q: CiphertextModulus(1 << 10),
+    rlwe_q: CiphertextModulus::new_non_native(268369921u64),
+    lwe_q: CiphertextModulus::new_non_native(1 << 16),
+    br_q: 1 << 10,
     rlwe_n: PolynomialSize(1 << 10),
     lwe_n: LweDimension(493),
     lwe_decomposer_base: DecompostionLogBase(4),
@@ -185,9 +247,9 @@ pub(super) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
 };
 
 pub(super) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_q: CiphertextModulus(1152921504606830593),
-    lwe_q: CiphertextModulus(1 << 20),
-    br_q: CiphertextModulus(1 << 11),
+    rlwe_q: CiphertextModulus::new_non_native(1152921504606830593),
+    lwe_q: CiphertextModulus::new_non_native(1 << 20),
+    br_q: 1 << 10,
     rlwe_n: PolynomialSize(1 << 11),
     lwe_n: LweDimension(500),
     lwe_decomposer_base: DecompostionLogBase(4),

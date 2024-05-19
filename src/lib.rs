@@ -2,8 +2,7 @@ use itertools::{izip, Itertools};
 use num::UnsignedInteger;
 use num_traits::{abs, Zero};
 use rand::CryptoRng;
-use random::{RandomGaussianDist, RandomUniformDist};
-use utils::TryConvertFrom;
+use utils::TryConvertFrom1;
 
 mod backend;
 mod bool;

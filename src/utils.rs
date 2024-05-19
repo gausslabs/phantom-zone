@@ -1,9 +1,12 @@
 use std::{fmt::Debug, usize};
 
 use itertools::Itertools;
-use num_traits::{FromPrimitive, PrimInt, Signed};
+use num_traits::{FromPrimitive, PrimInt, Signed, Unsigned};
 
-use crate::RandomUniformDist;
+use crate::{
+    backend::Modulus,
+    random::{RandomElement, RandomElementInModulus, RandomFill},
+};
 pub trait WithLocal {
     fn with_local<F, R>(func: F) -> R
     where
@@ -16,22 +19,21 @@ pub trait WithLocal {
 
 pub fn fill_random_ternary_secret_with_hamming_weight<
     T: Signed,
-    R: RandomUniformDist<[u8], Parameters = u8> + RandomUniformDist<usize, Parameters = usize>,
+    R: RandomFill<[u8]> + RandomElementInModulus<usize, usize>,
 >(
     out: &mut [T],
     hamming_weight: usize,
     rng: &mut R,
 ) {
     let mut bytes = vec![0u8; hamming_weight.div_ceil(8)];
-    RandomUniformDist::<[u8]>::random_fill(rng, &0, &mut bytes);
+    RandomFill::<[u8]>::random_fill(rng, &mut bytes);
 
     let size = out.len();
     let mut secret_indices = (0..size).into_iter().map(|i| i).collect_vec();
     let mut bit_index = 0;
     let mut byte_index = 0;
     for _ in 0..hamming_weight {
-        let mut s_index = 0usize;
-        RandomUniformDist::<usize>::random_fill(rng, &secret_indices.len(), &mut s_index);
+        let s_index = RandomElementInModulus::<usize, usize>::random(rng, &secret_indices.len());
 
         let curr_bit = (bytes[byte_index] >> bit_index) & 1;
         if curr_bit == 1 {
@@ -138,96 +140,121 @@ pub fn negacyclic_mul<T: PrimInt, F: Fn(&T, &T) -> T>(
     return r;
 }
 
-pub trait TryConvertFrom<T: ?Sized> {
-    type Parameters: ?Sized;
-
-    fn try_convert_from(value: &T, parameters: &Self::Parameters) -> Self;
+pub trait TryConvertFrom1<T: ?Sized, P> {
+    fn try_convert_from(value: &T, parameters: &P) -> Self;
 }
 
-impl TryConvertFrom<[i32]> for Vec<Vec<u32>> {
-    type Parameters = u32;
-    fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self {
-        let row0 = value
-            .iter()
-            .map(|v| {
-                let is_neg = v.is_negative();
-                let v_u32 = v.abs() as u32;
-
-                assert!(v_u32 < *parameters);
-
-                if is_neg {
-                    parameters - v_u32
-                } else {
-                    v_u32
-                }
-            })
-            .collect_vec();
-
-        vec![row0]
+impl<P: Modulus<Element = u64>> TryConvertFrom1<[i64], P> for Vec<u64> {
+    fn try_convert_from(value: &[i64], parameters: &P) -> Self {
+        value.iter().map(|v| parameters.from_i64(*v)).collect_vec()
     }
 }
 
-impl TryConvertFrom<[i32]> for Vec<Vec<u64>> {
-    type Parameters = u64;
-    fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self {
-        let row0 = value
-            .iter()
-            .map(|v| {
-                let is_neg = v.is_negative();
-                let v_u64 = v.abs() as u64;
-
-                assert!(v_u64 < *parameters);
-
-                if is_neg {
-                    parameters - v_u64
-                } else {
-                    v_u64
-                }
-            })
-            .collect_vec();
-
-        vec![row0]
-    }
-}
-
-impl TryConvertFrom<[i32]> for Vec<u64> {
-    type Parameters = u64;
-    fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self {
+impl<P: Modulus<Element = u64>> TryConvertFrom1<[i32], P> for Vec<u64> {
+    fn try_convert_from(value: &[i32], parameters: &P) -> Self {
         value
             .iter()
-            .map(|v| {
-                let is_neg = v.is_negative();
-                let v_u64 = v.abs() as u64;
-
-                assert!(v_u64 < *parameters);
-
-                if is_neg {
-                    parameters - v_u64
-                } else {
-                    v_u64
-                }
-            })
+            .map(|v| parameters.from_i64(*v as i64))
             .collect_vec()
     }
 }
 
-impl TryConvertFrom<[u64]> for Vec<i64> {
-    type Parameters = u64;
-    fn try_convert_from(value: &[u64], parameters: &Self::Parameters) -> Self {
-        let q = *parameters;
-        let qby2 = q / 2;
-        value
-            .iter()
-            .map(|v| {
-                if *v > qby2 {
-                    -((q - v) as i64)
-                } else {
-                    *v as i64
-                }
-            })
-            .collect_vec()
+impl<P: Modulus> TryConvertFrom1<[P::Element], P> for Vec<i64> {
+    fn try_convert_from(value: &[P::Element], parameters: &P) -> Self {
+        value.iter().map(|v| parameters.to_i64(v)).collect_vec()
     }
 }
+
+// pub trait TryConvertFrom<T: ?Sized> {
+//     type Parameters: ?Sized;
+
+//     fn try_convert_from(value: &T, parameters: &Self::Parameters) -> Self;
+// }
+
+// impl TryConvertFrom1<[i32]> for Vec<Vec<u32>> {
+//     type Parameters = u32;
+//     fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self
+// {         let row0 = value
+//             .iter()
+//             .map(|v| {
+//                 let is_neg = v.is_negative();
+//                 let v_u32 = v.abs() as u32;
+
+//                 assert!(v_u32 < *parameters);
+
+//                 if is_neg {
+//                     parameters - v_u32
+//                 } else {
+//                     v_u32
+//                 }
+//             })
+//             .collect_vec();
+
+//         vec![row0]
+//     }
+// }
+
+// impl TryConvertFrom1<[i32]> for Vec<Vec<u64>> {
+//     type Parameters = u64;
+//     fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self
+// {         let row0 = value
+//             .iter()
+//             .map(|v| {
+//                 let is_neg = v.is_negative();
+//                 let v_u64 = v.abs() as u64;
+
+//                 assert!(v_u64 < *parameters);
+
+//                 if is_neg {
+//                     parameters - v_u64
+//                 } else {
+//                     v_u64
+//                 }
+//             })
+//             .collect_vec();
+
+//         vec![row0]
+//     }
+// }
+
+// impl TryConvertFrom1<[i32]> for Vec<u64> {
+//     type Parameters = u64;
+//     fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self
+// {         value
+//             .iter()
+//             .map(|v| {
+//                 let is_neg = v.is_negative();
+//                 let v_u64 = v.abs() as u64;
+
+//                 assert!(v_u64 < *parameters);
+
+//                 if is_neg {
+//                     parameters - v_u64
+//                 } else {
+//                     v_u64
+//                 }
+//             })
+//             .collect_vec()
+//     }
+// }
+
+// impl TryConvertFrom1<[u64]> for Vec<i64> {
+//     type Parameters = u64;
+//     fn try_convert_from(value: &[u64], parameters: &Self::Parameters) -> Self
+// {         let q = *parameters;
+//         let qby2 = q / 2;
+//         value
+//             .iter()
+//             .map(|v| {
+//                 if *v > qby2 {
+//                     -((q - v) as i64)
+//                 } else {
+//                     *v as i64
+//                 }
+//             })
+//             .collect_vec()
+//     }
+// }
 
 pub(crate) struct Stats<T> {
     pub(crate) samples: Vec<T>,

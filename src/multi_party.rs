@@ -1,18 +1,18 @@
 use crate::{
-    backend::VectorOps,
+    backend::{GetModulus, VectorOps},
     ntt::Ntt,
-    random::{NewWithSeed, RandomGaussianDist, RandomUniformDist},
-    utils::TryConvertFrom,
+    random::{NewWithSeed, RandomFillGaussianInModulus, RandomFillUniformInModulus},
+    utils::TryConvertFrom1,
     Matrix, Row, RowEntity, RowMut,
 };
 
 pub(crate) fn public_key_share<
     R: Row + RowMut + RowEntity,
     S,
-    ModOp: VectorOps<Element = R::Element>,
+    ModOp: VectorOps<Element = R::Element> + GetModulus<Element = R::Element>,
     NttOp: Ntt<Element = R::Element>,
-    Rng: RandomGaussianDist<[R::Element], Parameters = R::Element>,
-    PRng: RandomUniformDist<[R::Element], Parameters = R::Element>,
+    Rng: RandomFillGaussianInModulus<[R::Element], ModOp::M>,
+    PRng: RandomFillUniformInModulus<[R::Element], ModOp::M>,
 >(
     share_out: &mut R,
     s_i: &[S],
@@ -21,7 +21,7 @@ pub(crate) fn public_key_share<
     p_rng: &mut PRng,
     rng: &mut Rng,
 ) where
-    R: TryConvertFrom<[S], Parameters = R::Element>,
+    R: TryConvertFrom1<[S], ModOp::M>,
 {
     let ring_size = share_out.as_ref().len();
     assert!(s_i.len() == ring_size);
@@ -31,7 +31,7 @@ pub(crate) fn public_key_share<
     // sample a
     let mut a = {
         let mut a = R::zeros(ring_size);
-        RandomUniformDist::random_fill(p_rng, &q, a.as_mut());
+        RandomFillUniformInModulus::random_fill(p_rng, &q, a.as_mut());
         a
     };
 
@@ -42,6 +42,6 @@ pub(crate) fn public_key_share<
     modop.elwise_mul_mut(s.as_mut(), a.as_ref());
     nttop.backward(s.as_mut());
 
-    RandomGaussianDist::random_fill(rng, &q, share_out.as_mut());
+    RandomFillGaussianInModulus::random_fill(rng, &q, share_out.as_mut());
     modop.elwise_add_mut(share_out.as_mut(), s.as_ref()); // s*e + e
 }

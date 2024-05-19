@@ -3,15 +3,14 @@ use rand::{thread_rng, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use crate::{
-    backend::{ArithmeticOps, ModInit, ModularOpsU64},
+    backend::{ArithmeticOps, ModInit, ModularOpsU64, Modulus},
     utils::{mod_exponent, mod_inverse, shoup_representation_fq},
 };
 
-pub trait NttInit {
-    type Element;
+pub trait NttInit<M> {
     /// Ntt istance must be compatible across different instances with same `q`
     /// and `n`
-    fn new(q: Self::Element, n: usize) -> Self;
+    fn new(q: &M, n: usize) -> Self;
 }
 
 pub trait Ntt {
@@ -204,9 +203,8 @@ pub struct NttBackendU64 {
     psi_inv_powers_bo_shoup: Box<[u64]>,
 }
 
-impl NttInit for NttBackendU64 {
-    type Element = u64;
-    fn new(q: u64, n: usize) -> Self {
+impl NttBackendU64 {
+    fn _new(q: u64, n: usize) -> Self {
         // \psi = 2n^{th} primitive root of unity in F_q
         let mut rng = ChaCha8Rng::from_seed([0u8; 32]);
         let psi = find_primitive_root(q, (n * 2) as u64, &mut rng)
@@ -267,6 +265,14 @@ impl NttInit for NttBackendU64 {
             psi_powers_bo_shoup: psi_powers_bo_shoup.into_boxed_slice(),
             psi_inv_powers_bo_shoup: psi_inv_powers_bo_shoup.into_boxed_slice(),
         }
+    }
+}
+
+impl<M: Modulus<Element = u64>> NttInit<M> for NttBackendU64 {
+    fn new(q: &M, n: usize) -> Self {
+        // This NTT does not support native modulus
+        assert!(!q.is_native());
+        NttBackendU64::_new(q.q().unwrap(), n)
     }
 }
 
@@ -356,7 +362,7 @@ mod tests {
     #[test]
     fn native_ntt_backend_works() {
         // TODO(Jay): Improve tests. Add tests for different primes and ring size.
-        let ntt_backend = NttBackendU64::new(Q_60_BITS, N);
+        let ntt_backend = NttBackendU64::_new(Q_60_BITS, N);
         for _ in 0..K {
             let mut a = random_vec_in_fq(N, Q_60_BITS);
             let a_clone = a.clone();
@@ -391,7 +397,7 @@ mod tests {
             .collect_vec();
 
         for p in primes.into_iter() {
-            let ntt_backend = NttBackendU64::new(p, N);
+            let ntt_backend = NttBackendU64::_new(p, N);
             let modulus_backend = ModularOpsU64::new(p);
             for _ in 0..K {
                 let a = random_vec_in_fq(N, p);
