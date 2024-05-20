@@ -1562,8 +1562,6 @@ fn blind_rotation<
 fn pbs<
     M: Matrix + MatrixMut + MatrixEntity,
     P: PbsInfo<Element = M::MatElement>,
-    // NttOp: Ntt<Element = M::MatElement>,
-    // ModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     K: PbsKey<M = M>,
 >(
     pbs_info: &P,

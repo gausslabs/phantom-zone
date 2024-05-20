@@ -167,7 +167,7 @@ pub(crate) struct LweDimension(pub(crate) usize);
 pub(crate) struct PolynomialSize(pub(crate) usize);
 #[derive(Clone, Copy, PartialEq)]
 
-/// T eqauls modulus when modulus is non-native. Otherwise T equals 0. bool is
+/// T equals modulus when modulus is non-native. Otherwise T equals 0. bool is
 /// true when modulus is native, false otherwise.
 pub(crate) struct CiphertextModulus<T>(T, bool);
 
