@@ -56,14 +56,14 @@ impl Modulus for u64 {
         // 0.0?
         let v = v.round();
         if v < 0.0 {
-            self - v.to_u64().unwrap()
+            self - v.abs().to_u64().unwrap()
         } else {
             v.to_u64().unwrap()
         }
     }
     fn map_element_from_i64(&self, v: i64) -> Self::Element {
         if v < 0 {
-            self - v.to_u64().unwrap()
+            self - v.abs().to_u64().unwrap()
         } else {
             v.to_u64().unwrap()
         }
@@ -171,7 +171,7 @@ impl<T> ModularOpsU64<T> {
         debug_assert!(a < self.q);
         debug_assert!(b < self.q);
 
-        if a > b {
+        if a >= b {
             a - b
         } else {
             (self.q + a) - b

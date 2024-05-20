@@ -1927,7 +1927,7 @@ mod tests {
         let mut bool_evaluator = BoolEvaluator::<
             Vec<Vec<u64>>,
             NttBackendU64,
-            WordSizeModulus<CiphertextModulus<u64>>,
+            ModularOpsU64<CiphertextModulus<u64>>,
             ModularOpsU64<CiphertextModulus<u64>>,
         >::new(SP_BOOL_PARAMS);
 
