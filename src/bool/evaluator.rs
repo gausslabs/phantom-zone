@@ -1881,7 +1881,7 @@ mod tests {
     use rand_distr::Uniform;
 
     use crate::{
-        backend::ModularOpsU64,
+        backend::{GetModulus, ModInit, ModularOpsU64, WordSizeModulus},
         bool,
         ntt::NttBackendU64,
         random::DEFAULT_RNG,
@@ -1922,10 +1922,12 @@ mod tests {
             *r = rng;
         });
 
+        // let mog = WordSizeModulus::<CiphertextModulus<u64>>::new(12u64);
+
         let mut bool_evaluator = BoolEvaluator::<
             Vec<Vec<u64>>,
             NttBackendU64,
-            ModularOpsU64<CiphertextModulus<u64>>,
+            WordSizeModulus<CiphertextModulus<u64>>,
             ModularOpsU64<CiphertextModulus<u64>>,
         >::new(SP_BOOL_PARAMS);
 

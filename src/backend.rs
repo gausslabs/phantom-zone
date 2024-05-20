@@ -345,10 +345,6 @@ where
     fn sub(&self, a: &Self::Element, b: &Self::Element) -> Self::Element {
         T::Element::wrapping_sub(a, b)
     }
-
-    // fn modulus(&self) -> &T {
-    //     &self.modulus
-    // }
 }
 
 impl<T> VectorOps for WordSizeModulus<T>
@@ -419,4 +415,15 @@ where
     // fn modulus(&self) -> &T {
     //     &self.modulus
     // }
+}
+
+impl<T> GetModulus for WordSizeModulus<T>
+where
+    T: Modulus,
+{
+    type Element = T::Element;
+    type M = T;
+    fn modulus(&self) -> &Self::M {
+        &self.modulus
+    }
 }
