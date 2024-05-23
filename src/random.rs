@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use itertools::izip;
-use num_traits::PrimInt;
+use num_traits::{PrimInt, Zero};
 use rand::{distributions::Uniform, thread_rng, CryptoRng, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{uniform::SampleUniform, Distribution};
@@ -149,7 +149,7 @@ where
 
 impl<T> RandomElementInModulus<T, T> for DefaultSecureRng
 where
-    T: PrimInt + SampleUniform,
+    T: Zero + SampleUniform,
 {
     fn random(&mut self, modulus: &T) -> T {
         Uniform::new(T::zero(), modulus).sample(&mut self.rng)

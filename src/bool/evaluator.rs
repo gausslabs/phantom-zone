@@ -566,76 +566,21 @@ where
         }
 
         // rgsw cts
-        let (rgswrgsw_d_a, rgswrgsw_d_b) = value.parameters.rgsw_rgsw_decomposition_count();
         let (rlrg_d_a, rlrg_d_b) = value.parameters.rlwe_rgsw_decomposition_count();
-        // d_a and d_b may differ for RGSWxRGSW multiplication and RLWExRGSW
-        // multiplication. After this point RGSW ciphertexts will only be used for
-        // RLWExRGSW multiplication (in blind rotation). Thus we drop any additional
-        // RLWE ciphertexts in incoming collective RGSW ciphertexts, which are
-        // result of RGSWxRGSW multiplications.
-        let rgsw_ct_rows_in = rgswrgsw_d_a.0 * 2 + rgswrgsw_d_b.0 * 2;
-        let rgsw_ct_rows_out = rlrg_d_a.0 * 2 + rlrg_d_b.0 * 2;
+        let rgsw_ct_out = rlrg_d_a.0 * 2 + rlrg_d_b.0 * 2;
         let rgsw_cts = value
             .rgsw_cts
             .iter()
             .map(|ct_i_in| {
-                assert!(ct_i_in.dimension() == (rgsw_ct_rows_in, rlwe_n));
-                let mut eval_ct_i_out = M::zeros(rgsw_ct_rows_out, rlwe_n);
+                assert!(ct_i_in.dimension() == (rgsw_ct_out, rlwe_n));
+                let mut eval_ct_i_out = M::zeros(rgsw_ct_out, rlwe_n);
 
-                // RLWE'(-sm) part A
-                izip!(
-                    eval_ct_i_out.iter_rows_mut().take(rlrg_d_a.0),
-                    ct_i_in.iter_rows().take(rlrg_d_a.0)
-                )
-                .for_each(|(to_ri, from_ri)| {
-                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
-                    rlwe_nttop.forward(to_ri.as_mut());
-                });
-
-                // RLWE'(-sm) part B
-                izip!(
-                    eval_ct_i_out
-                        .iter_rows_mut()
-                        .skip(rlrg_d_a.0)
-                        .take(rlrg_d_a.0),
-                    ct_i_in.iter_rows().skip(rgswrgsw_d_a.0).take(rlrg_d_a.0)
-                )
-                .for_each(|(to_ri, from_ri)| {
-                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
-                    rlwe_nttop.forward(to_ri.as_mut());
-                });
-
-                // RLWE'(m) Part A
-                izip!(
-                    eval_ct_i_out
-                        .iter_rows_mut()
-                        .skip(rlrg_d_a.0 * 2)
-                        .take(rlrg_d_b.0),
-                    ct_i_in
-                        .iter_rows()
-                        .skip(rgswrgsw_d_a.0 * 2)
-                        .take(rlrg_d_b.0)
-                )
-                .for_each(|(to_ri, from_ri)| {
-                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
-                    rlwe_nttop.forward(to_ri.as_mut());
-                });
-
-                // RLWE'(m) Part B
-                izip!(
-                    eval_ct_i_out
-                        .iter_rows_mut()
-                        .skip(rlrg_d_a.0 * 2 + rlrg_d_b.0)
-                        .take(rlrg_d_b.0),
-                    ct_i_in
-                        .iter_rows()
-                        .skip(rgswrgsw_d_a.0 * 2 + rgswrgsw_d_b.0)
-                        .take(rlrg_d_b.0)
-                )
-                .for_each(|(to_ri, from_ri)| {
-                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
-                    rlwe_nttop.forward(to_ri.as_mut());
-                });
+                izip!(eval_ct_i_out.iter_rows_mut(), ct_i_in.iter_rows()).for_each(
+                    |(to_ri, from_ri)| {
+                        to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+                        rlwe_nttop.forward(to_ri.as_mut());
+                    },
+                );
 
                 eval_ct_i_out
             })
@@ -1355,33 +1300,105 @@ where
 
         let mut tmp_rgsw =
             RgswCiphertext::<M, _>::empty(rlwe_n, &rgsw_by_rgsw_decomposer, rlwe_q.clone()).data;
-        let rgsw_cts = (0..lwe_n)
-            .into_iter()
-            .map(|index| {
-                // copy over rgsw ciphertext for index^th secret element from first share and
-                // treat it as accumulating rgsw ciphertext
-                let mut rgsw_i = shares[0].rgsw_cts[index].clone();
+        let rgsw_cts = (0..lwe_n).into_iter().map(|index| {
+            // copy over rgsw ciphertext for index^th secret element from first share and
+            // treat it as accumulating rgsw ciphertext
+            let mut rgsw_i = shares[0].rgsw_cts[index].clone();
 
-                shares.iter().skip(1).for_each(|si| {
-                    // copy over si's RGSW[index] ciphertext and send to evaluation domain
-                    izip!(tmp_rgsw.iter_rows_mut(), si.rgsw_cts[index].iter_rows()).for_each(
-                        |(to_ri, from_ri)| {
-                            to_ri.as_mut().copy_from_slice(from_ri.as_ref());
-                            rlweq_nttop.forward(to_ri.as_mut())
-                        },
-                    );
+            shares.iter().skip(1).for_each(|si| {
+                // copy over si's RGSW[index] ciphertext and send to evaluation domain
+                izip!(tmp_rgsw.iter_rows_mut(), si.rgsw_cts[index].iter_rows()).for_each(
+                    |(to_ri, from_ri)| {
+                        to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+                        rlweq_nttop.forward(to_ri.as_mut())
+                    },
+                );
 
-                    rgsw_by_rgsw_inplace(
-                        &mut rgsw_i,
-                        &tmp_rgsw,
-                        &rgsw_by_rgsw_decomposer,
-                        &mut scratch_matrix,
-                        rlweq_nttop,
-                        rlweq_modop,
-                    );
+                rgsw_by_rgsw_inplace(
+                    &mut rgsw_i,
+                    &tmp_rgsw,
+                    &rgsw_by_rgsw_decomposer,
+                    &mut scratch_matrix,
+                    rlweq_nttop,
+                    rlweq_modop,
+                );
+            });
+
+            rgsw_i
+        });
+        // d_a and d_b may differ for RGSWxRGSW multiplication and RLWExRGSW
+        // multiplication. After this point RGSW ciphertexts will only be used for
+        // RLWExRGSW multiplication (in blind rotation). Thus we drop any additional
+        // RLWE ciphertexts in RGSW ciphertexts after RGSw x RGSW multiplication
+        let (rgswrgsw_d_a, rgswrgsw_d_b) = self.pbs_info.parameters.rgsw_rgsw_decomposition_count();
+        let (rlrg_d_a, rlrg_d_b) = self.pbs_info.parameters.rlwe_rgsw_decomposition_count();
+        let rgsw_ct_rows_in = rgswrgsw_d_a.0 * 2 + rgswrgsw_d_b.0 * 2;
+        let rgsw_ct_rows_out = rlrg_d_a.0 * 2 + rlrg_d_b.0 * 2;
+        assert!(rgswrgsw_d_a.0 >= rlrg_d_a.0, "RGSWxRGSW part A decomposition count {} must be >= RLWExRGSW part A decomposition count {}", rgswrgsw_d_a.0 , rlrg_d_a.0);
+        assert!(rgswrgsw_d_b.0 >= rlrg_d_b.0, "RGSWxRGSW part B decomposition count {} must be >= RLWExRGSW part B decomposition count {}", rgswrgsw_d_b.0 , rlrg_d_b.0);
+        let rgsw_cts = rgsw_cts
+            .map(|ct_i_in| {
+                assert!(ct_i_in.dimension() == (rgsw_ct_rows_in, rlwe_n));
+                let mut reduced_ct_i_out = M::zeros(rgsw_ct_rows_out, rlwe_n);
+
+                // RLWE'(-sm) part A
+                izip!(
+                    reduced_ct_i_out.iter_rows_mut().take(rlrg_d_a.0),
+                    ct_i_in
+                        .iter_rows()
+                        .skip(rgswrgsw_d_a.0 - rlrg_d_a.0)
+                        .take(rlrg_d_a.0)
+                )
+                .for_each(|(to_ri, from_ri)| {
+                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
                 });
 
-                rgsw_i
+                // RLWE'(-sm) part B
+                izip!(
+                    reduced_ct_i_out
+                        .iter_rows_mut()
+                        .skip(rlrg_d_a.0)
+                        .take(rlrg_d_a.0),
+                    ct_i_in
+                        .iter_rows()
+                        .skip(rgswrgsw_d_a.0 + (rgswrgsw_d_a.0 - rlrg_d_a.0))
+                        .take(rlrg_d_a.0)
+                )
+                .for_each(|(to_ri, from_ri)| {
+                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+                });
+
+                // RLWE'(m) Part A
+                izip!(
+                    reduced_ct_i_out
+                        .iter_rows_mut()
+                        .skip(rlrg_d_a.0 * 2)
+                        .take(rlrg_d_b.0),
+                    ct_i_in
+                        .iter_rows()
+                        .skip(rgswrgsw_d_a.0 * 2 + (rgswrgsw_d_b.0 - rlrg_d_b.0))
+                        .take(rlrg_d_b.0)
+                )
+                .for_each(|(to_ri, from_ri)| {
+                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+                });
+
+                // RLWE'(m) Part B
+                izip!(
+                    reduced_ct_i_out
+                        .iter_rows_mut()
+                        .skip(rlrg_d_a.0 * 2 + rlrg_d_b.0)
+                        .take(rlrg_d_b.0),
+                    ct_i_in
+                        .iter_rows()
+                        .skip(rgswrgsw_d_a.0 * 2 + rgswrgsw_d_b.0 + (rgswrgsw_d_b.0 - rlrg_d_b.0))
+                        .take(rlrg_d_b.0)
+                )
+                .for_each(|(to_ri, from_ri)| {
+                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+                });
+
+                reduced_ct_i_out
             })
             .collect_vec();
 
@@ -1875,8 +1892,6 @@ impl WithLocal for PBSTracer<Vec<Vec<u64>>> {
 
 #[cfg(test)]
 mod tests {
-    use std::iter::Sum;
-
     use rand::{thread_rng, Rng};
     use rand_distr::Uniform;
 
@@ -1884,7 +1899,7 @@ mod tests {
         backend::{GetModulus, ModInit, ModularOpsU64, WordSizeModulus},
         bool,
         ntt::NttBackendU64,
-        random::DEFAULT_RNG,
+        random::{RandomElementInModulus, DEFAULT_RNG},
         rgsw::{
             self, measure_noise, public_key_encrypt_rlwe, secret_key_encrypt_rlwe,
             tests::{_measure_noise_rgsw, _sk_encrypt_rlwe},
@@ -2232,7 +2247,7 @@ mod tests {
         >::new(MP_BOOL_PARAMS);
 
         let (parties, collective_pk, _, _, server_key_eval, ideal_client_key) =
-            _multi_party_all_keygen(&bool_evaluator, 2);
+            _multi_party_all_keygen(&bool_evaluator, 8);
 
         let mut m0 = true;
         let mut m1 = false;
@@ -2339,23 +2354,7 @@ mod tests {
     }
 
     #[test]
-    fn tester() {
-        // pub(super) const TEST_MP_BOOL_PARAMS: BoolParameters<u64> =
-        // BoolParameters::<u64> {     rlwe_q: 1152921504606830593,
-        //     rlwe_logq: 60,
-        //     lwe_q: 1 << 20,
-        //     lwe_logq: 20,
-        //     br_q: 1 << 11,
-        //     rlwe_n: 1 << 11,
-        //     lwe_n: 500,
-        //     d_rgsw: 4,
-        //     logb_rgsw: 12,
-        //     d_lwe: 5,
-        //     logb_lwe: 4,
-        //     g: 5,
-        //     w: 1,
-        // };
-
+    fn noise_tester() {
         let bool_evaluator = BoolEvaluator::<
             Vec<Vec<u64>>,
             NttBackendU64,
@@ -2365,7 +2364,7 @@ mod tests {
 
         // let (_, collective_pk, _, _, server_key_eval, ideal_client_key) =
         //     _multi_party_all_keygen(&bool_evaluator, 20);
-        let no_of_parties = 2;
+        let no_of_parties = 32;
         let lwe_q = bool_evaluator.pbs_info.parameters.lwe_q();
         let rlwe_q = bool_evaluator.pbs_info.parameters.rlwe_q();
         let lwe_n = bool_evaluator.pbs_info.parameters.lwe_n().0;
@@ -2374,16 +2373,19 @@ mod tests {
         let rlwe_nttop = &bool_evaluator.pbs_info.rlwe_nttop;
         let rlwe_modop = &bool_evaluator.pbs_info.rlwe_modop;
 
-        let rlwe_rgsw_decomposer = &bool_evaluator.pbs_info.rlwe_rgsw_decomposer;
-        let rlwe_rgsw_gadget_a = rlwe_rgsw_decomposer.0.gadget_vector();
-        let rlwe_rgsw_gadget_b = rlwe_rgsw_decomposer.1.gadget_vector();
-
         // let rgsw_rgsw_decomposer = &bool_evaluator
         //     .pbs_info
         //     .parameters
         //     .rgsw_rgsw_decomposer::<DefaultDecomposer<u64>>();
-        // let rgsw_rgsw_gagdet_a = rgsw_rgsw_decomposer.a().gadget_vector();
-        // let rgsw_rgsw_gagdet_b = rgsw_rgsw_decomposer.b().gadget_vector();
+        // let rgsw_rgsw_gadget_a = rgsw_rgsw_decomposer.0.gadget_vector();
+        // let rgsw_rgsw_gadget_b = rgsw_rgsw_decomposer.1.gadget_vector();
+
+        let rlwe_rgsw_decomposer = &bool_evaluator.pbs_info.rlwe_rgsw_decomposer;
+        let rlwe_rgsw_gadget_a = rlwe_rgsw_decomposer.0.gadget_vector();
+        let rlwe_rgsw_gadget_b = rlwe_rgsw_decomposer.1.gadget_vector();
+
+        let auto_decomposer = &bool_evaluator.pbs_info.auto_decomposer;
+        let auto_gadget = auto_decomposer.gadget_vector();
 
         let parties = (0..no_of_parties)
             .map(|_| bool_evaluator.client_key())
@@ -2414,7 +2416,7 @@ mod tests {
         };
 
         // check noise in freshly encrypted RLWE ciphertext (ie var_fresh)
-        if false {
+        if true {
             let mut rng = DefaultSecureRng::new();
             let mut check = Stats { samples: vec![] };
             for _ in 0..10 {
@@ -2504,12 +2506,14 @@ mod tests {
                         m_si[s_i as usize] = 1;
                     }
 
-                    // RLWE(-sm)
+                    // RLWE'(-sm)
                     let mut neg_s_eval =
                         Vec::<u64>::try_convert_from(ideal_client_key.sk_rlwe.values(), rlwe_q);
                     rlwe_modop.elwise_neg_mut(&mut neg_s_eval);
                     rlwe_nttop.forward(&mut neg_s_eval);
                     for j in 0..rlwe_rgsw_decomposer.a().decomposition_count() {
+                        // RLWE(B^{j} * -s[X]*X^{s_lwe[i]})
+
                         // -s[X]*X^{s_lwe[i]}*B_j
                         let mut m_ideal = m_si.clone();
                         rlwe_nttop.forward(m_ideal.as_mut_slice());
@@ -2541,6 +2545,8 @@ mod tests {
 
                     // RLWE'(m)
                     for j in 0..rlwe_rgsw_decomposer.b().decomposition_count() {
+                        // RLWE(B^{j} * X^{s_lwe[i]})
+
                         // X^{s_lwe[i]}*B_j
                         let mut m_ideal = m_si.clone();
                         rlwe_modop
@@ -2579,24 +2585,21 @@ mod tests {
                 );
             }
 
+            // server key in Evaluation domain
+            let server_key_eval_domain =
+                ServerKeyEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
+                    &seeded_server_key,
+                );
+
             // check noise in RLWE x RGSW(X^{s_i}) where RGSW is accunulated RGSW ciphertext
-            if false {
+            if true {
                 let mut check = Stats { samples: vec![] };
-                // server key in Evaluation domain
-                let server_key_eval_domain =
-                    ServerKeyEvaluationDomain::<_, DefaultSecureRng, NttBackendU64>::from(
-                        &seeded_server_key,
-                    );
+
                 izip!(
                     ideal_client_key.sk_lwe.values(),
-                    seeded_server_key.rgsw_cts.iter()
+                    server_key_eval_domain.rgsw_cts.iter()
                 )
                 .for_each(|(s_i, rgsw_ct_i)| {
-                    let mut rgsw_ct_i = rgsw_ct_i.clone();
-                    rgsw_ct_i
-                        .iter_mut()
-                        .for_each(|ri| rlwe_nttop.forward(ri.as_mut()));
-
                     let mut m = vec![0u64; rlwe_n];
                     RandomFillUniformInModulus::random_fill(&mut rng, rlwe_q, m.as_mut_slice());
                     let mut rlwe_ct = vec![vec![0u64; rlwe_n]; 2];
@@ -2610,12 +2613,15 @@ mod tests {
                     );
 
                     // RLWE(m*X^{s[i]}) = RLWE(m) x RGSW(X^{s[i]})
-                    let mut rlwe_after = RlweCiphertext::<_, DefaultSecureRng>::new_trivial(vec![
-                        vec![0u64; rlwe_n],
-                        m.clone(),
-                    ]);
-                    // let mut rlwe_after =
-                    //     RlweCiphertext::<_, DefaultSecureRng>::from_raw(rlwe_ct.clone(), false);
+                    // let mut rlwe_after = RlweCiphertext::<_, DefaultSecureRng>::new_trivial(vec![
+                    //     vec![0u64; rlwe_n],
+                    //     m.clone(),
+                    // ]);
+                    let mut rlwe_after = RlweCiphertext::<_, DefaultSecureRng> {
+                        data: rlwe_ct.clone(),
+                        is_trivial: false,
+                        _phatom: PhantomData,
+                    };
                     let mut scratch = vec![
                         vec![0u64; rlwe_n];
                         std::cmp::max(
@@ -2625,7 +2631,7 @@ mod tests {
                     ];
                     rlwe_by_rgsw(
                         &mut rlwe_after,
-                        &rgsw_ct_i,
+                        rgsw_ct_i,
                         &mut scratch,
                         rlwe_rgsw_decomposer,
                         rlwe_nttop,
@@ -2642,14 +2648,14 @@ mod tests {
                     }
 
                     // (m+e) * m1
-                    let mut m_plus_e_times_m1 = m.clone();
-                    // decrypt_rlwe(
-                    //     &rlwe_ct,
-                    //     ideal_client_key.sk_rlwe.values(),
-                    //     &mut m_plus_e_times_m1,
-                    //     rlwe_nttop,
-                    //     rlwe_modop,
-                    // );
+                    let mut m_plus_e_times_m1 = vec![0u64; rlwe_n];
+                    decrypt_rlwe(
+                        &rlwe_ct,
+                        ideal_client_key.sk_rlwe.values(),
+                        &mut m_plus_e_times_m1,
+                        rlwe_nttop,
+                        rlwe_modop,
+                    );
                     rlwe_nttop.forward(m_plus_e_times_m1.as_mut_slice());
                     rlwe_nttop.forward(m1.as_mut_slice());
                     rlwe_modop.elwise_mul_mut(m_plus_e_times_m1.as_mut_slice(), m1.as_slice());
@@ -2657,8 +2663,8 @@ mod tests {
 
                     // Resulting RLWE ciphertext will equal: (m0m1 + em1) + e_{rlsw x rgsw}.
                     // Hence, resulting rlwe ciphertext will have error em1 + e_{rlwe x rgsw}.
-                    // Here we're only concerned with e_{rlwe x rgsw}, that is noise caused due to
-                    // RLWExRGSW. Also note, in practice m1 is a monomial, for ex, X^{s_{i}}, for
+                    // Here we're only concerned with e_{rlwe x rgsw}, that is noise added by
+                    // RLWExRGSW. Also note in practice m1 is a monomial, for ex, X^{s_{i}}, for
                     // some i and var(em1) = var(e).
                     let mut m_plus_e_times_m1_more_e = vec![0u64; rlwe_n];
                     decrypt_rlwe(
@@ -2675,14 +2681,14 @@ mod tests {
                         m_plus_e_times_m1.as_slice(),
                     );
 
-                    let noise = measure_noise(
-                        &rlwe_after,
-                        &m_plus_e_times_m1,
-                        rlwe_nttop,
-                        rlwe_modop,
-                        ideal_client_key.sk_rlwe.values(),
-                    );
-                    print!("NOISE: {}", noise);
+                    // let noise = measure_noise(
+                    //     &rlwe_after,
+                    //     &m_plus_e_times_m1,
+                    //     rlwe_nttop,
+                    //     rlwe_modop,
+                    //     ideal_client_key.sk_rlwe.values(),
+                    // );
+                    // print!("NOISE: {}", noise);
 
                     check.add_more(&Vec::<i64>::try_convert_from(
                         &m_plus_e_times_m1_more_e,
@@ -2694,6 +2700,189 @@ mod tests {
                     check.std_dev(),
                     check.std_dev().abs().log2()
                 )
+            }
+
+            // check noise in Auto key
+            if true {
+                let mut check = Stats { samples: vec![] };
+
+                let mut neg_s_poly =
+                    Vec::<u64>::try_convert_from(ideal_client_key.sk_rlwe.values(), rlwe_q);
+                rlwe_modop.elwise_neg_mut(neg_s_poly.as_mut_slice());
+
+                let g = bool_evaluator.pbs_info.g();
+                for i in [-g, g] {
+                    // -s[X^k]
+                    let (auto_indices, auto_sign) = generate_auto_map(rlwe_n, i);
+                    let mut neg_s_poly_auto_i = vec![0u64; rlwe_n];
+                    izip!(neg_s_poly.iter(), auto_indices.iter(), auto_sign.iter()).for_each(
+                        |(v, to_i, to_sign)| {
+                            if !to_sign {
+                                neg_s_poly_auto_i[*to_i] = rlwe_modop.neg(v);
+                            } else {
+                                neg_s_poly_auto_i[*to_i] = *v;
+                            }
+                        },
+                    );
+
+                    let mut auto_key_i = server_key_eval_domain.galois_key_for_auto(i).clone();
+                    // send i^th auto key to coefficient domain
+                    auto_key_i
+                        .iter_mut()
+                        .for_each(|r| rlwe_nttop.backward(r.as_mut_slice()));
+                    auto_gadget.iter().enumerate().for_each(|(i, b_i)| {
+                        // B^i * -s[X^k]
+                        let mut m_ideal = neg_s_poly_auto_i.clone();
+                        rlwe_modop.elwise_scalar_mul_mut(m_ideal.as_mut_slice(), b_i);
+
+                        let mut m_out = vec![0u64; rlwe_n];
+                        let mut rlwe_ct = vec![vec![0u64; rlwe_n]; 2];
+                        rlwe_ct[0].copy_from_slice(&auto_key_i[i]);
+                        rlwe_ct[1].copy_from_slice(
+                            &auto_key_i[auto_decomposer.decomposition_count() + i],
+                        );
+                        decrypt_rlwe(
+                            &rlwe_ct,
+                            ideal_client_key.sk_rlwe.values(),
+                            &mut m_out,
+                            rlwe_nttop,
+                            rlwe_modop,
+                        );
+
+                        // diff
+                        rlwe_modop.elwise_sub_mut(m_out.as_mut_slice(), m_ideal.as_slice());
+
+                        check.add_more(&Vec::<i64>::try_convert_from(&m_out, rlwe_q));
+                    });
+                }
+
+                println!("Auto key noise std dev: {}", check.std_dev().abs().log2());
+            }
+
+            // check noise in RLWE(X^k) after sending RLWE(X) -> RLWE(X^k) using collective
+            // auto key
+            if true {
+                let mut check = Stats { samples: vec![] };
+
+                let g = bool_evaluator.pbs_info.g();
+                for i in [-g, g] {
+                    for _ in 0..10 {
+                        let mut m = vec![0u64; rlwe_n];
+                        RandomFillUniformInModulus::random_fill(&mut rng, rlwe_q, m.as_mut_slice());
+                        let mut rlwe_ct = RlweCiphertext::<_, DefaultSecureRng> {
+                            data: vec![vec![0u64; rlwe_n]; 2],
+                            is_trivial: false,
+                            _phatom: PhantomData,
+                        };
+                        public_key_encrypt_rlwe::<_, _, _, _, i32, _>(
+                            &mut rlwe_ct,
+                            &collective_pk.key,
+                            &m,
+                            rlwe_modop,
+                            rlwe_nttop,
+                            &mut rng,
+                        );
+
+                        // We're only interested in noise increased as a result of automorphism.
+                        // Hence, we take m+e as the bench.
+                        let mut m_plus_e = vec![0u64; rlwe_n];
+                        decrypt_rlwe(
+                            &rlwe_ct,
+                            ideal_client_key.sk_rlwe.values(),
+                            &mut m_plus_e,
+                            rlwe_nttop,
+                            rlwe_modop,
+                        );
+
+                        let auto_key = server_key_eval_domain.galois_key_for_auto(i);
+                        let (auto_map_index, auto_map_sign) = generate_auto_map(rlwe_n, i);
+                        let mut scratch =
+                            vec![vec![0u64; rlwe_n]; auto_decomposer.decomposition_count() + 2];
+                        galois_auto(
+                            &mut rlwe_ct,
+                            auto_key,
+                            &mut scratch,
+                            &auto_map_index,
+                            &auto_map_sign,
+                            rlwe_modop,
+                            rlwe_nttop,
+                            auto_decomposer,
+                        );
+
+                        // send m+e from X to X^k
+                        let mut m_plus_e_auto = vec![0u64; rlwe_n];
+                        izip!(m_plus_e.iter(), auto_map_index.iter(), auto_map_sign.iter())
+                            .for_each(|(v, to_index, to_sign)| {
+                                if !to_sign {
+                                    m_plus_e_auto[*to_index] = rlwe_modop.neg(v);
+                                } else {
+                                    m_plus_e_auto[*to_index] = *v
+                                }
+                            });
+
+                        let mut m_out = vec![0u64; rlwe_n];
+                        decrypt_rlwe(
+                            &rlwe_ct,
+                            ideal_client_key.sk_rlwe.values(),
+                            &mut m_out,
+                            rlwe_nttop,
+                            rlwe_modop,
+                        );
+
+                        // diff
+                        rlwe_modop.elwise_sub_mut(m_out.as_mut_slice(), m_plus_e_auto.as_slice());
+
+                        check.add_more(&Vec::<i64>::try_convert_from(m_out.as_slice(), rlwe_q));
+                    }
+                }
+
+                println!("Rlwe Auto Noise Std: {}", check.std_dev().abs().log2());
+            }
+
+            // Check noise growth in ksk
+            // TODO check in LWE key switching keys
+            if true {
+                // 1. encrypt LWE ciphertext
+                // 2. Key switching
+                // 3.
+                let mut check = Stats { samples: vec![] };
+
+                for _ in 0..1024 {
+                    // Encrypt m \in Q_{ks} using RLWE sk
+                    let mut lwe_in_ct = vec![0u64; rlwe_n + 1];
+                    let m = RandomElementInModulus::random(&mut rng, &lwe_q.q().unwrap());
+                    encrypt_lwe(
+                        &mut lwe_in_ct,
+                        &m,
+                        ideal_client_key.sk_rlwe.values(),
+                        lwe_modop,
+                        &mut rng,
+                    );
+
+                    // Key switch
+                    let mut lwe_out = vec![0u64; lwe_n + 1];
+                    lwe_key_switch(
+                        &mut lwe_out,
+                        &lwe_in_ct,
+                        server_key_eval_domain.lwe_ksk(),
+                        lwe_modop,
+                        bool_evaluator.pbs_info.lwe_decomposer(),
+                    );
+
+                    // We only care about noise added by LWE key switch
+                    // m+e
+                    let m_plus_e =
+                        decrypt_lwe(&lwe_in_ct, ideal_client_key.sk_rlwe.values(), lwe_modop);
+
+                    let m_plus_e_plus_lwe_ksk_noise =
+                        decrypt_lwe(&lwe_out, ideal_client_key.sk_lwe.values(), lwe_modop);
+
+                    let diff = lwe_modop.sub(&m_plus_e_plus_lwe_ksk_noise, &m_plus_e);
+
+                    check.add_more(&vec![lwe_q.map_element_to_i64(&diff)]);
+                }
+
+                println!("Lwe ksk std dev: {}", check.std_dev().abs().log2());
             }
         }
 
