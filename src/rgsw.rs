@@ -2122,7 +2122,7 @@ pub(crate) mod tests {
     #[test]
     fn some_work() {
         let logq = 50;
-        let ring_size = 1 << 10;
+        let ring_size = 1 << 11;
         let q = generate_prime(logq, ring_size, 1u64 << logq).unwrap();
         let d_rgsw = 10;
         let logb = 5;
