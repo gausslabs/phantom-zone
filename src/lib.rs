@@ -14,6 +14,7 @@ mod ntt;
 mod num;
 mod random;
 mod rgsw;
+mod shortint;
 mod utils;
 
 pub trait Matrix: AsRef<[Self::R]> {
