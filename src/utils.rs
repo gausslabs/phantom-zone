@@ -15,6 +15,14 @@ pub trait WithLocal {
     fn with_local_mut<F, R>(func: F) -> R
     where
         F: Fn(&mut Self) -> R;
+
+    fn with_local_mut_mut<F, R>(func: &mut F) -> R
+    where
+        F: FnMut(&mut Self) -> R;
+}
+
+pub trait Global {
+    fn global() -> &'static Self;
 }
 
 pub fn fill_random_ternary_secret_with_hamming_weight<

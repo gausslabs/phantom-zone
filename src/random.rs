@@ -180,4 +180,11 @@ impl WithLocal for DefaultSecureRng {
     {
         DEFAULT_RNG.with_borrow_mut(|r| func(r))
     }
+
+    fn with_local_mut_mut<F, R>(func: &mut F) -> R
+    where
+        F: FnMut(&mut Self) -> R,
+    {
+        DEFAULT_RNG.with_borrow_mut(|r| func(r))
+    }
 }

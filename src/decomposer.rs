@@ -92,7 +92,7 @@ impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
     }
 }
 
-impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + Debug + NumInfo> Decomposer
+impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decomposer
     for DefaultDecomposer<T>
 {
     type Element = T;

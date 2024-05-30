@@ -3,7 +3,7 @@ use num_traits::{ConstZero, FromPrimitive, PrimInt, ToPrimitive, Zero};
 use crate::{backend::Modulus, decomposer::Decomposer};
 
 #[derive(Clone, PartialEq)]
-pub(super) struct BoolParameters<El> {
+pub struct BoolParameters<El> {
     rlwe_q: CiphertextModulus<El>,
     lwe_q: CiphertextModulus<El>,
     br_q: usize,
@@ -280,12 +280,12 @@ where
     }
 }
 
-pub(super) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+pub(crate) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_q: CiphertextModulus::new_non_native(268369921u64),
     lwe_q: CiphertextModulus::new_non_native(1 << 16),
-    br_q: 1 << 10,
-    rlwe_n: PolynomialSize(1 << 10),
-    lwe_n: LweDimension(493),
+    br_q: 1 << 8,
+    rlwe_n: PolynomialSize(1 << 8),
+    lwe_n: LweDimension(10),
     lwe_decomposer_base: DecompostionLogBase(4),
     lwe_decomposer_count: DecompositionCount(4),
     rlrg_decomposer_base: DecompostionLogBase(7),

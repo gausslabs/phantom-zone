@@ -144,10 +144,22 @@ impl<T> Row for Vec<T> {
     type Element = T;
 }
 
+impl<T> Row for [T] {
+    type Element = T;
+}
+
 impl<T> RowMut for Vec<T> {}
 
 impl<T: Zero + Clone> RowEntity for Vec<T> {
     fn zeros(col: usize) -> Self {
         vec![T::zero(); col]
     }
+}
+
+trait Encryptor<M, C> {
+    fn encrypt(&self, m: &M) -> C;
+}
+
+trait Decryptor<M, C: ?Sized> {
+    fn decrypt(&self, c: &C) -> M;
 }

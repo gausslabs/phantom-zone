@@ -2,12 +2,15 @@ use std::{
     cell::{OnceCell, RefCell},
     collections::HashMap,
     fmt::{Debug, Display},
+    iter::Once,
     marker::PhantomData,
     ops::Shr,
+    sync::OnceLock,
 };
 
 use itertools::{izip, partition, Itertools};
 use num_traits::{FromPrimitive, Num, One, PrimInt, ToPrimitive, WrappingSub, Zero};
+use rand_distr::uniform::SampleUniform;
 
 use crate::{
     backend::{ArithmeticOps, GetModulus, ModInit, ModularOpsU64, Modulus, VectorOps},
@@ -26,20 +29,93 @@ use crate::{
         RlweCiphertext, RlweSecret,
     },
     utils::{
-        fill_random_ternary_secret_with_hamming_weight, generate_prime, mod_exponent,
+        fill_random_ternary_secret_with_hamming_weight, generate_prime, mod_exponent, Global,
         TryConvertFrom1, WithLocal,
     },
-    Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
+    Decryptor, Encryptor, Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
 };
 
 use super::parameters::{BoolParameters, CiphertextModulus};
 
 thread_local! {
-    static BOOL_EVALUATOR: RefCell<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64<CiphertextModulus<u64>>,  ModularOpsU64<CiphertextModulus<u64>>>> = RefCell::new(BoolEvaluator::new(MP_BOOL_PARAMS));
+    pub(crate) static BOOL_EVALUATOR: RefCell<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64<CiphertextModulus<u64>>,  ModularOpsU64<CiphertextModulus<u64>>>> = RefCell::new(BoolEvaluator::new(MP_BOOL_PARAMS));
+
 }
+pub(crate) static BOOL_SERVER_KEY: OnceLock<
+    ServerKeyEvaluationDomain<Vec<Vec<u64>>, DefaultSecureRng, NttBackendU64>,
+> = OnceLock::new();
 
 pub fn set_parameter_set(parameter: &BoolParameters<u64>) {
     BoolEvaluator::with_local_mut(|e| *e = BoolEvaluator::new(parameter.clone()))
+}
+
+fn set_server_key(key: ServerKeyEvaluationDomain<Vec<Vec<u64>>, DefaultSecureRng, NttBackendU64>) {
+    assert!(
+        BOOL_SERVER_KEY.set(key).is_ok(),
+        "Attempted to set server key twice."
+    );
+}
+
+pub fn gen_keys() -> (
+    ClientKey,
+    SeededServerKey<Vec<Vec<u64>>, BoolParameters<u64>, [u8; 32]>,
+) {
+    BoolEvaluator::with_local_mut(|e| {
+        let ck = e.client_key();
+        let sk = e.server_key(&ck);
+
+        (ck, sk)
+    })
+}
+pub(crate) trait BooleanGates {
+    type Ciphertext: RowEntity;
+    type Key;
+
+    fn and_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
+    fn nand_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
+    fn or_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
+    fn nor_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
+    fn xor_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
+    fn xnor_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
+    fn not_inplace(&mut self, c: &mut Self::Ciphertext);
+
+    fn and(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext;
+    fn nand(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext;
+    fn or(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext;
+    fn nor(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext;
+    fn xor(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext;
+    fn xnor(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext;
+    fn not(&mut self, c: &Self::Ciphertext) -> Self::Ciphertext;
 }
 
 impl WithLocal
@@ -62,6 +138,19 @@ impl WithLocal
         F: Fn(&mut Self) -> R,
     {
         BOOL_EVALUATOR.with_borrow_mut(|s| func(s))
+    }
+
+    fn with_local_mut_mut<F, R>(func: &mut F) -> R
+    where
+        F: FnMut(&mut Self) -> R,
+    {
+        BOOL_EVALUATOR.with_borrow_mut(|s| func(s))
+    }
+}
+
+impl Global for ServerKeyEvaluationDomain<Vec<Vec<u64>>, DefaultSecureRng, NttBackendU64> {
+    fn global() -> &'static Self {
+        BOOL_SERVER_KEY.get().unwrap()
     }
 }
 
@@ -206,7 +295,7 @@ trait PbsInfo {
 }
 
 #[derive(Clone)]
-struct ClientKey {
+pub struct ClientKey {
     sk_rlwe: RlweSecret,
     sk_lwe: LweSecret,
 }
@@ -219,25 +308,17 @@ impl ClientKey {
     }
 }
 
-// impl WithLocal for ClientKey {
-//     fn with_local<F, R>(func: F) -> R
-//     where
-//         F: Fn(&Self) -> R,
-//     {
-//         CLIENT_KEY.with_borrow(|client_key| func(client_key))
-//     }
+impl Encryptor<bool, Vec<u64>> for ClientKey {
+    fn encrypt(&self, m: &bool) -> Vec<u64> {
+        BoolEvaluator::with_local(|e| e.sk_encrypt(*m, self))
+    }
+}
 
-//     fn with_local_mut<F, R>(func: F) -> R
-//     where
-//         F: Fn(&mut Self) -> R,
-//     {
-//         CLIENT_KEY.with_borrow_mut(|client_key| func(client_key))
-//     }
-// }
-
-// fn set_client_key(key: &ClientKey) {
-//     ClientKey::with_local_mut(|k| *k = key.clone())
-// }
+impl Decryptor<bool, Vec<u64>> for ClientKey {
+    fn decrypt(&self, c: &Vec<u64>) -> bool {
+        BoolEvaluator::with_local(|e| e.sk_decrypt(c, self))
+    }
+}
 
 struct MultiPartyDecryptionShare<E> {
     share: E,
@@ -325,7 +406,7 @@ struct SeededMultiPartyServerKey<M: Matrix, S, P> {
 }
 
 /// Seeded single party server key
-struct SeededServerKey<M: Matrix, P, S> {
+pub struct SeededServerKey<M: Matrix, P, S> {
     /// Rgsw cts of LWE secret elements
     pub(crate) rgsw_cts: Vec<M>,
     /// Auto keys
@@ -376,8 +457,18 @@ impl<M: Matrix, S> SeededServerKey<M, BoolParameters<M::MatElement>, S> {
     }
 }
 
+impl SeededServerKey<Vec<Vec<u64>>, BoolParameters<u64>, [u8; 32]> {
+    pub fn set_server_key(&self) {
+        set_server_key(ServerKeyEvaluationDomain::<
+            _,
+            DefaultSecureRng,
+            NttBackendU64,
+        >::from(self));
+    }
+}
+
 /// Server key in evaluation domain
-struct ServerKeyEvaluationDomain<M, R, N> {
+pub(crate) struct ServerKeyEvaluationDomain<M, R, N> {
     /// Rgsw cts of LWE secret elements
     rgsw_cts: Vec<M>,
     /// Galois keys
@@ -643,7 +734,7 @@ struct BoolPbsInfo<M: Matrix, Ntt, RlweModOp, LweModOp> {
 
 impl<M: Matrix, NttOp, RlweModOp, LweModOp> PbsInfo for BoolPbsInfo<M, NttOp, RlweModOp, LweModOp>
 where
-    M::MatElement: PrimInt + WrappingSub + NumInfo + Debug + FromPrimitive,
+    M::MatElement: PrimInt + WrappingSub + NumInfo + FromPrimitive,
     RlweModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     LweModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     NttOp: Ntt<Element = M::MatElement>,
@@ -708,7 +799,7 @@ where
     }
 }
 
-struct BoolEvaluator<M, Ntt, RlweModOp, LweModOp>
+pub(crate) struct BoolEvaluator<M, Ntt, RlweModOp, LweModOp>
 where
     M: Matrix,
 {
@@ -728,7 +819,8 @@ impl<M: Matrix, NttOp, RlweModOp, LweModOp> BoolEvaluator<M, NttOp, RlweModOp, L
 impl<M: Matrix, NttOp, RlweModOp, LweModOp> BoolEvaluator<M, NttOp, RlweModOp, LweModOp>
 where
     M: MatrixEntity + MatrixMut,
-    M::MatElement: PrimInt + Debug + Display + NumInfo + FromPrimitive + WrappingSub,
+    M::MatElement:
+        PrimInt + Debug + Display + NumInfo + FromPrimitive + WrappingSub + SampleUniform,
     NttOp: Ntt<Element = M::MatElement>,
     RlweModOp: ArithmeticOps<Element = M::MatElement>
         + VectorOps<Element = M::MatElement>
@@ -738,10 +830,6 @@ where
         + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
     M::R: TryConvertFrom1<[i32], CiphertextModulus<M::MatElement>> + RowEntity + Debug,
     <M as Matrix>::R: RowMut,
-    DefaultSecureRng: RandomFillGaussianInModulus<[M::MatElement], CiphertextModulus<M::MatElement>>
-        + RandomFillUniformInModulus<[M::MatElement], CiphertextModulus<M::MatElement>>
-        + RandomGaussianElementInModulus<M::MatElement, CiphertextModulus<M::MatElement>>
-        + NewWithSeed,
 {
     fn new(parameters: BoolParameters<M::MatElement>) -> Self
     where
@@ -1219,7 +1307,7 @@ where
             let mut rlwe = M::zeros(2, ring_size);
             // sample error
             rlwe.iter_rows_mut().for_each(|ri| {
-                RandomFillGaussianInModulus::random_fill(
+                RandomFillGaussianInModulus::<[M::MatElement], CiphertextModulus<M::MatElement>>::random_fill(
                     rng,
                     &self.pbs_info.parameters.rlwe_q(),
                     ri.as_mut(),
@@ -1468,192 +1556,245 @@ where
             parameters: parameters,
         }
     }
+}
 
+impl<M, NttOp, RlweModOp, LweModOp> BoolEvaluator<M, NttOp, RlweModOp, LweModOp>
+where
+    M: MatrixMut + MatrixEntity,
+    M::R: RowMut + RowEntity,
+    M::MatElement: PrimInt + FromPrimitive + One + Copy + Zero + Display + WrappingSub + NumInfo,
+    RlweModOp: VectorOps<Element = M::MatElement>
+        + ArithmeticOps<Element = M::MatElement>
+        + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
+    LweModOp: VectorOps<Element = M::MatElement>
+        + ArithmeticOps<Element = M::MatElement>
+        + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
+    NttOp: Ntt<Element = M::MatElement>,
+{
     /// Returns c0 + c1 + Q/4
-    fn _add_and_shift_lwe_cts(&self, c0: &M::R, c1: &M::R) -> M::R
-    where
-        M::R: Clone,
-    {
-        let mut c_out = M::R::zeros(c0.as_ref().len());
+    fn _add_and_shift_lwe_cts(&self, c0: &mut M::R, c1: &M::R) {
         let modop = &self.pbs_info.rlwe_modop;
-        izip!(
-            c_out.as_mut().iter_mut(),
-            c0.as_ref().iter(),
-            c1.as_ref().iter()
-        )
-        .for_each(|(o, i0, i1)| {
-            *o = modop.add(i0, i1);
-        });
+        modop.elwise_add_mut(c0.as_mut(), c1.as_ref());
         // +Q/4
-        c_out.as_mut()[0] = modop.add(&c_out.as_ref()[0], &self.pbs_info.rlwe_qby4);
-        c_out
+        c0.as_mut()[0] = modop.add(&c0.as_ref()[0], &self.pbs_info.rlwe_qby4);
     }
 
     /// Returns 2(c0 - c1) + Q/4
-    fn _subtract_double_and_shift_lwe_cts(&self, c0: &M::R, c1: &M::R) -> M::R
-    where
-        M::R: Clone,
-    {
-        let mut c_out = c0.clone();
+    fn _subtract_double_and_shift_lwe_cts(&self, c0: &mut M::R, c1: &M::R) {
         let modop = &self.pbs_info.rlwe_modop;
         // c0 - c1
-        modop.elwise_sub_mut(c_out.as_mut(), c1.as_ref());
+        modop.elwise_sub_mut(c0.as_mut(), c1.as_ref());
 
         // double
-        c_out.as_mut().iter_mut().for_each(|v| *v = modop.add(v, v));
-        c_out
+        c0.as_mut().iter_mut().for_each(|v| *v = modop.add(v, v));
     }
+}
 
-    pub fn nand(
+impl<M, NttOp, RlweModOp, LweModOp> BooleanGates for BoolEvaluator<M, NttOp, RlweModOp, LweModOp>
+where
+    M: MatrixMut + MatrixEntity,
+    M::R: RowMut + RowEntity + Clone,
+    M::MatElement: PrimInt + FromPrimitive + One + Copy + Zero + Display + WrappingSub + NumInfo,
+    RlweModOp: VectorOps<Element = M::MatElement>
+        + ArithmeticOps<Element = M::MatElement>
+        + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
+    LweModOp: VectorOps<Element = M::MatElement>
+        + ArithmeticOps<Element = M::MatElement>
+        + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
+    NttOp: Ntt<Element = M::MatElement>,
+{
+    type Ciphertext = M::R;
+    type Key = ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>;
+
+    fn nand_inplace(
         &mut self,
-        c0: &M::R,
+        c0: &mut M::R,
         c1: &M::R,
         server_key: &ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>,
-    ) -> M::R
-    where
-        M::R: Clone,
-    {
-        let mut c_out = self._add_and_shift_lwe_cts(c0, c1);
+    ) {
+        self._add_and_shift_lwe_cts(c0, c1);
 
         // PBS
         pbs(
             &self.pbs_info,
             &self.nand_test_vec,
-            &mut c_out,
+            c0,
             server_key,
             &mut self.scratch_memory.lwe_vector,
             &mut self.scratch_memory.decomposition_matrix,
         );
-
-        c_out
     }
 
-    pub fn and(
+    fn and_inplace(
         &mut self,
-        c0: &M::R,
+        c0: &mut M::R,
         c1: &M::R,
         server_key: &ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>,
-    ) -> M::R
-    where
-        M::R: Clone,
-    {
-        let mut c_out = self._add_and_shift_lwe_cts(c0, c1);
+    ) {
+        self._add_and_shift_lwe_cts(c0, c1);
 
         // PBS
         pbs(
             &self.pbs_info,
             &self.and_test_vec,
-            &mut c_out,
+            c0,
             server_key,
             &mut self.scratch_memory.lwe_vector,
             &mut self.scratch_memory.decomposition_matrix,
         );
-
-        c_out
     }
 
-    pub fn or(
+    fn or_inplace(
         &mut self,
-        c0: &M::R,
+        c0: &mut M::R,
         c1: &M::R,
         server_key: &ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>,
-    ) -> M::R
-    where
-        M::R: Clone,
-    {
-        let mut c_out = self._add_and_shift_lwe_cts(c0, c1);
+    ) {
+        self._add_and_shift_lwe_cts(c0, c1);
 
         // PBS
         pbs(
             &self.pbs_info,
             &self.or_test_vec,
-            &mut c_out,
+            c0,
             server_key,
             &mut self.scratch_memory.lwe_vector,
             &mut self.scratch_memory.decomposition_matrix,
         );
-
-        c_out
     }
 
-    pub fn nor(
+    fn nor_inplace(
         &mut self,
-        c0: &M::R,
+        c0: &mut M::R,
         c1: &M::R,
         server_key: &ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>,
-    ) -> M::R
-    where
-        M::R: Clone,
-    {
-        let mut c_out = self._add_and_shift_lwe_cts(c0, c1);
+    ) {
+        self._add_and_shift_lwe_cts(c0, c1);
 
         // PBS
         pbs(
             &self.pbs_info,
             &self.nor_test_vec,
-            &mut c_out,
+            c0,
             server_key,
             &mut self.scratch_memory.lwe_vector,
             &mut self.scratch_memory.decomposition_matrix,
-        );
-
-        c_out
+        )
     }
 
-    pub fn xor(
+    fn xor_inplace(
         &mut self,
-        c0: &M::R,
+        c0: &mut M::R,
         c1: &M::R,
         server_key: &ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>,
-    ) -> M::R
-    where
-        M::R: Clone,
-    {
-        let mut c_out = self._subtract_double_and_shift_lwe_cts(c0, c1);
+    ) {
+        self._subtract_double_and_shift_lwe_cts(c0, c1);
 
         // PBS
         pbs(
             &self.pbs_info,
             &self.xor_test_vec,
-            &mut c_out,
+            c0,
             server_key,
             &mut self.scratch_memory.lwe_vector,
             &mut self.scratch_memory.decomposition_matrix,
         );
-
-        c_out
     }
 
-    pub fn xnor(
+    fn xnor_inplace(
         &mut self,
-        c0: &M::R,
+        c0: &mut M::R,
         c1: &M::R,
         server_key: &ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>,
-    ) -> M::R
-    where
-        M::R: Clone,
-    {
-        let mut c_out = self._subtract_double_and_shift_lwe_cts(c0, c1);
+    ) {
+        self._subtract_double_and_shift_lwe_cts(c0, c1);
 
         // PBS
         pbs(
             &self.pbs_info,
             &self.xnor_test_vec,
-            &mut c_out,
+            c0,
             server_key,
             &mut self.scratch_memory.lwe_vector,
             &mut self.scratch_memory.decomposition_matrix,
         );
-
-        c_out
     }
 
-    pub fn not(&mut self, c0: &M::R) -> M::R
-    where
-        <M as Matrix>::R: FromIterator<<M as Matrix>::MatElement>,
-    {
+    fn not_inplace(&mut self, c0: &mut M::R) {
         let modop = &self.pbs_info.rlwe_modop;
-        c0.as_ref().iter().map(|v| modop.neg(v)).collect()
+        c0.as_mut().iter_mut().for_each(|v| *v = modop.neg(v));
+    }
+
+    fn and(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext {
+        let mut out = c0.clone();
+        self.and_inplace(&mut out, c1, key);
+        out
+    }
+
+    fn nand(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext {
+        let mut out = c0.clone();
+        self.nand_inplace(&mut out, c1, key);
+        out
+    }
+
+    fn or(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext {
+        let mut out = c0.clone();
+        self.or_inplace(&mut out, c1, key);
+        out
+    }
+
+    fn nor(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext {
+        let mut out = c0.clone();
+        self.nor_inplace(&mut out, c1, key);
+        out
+    }
+
+    fn xnor(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext {
+        let mut out = c0.clone();
+        self.xnor_inplace(&mut out, c1, key);
+        out
+    }
+
+    fn xor(
+        &mut self,
+        c0: &Self::Ciphertext,
+        c1: &Self::Ciphertext,
+        key: &Self::Key,
+    ) -> Self::Ciphertext {
+        let mut out = c0.clone();
+        self.xor_inplace(&mut out, c1, key);
+        out
+    }
+
+    fn not(&mut self, c: &Self::Ciphertext) -> Self::Ciphertext {
+        let mut out = c.clone();
+        self.not_inplace(&mut out);
+        out
     }
 }
 
@@ -1662,7 +1803,7 @@ where
 /// gk_to_si: [g^0, ..., g^{q/2-1}, -g^0, -g^1, .., -g^{q/2-1}]
 fn blind_rotation<
     MT: IsTrivial + MatrixMut,
-    Mmut: MatrixMut<MatElement = MT::MatElement> + Matrix,
+    Mmut: MatrixMut<MatElement = MT::MatElement>,
     D: Decomposer<Element = MT::MatElement>,
     NttOp: Ntt<Element = MT::MatElement>,
     ModOp: ArithmeticOps<Element = MT::MatElement> + VectorOps<Element = MT::MatElement>,
@@ -1780,11 +1921,7 @@ fn blind_rotation<
 /// - key switching
 /// - mod down
 /// - blind rotate
-fn pbs<
-    M: Matrix + MatrixMut + MatrixEntity,
-    P: PbsInfo<Element = M::MatElement>,
-    K: PbsKey<M = M>,
->(
+fn pbs<M: MatrixMut + MatrixEntity, P: PbsInfo<Element = M::MatElement>, K: PbsKey<M = M>>(
     pbs_info: &P,
     test_vec: &M::R,
     lwe_in: &mut M::R,
@@ -1793,7 +1930,7 @@ fn pbs<
     scratch_blind_rotate_matrix: &mut M,
 ) where
     <M as Matrix>::R: RowMut,
-    M::MatElement: PrimInt + ToPrimitive + FromPrimitive + One + Copy + Zero + Display,
+    M::MatElement: PrimInt + FromPrimitive + One + Copy + Zero + Display,
 {
     let rlwe_q = pbs_info.rlwe_q();
     let lwe_q = pbs_info.lwe_q();
@@ -2002,7 +2139,9 @@ fn sample_extract<M: Matrix + MatrixMut, ModOp: ArithmeticOps<Element = M::MatEl
     lwe_out.as_mut()[0] = *rlwe_in.get(1, index);
 }
 
-/// TODO(Jay): Write tests for monomial mul
+/// Monomial multiplication (p(X)*X^{mon_exp})
+///
+/// - p_out: Output is written to p_out and independent of values in p_out
 fn monomial_mul<El, ModOp: ArithmeticOps<Element = El>>(
     p_in: &[El],
     p_out: &mut [El],
@@ -2089,6 +2228,13 @@ impl WithLocal for PBSTracer<Vec<Vec<u64>>> {
     fn with_local_mut<F, R>(func: F) -> R
     where
         F: Fn(&mut Self) -> R,
+    {
+        PBS_TRACER.with_borrow_mut(|t| func(t))
+    }
+
+    fn with_local_mut_mut<F, R>(func: &mut F) -> R
+    where
+        F: FnMut(&mut Self) -> R,
     {
         PBS_TRACER.with_borrow_mut(|t| func(t))
     }
