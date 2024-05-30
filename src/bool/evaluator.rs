@@ -1580,7 +1580,7 @@ where
     }
 
     /// Returns 2(c0 - c1) + Q/4
-    fn _subtract_double_and_shift_lwe_cts(&self, c0: &mut M::R, c1: &M::R) {
+    fn _subtract_double_lwe_cts(&self, c0: &mut M::R, c1: &M::R) {
         let modop = &self.pbs_info.rlwe_modop;
         // c0 - c1
         modop.elwise_sub_mut(c0.as_mut(), c1.as_ref());
@@ -1688,7 +1688,7 @@ where
         c1: &M::R,
         server_key: &ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>,
     ) {
-        self._subtract_double_and_shift_lwe_cts(c0, c1);
+        self._subtract_double_lwe_cts(c0, c1);
 
         // PBS
         pbs(
@@ -1707,7 +1707,7 @@ where
         c1: &M::R,
         server_key: &ServerKeyEvaluationDomain<M, DefaultSecureRng, NttOp>,
     ) {
-        self._subtract_double_and_shift_lwe_cts(c0, c1);
+        self._subtract_double_lwe_cts(c0, c1);
 
         // PBS
         pbs(

@@ -277,22 +277,22 @@ fn is_zero<E: BooleanGates>(evaluator: &mut E, a: &[E::Ciphertext], key: &E::Key
     return a.remove(0);
 }
 
-fn arbitrary_bit_equality<E: BooleanGates>(
+pub(super) fn arbitrary_bit_equality<E: BooleanGates>(
     evaluator: &mut E,
     a: &[E::Ciphertext],
     b: &[E::Ciphertext],
     key: &E::Key,
 ) -> E::Ciphertext {
     assert!(a.len() == b.len());
-    let mut out = evaluator.and(&a[0], &b[0], key);
+    let mut out = evaluator.xnor(&a[0], &b[0], key);
     izip!(a.iter(), b.iter()).skip(1).for_each(|(abit, bbit)| {
         let e = evaluator.xnor(abit, bbit, key);
-        evaluator.and(&mut out, &e, key);
+        evaluator.and_inplace(&mut out, &e, key);
     });
     return out;
 }
 
-/// Comaprator handle computes comparator result 2ns MSB onwards. It is
+/// Comparator handle computes comparator result 2ns MSB onwards. It is
 /// separated because comparator subroutine for signed and unsgind integers
 /// differs only for 1st MSB and is common second MSB onwards
 fn _comparator_handler_from_second_msb<E: BooleanGates>(
@@ -307,27 +307,27 @@ fn _comparator_handler_from_second_msb<E: BooleanGates>(
 
     // handle MSB - 1
     let mut tmp = evaluator.not(&b[n - 2]);
-    evaluator.and(&mut tmp, &a[n - 2], key);
-    evaluator.and(&mut tmp, &casc, key);
-    evaluator.or(&mut comp, &tmp, key);
+    evaluator.and_inplace(&mut tmp, &a[n - 2], key);
+    evaluator.and_inplace(&mut tmp, &casc, key);
+    evaluator.or_inplace(&mut comp, &tmp, key);
 
     for i in 2..n {
         // calculate cascading bit
-        let tmp_casc = evaluator.xnor(&a[n - 2 - i], &b[n - 2 - i], key);
-        evaluator.and(&mut casc, &tmp_casc, key);
+        let tmp_casc = evaluator.xnor(&a[n - i], &b[n - i], key);
+        evaluator.and_inplace(&mut casc, &tmp_casc, key);
 
         // calculate computate bit
         let mut tmp = evaluator.not(&b[n - 1 - i]);
-        evaluator.and(&mut tmp, &a[n - 1 - i], key);
-        evaluator.and(&mut tmp, &casc, key);
-        evaluator.or(&mut comp, &tmp, key);
+        evaluator.and_inplace(&mut tmp, &a[n - 1 - i], key);
+        evaluator.and_inplace(&mut tmp, &casc, key);
+        evaluator.or_inplace(&mut comp, &tmp, key);
     }
 
     return comp;
 }
 
 /// Signed integer comparison is same as unsigned integer with MSB flipped.
-fn arbitrary_signed_bit_comparator<E: BooleanGates>(
+pub(super) fn arbitrary_signed_bit_comparator<E: BooleanGates>(
     evaluator: &mut E,
     a: &[E::Ciphertext],
     b: &[E::Ciphertext],
@@ -338,13 +338,13 @@ fn arbitrary_signed_bit_comparator<E: BooleanGates>(
 
     // handle MSB
     let mut comp = evaluator.not(&a[n - 1]);
-    evaluator.and(&mut comp, &b[n - 1], key); // comp
+    evaluator.and_inplace(&mut comp, &b[n - 1], key); // comp
     let casc = evaluator.xnor(&a[n - 1], &b[n - 1], key); // casc
 
     return _comparator_handler_from_second_msb(evaluator, a, b, comp, casc, key);
 }
 
-fn arbitrary_bit_comparator<E: BooleanGates>(
+pub(super) fn arbitrary_bit_comparator<E: BooleanGates>(
     evaluator: &mut E,
     a: &[E::Ciphertext],
     b: &[E::Ciphertext],
@@ -355,7 +355,7 @@ fn arbitrary_bit_comparator<E: BooleanGates>(
 
     // handle MSB
     let mut comp = evaluator.not(&b[n - 1]);
-    evaluator.and(&mut comp, &a[n - 1], key);
+    evaluator.and_inplace(&mut comp, &a[n - 1], key);
     let casc = evaluator.xnor(&a[n - 1], &b[n - 1], key);
 
     return _comparator_handler_from_second_msb(evaluator, a, b, comp, casc, key);
