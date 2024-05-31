@@ -145,6 +145,18 @@ impl<El> BoolParameters<El> {
             ),
         )
     }
+
+    /// Returns dlogs of `g` for which auto keys are required as
+    /// per the parameter. Given that autos are required for [-g, g, g^2, ...,
+    /// g^w] function returns the following [0, 1, 2, ..., w] where `w` is
+    /// the window size. Note that although g^0 = 1, we use 0 for -g.
+    pub(crate) fn auto_element_dlogs(&self) -> Vec<usize> {
+        let mut els = vec![0];
+        (1..self.w + 1).into_iter().for_each(|e| {
+            els.push(e);
+        });
+        els
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -283,9 +295,9 @@ where
 pub(crate) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_q: CiphertextModulus::new_non_native(268369921u64),
     lwe_q: CiphertextModulus::new_non_native(1 << 16),
-    br_q: 1 << 8,
-    rlwe_n: PolynomialSize(1 << 8),
-    lwe_n: LweDimension(10),
+    br_q: 1 << 10,
+    rlwe_n: PolynomialSize(1 << 10),
+    lwe_n: LweDimension(500),
     lwe_decomposer_base: DecompostionLogBase(4),
     lwe_decomposer_count: DecompositionCount(4),
     rlrg_decomposer_base: DecompostionLogBase(7),
@@ -295,7 +307,7 @@ pub(crate) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     auto_decomposer_base: DecompostionLogBase(7),
     auto_decomposer_count: DecompositionCount(4),
     g: 5,
-    w: 1,
+    w: 10,
 };
 
 pub(super) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
@@ -313,7 +325,7 @@ pub(super) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     auto_decomposer_base: DecompostionLogBase(12),
     auto_decomposer_count: DecompositionCount(5),
     g: 5,
-    w: 1,
+    w: 5,
 };
 
 #[cfg(test)]

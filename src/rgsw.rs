@@ -1943,7 +1943,7 @@ pub(crate) mod tests {
         );
         let mut rlwe_m = RlweCiphertext::<Vec<Vec<u64>>, DefaultSecureRng>::from(&seeded_rlwe_m);
 
-        let auto_k = -5;
+        let auto_k = -125;
 
         // Generate galois key to key switch from s^k to s
         let decomposer = DefaultDecomposer::new(q, logb, d_rgsw);
