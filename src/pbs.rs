@@ -214,7 +214,7 @@ fn blind_rotation<
 >(
     trivial_rlwe_test_poly: &mut MT,
     scratch_matrix: &mut Mmut,
-    g: isize,
+    _g: isize,
     w: usize,
     q: usize,
     gk_to_si: &[Vec<usize>],

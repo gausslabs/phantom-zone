@@ -1,18 +1,6 @@
-use std::mem::MaybeUninit;
-
 use itertools::{izip, Itertools};
-use num_traits::PrimInt;
 
-use crate::{
-    backend::ModularOpsU64,
-    bool::{
-        evaluator::{BoolEvaluator, BooleanGates, ClientKey, ServerKeyEvaluationDomain},
-        parameters::CiphertextModulus,
-    },
-    ntt::NttBackendU64,
-    random::DefaultSecureRng,
-    Decryptor,
-};
+use crate::bool::evaluator::BooleanGates;
 
 pub(super) fn half_adder<E: BooleanGates>(
     evaluator: &mut E,

@@ -1,11 +1,8 @@
 use itertools::Itertools;
 
 use crate::{
-    bool::evaluator::{
-        BoolEvaluator, ClientKey, PublicKey, ServerKeyEvaluationDomain, BOOL_SERVER_KEY,
-    },
-    utils::{Global, WithLocal},
-    Decryptor, Encryptor, Matrix, MultiPartyDecryptor,
+    bool::keys::{ClientKey, PublicKey},
+    Decryptor, Encryptor, MultiPartyDecryptor,
 };
 
 mod ops;
@@ -100,7 +97,7 @@ mod frontend {
         eight_bit_mul,
     };
     use crate::{
-        bool::evaluator::{BoolEvaluator, ServerKeyEvaluationDomain},
+        bool::{evaluator::BoolEvaluator, keys::ServerKeyEvaluationDomain},
         utils::{Global, WithLocal},
     };
 
@@ -307,12 +304,10 @@ mod tests {
 
     use crate::{
         bool::{
-            evaluator::{
-                aggregate_public_key_shares, aggregate_server_key_shares, gen_client_key, gen_keys,
-                gen_mp_keys_phase1, gen_mp_keys_phase2, set_mp_seed, set_parameter_set,
-                BoolEvaluator, ClientKey,
-            },
+            aggregate_public_key_shares, aggregate_server_key_shares, gen_client_key, gen_keys,
+            gen_mp_keys_phase1, gen_mp_keys_phase2,
             parameters::{MP_BOOL_PARAMS, SP_BOOL_PARAMS},
+            set_mp_seed, set_parameter_set,
         },
         shortint::types::FheUint8,
         Decryptor, Encryptor, MultiPartyDecryptor,

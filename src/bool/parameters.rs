@@ -1,9 +1,9 @@
-use num_traits::{ConstZero, FromPrimitive, PrimInt, ToPrimitive, Zero};
+use num_traits::{ConstZero, FromPrimitive, PrimInt};
 
 use crate::{backend::Modulus, decomposer::Decomposer};
 
 #[derive(Clone, PartialEq)]
-pub struct BoolParameters<El> {
+pub(crate) struct BoolParameters<El> {
     rlwe_q: CiphertextModulus<El>,
     lwe_q: CiphertextModulus<El>,
     br_q: usize,
