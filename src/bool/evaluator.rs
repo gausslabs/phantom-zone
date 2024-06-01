@@ -1,5 +1,6 @@
 use std::{
     cell::{OnceCell, RefCell},
+    clone,
     collections::HashMap,
     fmt::{Debug, Display},
     iter::Once,
@@ -20,8 +21,8 @@ use crate::{
     multi_party::public_key_share,
     ntt::{self, Ntt, NttBackendU64, NttInit},
     random::{
-        DefaultSecureRng, NewWithSeed, RandomFillGaussianInModulus, RandomFillUniformInModulus,
-        RandomGaussianElementInModulus,
+        DefaultSecureRng, NewWithSeed, RandomFill, RandomFillGaussianInModulus,
+        RandomFillUniformInModulus, RandomGaussianElementInModulus,
     },
     rgsw::{
         decrypt_rlwe, galois_auto, galois_key_gen, generate_auto_map, public_key_encrypt_rgsw,
@@ -32,10 +33,11 @@ use crate::{
         fill_random_ternary_secret_with_hamming_weight, generate_prime, mod_exponent, Global,
         TryConvertFrom1, WithLocal,
     },
-    Decryptor, Encryptor, Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
+    Decryptor, Encryptor, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor, Row, RowEntity,
+    RowMut, Secret,
 };
 
-use super::parameters::{BoolParameters, CiphertextModulus};
+use super::parameters::{self, BoolParameters, CiphertextModulus};
 
 thread_local! {
     pub(crate) static BOOL_EVALUATOR: RefCell<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64<CiphertextModulus<u64>>,  ModularOpsU64<CiphertextModulus<u64>>>> = RefCell::new(BoolEvaluator::new(MP_BOOL_PARAMS));
@@ -45,8 +47,17 @@ pub(crate) static BOOL_SERVER_KEY: OnceLock<
     ServerKeyEvaluationDomain<Vec<Vec<u64>>, DefaultSecureRng, NttBackendU64>,
 > = OnceLock::new();
 
+pub(crate) static MULTI_PARTY_CRS: OnceLock<MultiPartyCrs<[u8; 32]>> = OnceLock::new();
+
 pub fn set_parameter_set(parameter: &BoolParameters<u64>) {
     BoolEvaluator::with_local_mut(|e| *e = BoolEvaluator::new(parameter.clone()))
+}
+
+pub fn set_mp_seed(seed: [u8; 32]) {
+    assert!(
+        MULTI_PARTY_CRS.set(MultiPartyCrs { seed: seed }).is_ok(),
+        "Attempted to set MP SEED twice."
+    )
 }
 
 fn set_server_key(key: ServerKeyEvaluationDomain<Vec<Vec<u64>>, DefaultSecureRng, NttBackendU64>) {
@@ -56,7 +67,7 @@ fn set_server_key(key: ServerKeyEvaluationDomain<Vec<Vec<u64>>, DefaultSecureRng
     );
 }
 
-pub fn gen_keys() -> (
+pub(crate) fn gen_keys() -> (
     ClientKey,
     SeededServerKey<Vec<Vec<u64>>, BoolParameters<u64>, [u8; 32]>,
 ) {
@@ -67,6 +78,93 @@ pub fn gen_keys() -> (
         (ck, sk)
     })
 }
+
+pub fn gen_client_key() -> ClientKey {
+    BoolEvaluator::with_local(|e| e.client_key())
+}
+
+pub fn gen_mp_keys_phase1(
+    ck: &ClientKey,
+) -> CommonReferenceSeededCollectivePublicKeyShare<Vec<u64>, [u8; 32], BoolParameters<u64>> {
+    let seed = MultiPartyCrs::global().public_key_share_seed::<DefaultSecureRng>();
+    BoolEvaluator::with_local(|e| {
+        let pk_share = e.multi_party_public_key_share(seed, &ck);
+        pk_share
+    })
+}
+
+pub fn gen_mp_keys_phase2<R, ModOp>(
+    ck: &ClientKey,
+    pk: &PublicKey<Vec<Vec<u64>>, R, ModOp>,
+) -> CommonReferenceSeededMultiPartyServerKeyShare<Vec<Vec<u64>>, BoolParameters<u64>, [u8; 32]> {
+    let seed = MultiPartyCrs::global().server_key_share_seed::<DefaultSecureRng>();
+    BoolEvaluator::with_local_mut(|e| {
+        let server_key_share = e.multi_party_server_key_share(seed, &pk.key, ck);
+        server_key_share
+    })
+}
+
+pub fn aggregate_public_key_shares(
+    shares: &[CommonReferenceSeededCollectivePublicKeyShare<
+        Vec<u64>,
+        [u8; 32],
+        BoolParameters<u64>,
+    >],
+) -> PublicKey<Vec<Vec<u64>>, DefaultSecureRng, ModularOpsU64<CiphertextModulus<u64>>> {
+    PublicKey::from(shares)
+}
+
+pub fn aggregate_server_key_shares(
+    shares: &[CommonReferenceSeededMultiPartyServerKeyShare<
+        Vec<Vec<u64>>,
+        BoolParameters<u64>,
+        [u8; 32],
+    >],
+) -> SeededMultiPartyServerKey<Vec<Vec<u64>>, [u8; 32], BoolParameters<u64>> {
+    BoolEvaluator::with_local(|e| e.aggregate_multi_party_server_key_shares(shares))
+}
+
+// GENERIC BELOW
+
+pub struct MultiPartyCrs<S> {
+    seed: S,
+}
+
+impl<S: Default + Copy> MultiPartyCrs<S> {
+    /// Seed to generate public key share using MultiPartyCrs as the main seed.
+    ///
+    /// Public key seed equals the 1st seed extracted from PRNG Seeded with
+    /// MiltiPartyCrs's seed.
+    fn public_key_share_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
+        let mut prng = Rng::new_with_seed(self.seed);
+
+        let mut seed = S::default();
+        RandomFill::<S>::random_fill(&mut prng, &mut seed);
+        seed
+    }
+
+    /// Seed to generate server key share using MultiPartyCrs as the main seed.
+    ///
+    /// Server key seed equals the 2nd seed extracted from PRNG Seeded with
+    /// MiltiPartyCrs's seed.
+    fn server_key_share_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
+        let mut prng = Rng::new_with_seed(self.seed);
+
+        let mut seed = S::default();
+        RandomFill::<S>::random_fill(&mut prng, &mut seed);
+        RandomFill::<S>::random_fill(&mut prng, &mut seed);
+        seed
+    }
+}
+
+impl Global for MultiPartyCrs<[u8; 32]> {
+    fn global() -> &'static Self {
+        MULTI_PARTY_CRS
+            .get()
+            .expect("Multi Party Common Reference String not set")
+    }
+}
+
 pub(crate) trait BooleanGates {
     type Ciphertext: RowEntity;
     type Key;
@@ -323,19 +421,116 @@ impl Decryptor<bool, Vec<u64>> for ClientKey {
     }
 }
 
-struct MultiPartyDecryptionShare<E> {
-    share: E,
+impl MultiPartyDecryptor<bool, Vec<u64>> for ClientKey {
+    type DecryptionShare = u64;
+
+    fn gen_decryption_share(&self, c: &Vec<u64>) -> Self::DecryptionShare {
+        BoolEvaluator::with_local(|e| e.multi_party_decryption_share(c, &self))
+    }
+
+    fn aggregate_decryption_shares(&self, c: &Vec<u64>, shares: &[Self::DecryptionShare]) -> bool {
+        BoolEvaluator::with_local(|e| e.multi_party_decrypt(shares, c))
+    }
 }
 
-struct CommonReferenceSeededCollectivePublicKeyShare<R, S, P> {
+// struct MultiPartyDecryptionShare<E> {
+//     share: E,
+// }
+
+pub struct CommonReferenceSeededCollectivePublicKeyShare<R, S, P> {
     share: R,
     cr_seed: S,
     parameters: P,
 }
 
-struct PublicKey<M, R, O> {
+struct SeededPublicKey<R, S, P, ModOp> {
+    part_b: R,
+    seed: S,
+    parameters: P,
+    _phantom: PhantomData<ModOp>,
+}
+
+impl<R, S, ModOp>
+    From<&[CommonReferenceSeededCollectivePublicKeyShare<R, S, BoolParameters<R::Element>>]>
+    for SeededPublicKey<R, S, BoolParameters<R::Element>, ModOp>
+where
+    ModOp: VectorOps<Element = R::Element> + ModInit<M = CiphertextModulus<R::Element>>,
+    S: PartialEq + Clone,
+    R: RowMut + RowEntity + Clone,
+    R::Element: Clone + PartialEq,
+{
+    fn from(
+        value: &[CommonReferenceSeededCollectivePublicKeyShare<R, S, BoolParameters<R::Element>>],
+    ) -> Self {
+        assert!(value.len() > 0);
+
+        let parameters = &value[0].parameters;
+        let cr_seed = value[0].cr_seed.clone();
+
+        // Sum all Bs
+        let rlweq_modop = ModOp::new(parameters.rlwe_q().clone());
+        let mut part_b = value[0].share.clone();
+        value.iter().skip(1).for_each(|share_i| {
+            assert!(&share_i.cr_seed == &cr_seed);
+            assert!(&share_i.parameters == parameters);
+
+            rlweq_modop.elwise_add_mut(part_b.as_mut(), share_i.share.as_ref());
+        });
+
+        Self {
+            part_b,
+            seed: cr_seed,
+            parameters: parameters.clone(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+pub struct PublicKey<M, Rng, ModOp> {
     key: M,
-    _phantom: PhantomData<(R, O)>,
+    _phantom: PhantomData<(Rng, ModOp)>,
+}
+
+impl<Rng, ModOp> Encryptor<bool, Vec<u64>> for PublicKey<Vec<Vec<u64>>, Rng, ModOp> {
+    fn encrypt(&self, m: &bool) -> Vec<u64> {
+        BoolEvaluator::with_local(|e| e.pk_encrypt(&self.key, *m))
+    }
+}
+
+impl<Rng, ModOp> Encryptor<[bool], Vec<Vec<u64>>> for PublicKey<Vec<Vec<u64>>, Rng, ModOp> {
+    fn encrypt(&self, m: &[bool]) -> Vec<Vec<u64>> {
+        BoolEvaluator::with_local(|e| e.pk_encrypt_batched(&self.key, m))
+    }
+}
+
+impl<
+        M: MatrixMut + MatrixEntity,
+        Rng: NewWithSeed + RandomFillUniformInModulus<[M::MatElement], CiphertextModulus<M::MatElement>>,
+        ModOp,
+    > From<SeededPublicKey<M::R, Rng::Seed, BoolParameters<M::MatElement>, ModOp>>
+    for PublicKey<M, Rng, ModOp>
+where
+    <M as Matrix>::R: RowMut,
+    M::MatElement: Copy,
+{
+    fn from(value: SeededPublicKey<M::R, Rng::Seed, BoolParameters<M::MatElement>, ModOp>) -> Self {
+        let mut prng = Rng::new_with_seed(value.seed);
+
+        let mut key = M::zeros(2, value.parameters.rlwe_n().0);
+        // sample A
+        RandomFillUniformInModulus::random_fill(
+            &mut prng,
+            value.parameters.rlwe_q(),
+            key.get_row_mut(0),
+        );
+        // Copy over B
+        key.get_row_mut(1).copy_from_slice(value.part_b.as_ref());
+
+        PublicKey {
+            key,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<
@@ -392,7 +587,7 @@ where
     }
 }
 
-struct CommonReferenceSeededMultiPartyServerKeyShare<M: Matrix, P, S> {
+pub struct CommonReferenceSeededMultiPartyServerKeyShare<M: Matrix, P, S> {
     rgsw_cts: Vec<M>,
     /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
     /// to -g is at 0
@@ -402,7 +597,7 @@ struct CommonReferenceSeededMultiPartyServerKeyShare<M: Matrix, P, S> {
     cr_seed: S,
     parameters: P,
 }
-struct SeededMultiPartyServerKey<M: Matrix, S, P> {
+pub struct SeededMultiPartyServerKey<M: Matrix, S, P> {
     rgsw_cts: Vec<M>,
     /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
     /// to -g is at 0
@@ -410,6 +605,22 @@ struct SeededMultiPartyServerKey<M: Matrix, S, P> {
     lwe_ksk: M::R,
     cr_seed: S,
     parameters: P,
+}
+
+impl
+    SeededMultiPartyServerKey<
+        Vec<Vec<u64>>,
+        <DefaultSecureRng as NewWithSeed>::Seed,
+        BoolParameters<u64>,
+    >
+{
+    pub fn set_server_key(&self) {
+        set_server_key(ServerKeyEvaluationDomain::<
+            Vec<Vec<u64>>,
+            DefaultSecureRng,
+            NttBackendU64,
+        >::from(self))
+    }
 }
 
 /// Seeded single party server key
@@ -708,7 +919,6 @@ where
         }
     }
 }
-
 
 impl<M: Matrix, R, N> PbsKey for ServerKeyEvaluationDomain<M, R, N> {
     type M = M;
@@ -1241,7 +1451,7 @@ where
         &self,
         lwe_ct: &M::R,
         client_key: &ClientKey,
-    ) -> MultiPartyDecryptionShare<<M as Matrix>::MatElement> {
+    ) -> <M as Matrix>::MatElement {
         assert!(lwe_ct.as_ref().len() == self.pbs_info.parameters.rlwe_n().0 + 1);
         let modop = &self.pbs_info.rlwe_modop;
         let mut neg_s = M::R::try_convert_from(
@@ -1262,34 +1472,44 @@ where
         });
         let share = modop.add(&neg_sa, &e);
 
-        MultiPartyDecryptionShare { share }
+        share
     }
 
-    pub(crate) fn multi_party_decrypt(
-        &self,
-        shares: &[MultiPartyDecryptionShare<M::MatElement>],
-        lwe_ct: &M::R,
-    ) -> bool {
+    pub(crate) fn multi_party_decrypt(&self, shares: &[M::MatElement], lwe_ct: &M::R) -> bool {
         let modop = &self.pbs_info.rlwe_modop;
         let mut sum_a = M::MatElement::zero();
         shares
             .iter()
-            .for_each(|share_i| sum_a = modop.add(&sum_a, &share_i.share));
+            .for_each(|share_i| sum_a = modop.add(&sum_a, &share_i));
 
         let encoded_m = modop.add(&lwe_ct.as_ref()[0], &sum_a);
         self.pbs_info.parameters.rlwe_q().decode(encoded_m)
     }
 
-    /// First encrypt as RLWE(m) with m as constant polynomial and extract it as
-    /// LWE ciphertext
     pub(crate) fn pk_encrypt(&self, pk: &M, m: bool) -> M::R {
+        self.pk_encrypt_batched(pk, &vec![m]).remove(0)
+    }
+
+    /// Encrypts a batch booleans as multiple LWE ciphertexts.
+    ///
+    /// For public key encryption we first encrypt `m` as a RLWE ciphertext and
+    /// then sample extract LWE samples at required indices.
+    ///
+    /// - TODO(Jay:) Communication can be improved by not sample exctracting and
+    ///   instead just truncate degree 0 values (part Bs)
+    pub(crate) fn pk_encrypt_batched(&self, pk: &M, m: &[bool]) -> Vec<M::R> {
         DefaultSecureRng::with_local_mut(|rng| {
+            let ring_size = self.pbs_info.parameters.rlwe_n().0;
+            assert!(
+                m.len() <= ring_size,
+                "Cannot batch encrypt > ring_size{ring_size} elements at once"
+            );
+
             let modop = &self.pbs_info.rlwe_modop;
             let nttop = &self.pbs_info.rlwe_nttop;
 
             // RLWE(0)
             // sample ephemeral key u
-            let ring_size = self.pbs_info.parameters.rlwe_n().0;
             let mut u = vec![0i32; ring_size];
             fill_random_ternary_secret_with_hamming_weight(u.as_mut(), ring_size >> 1, rng);
             let mut u = M::R::try_convert_from(&u, &self.pbs_info.parameters.rlwe_q());
@@ -1326,22 +1546,31 @@ where
             modop.elwise_add_mut(rlwe.get_row_mut(1), ub.as_ref());
 
             //FIXME(Jay): Figure out a way to get Q/8 form modulus
-            let m = if m {
-                // Q/8
-                self.pbs_info.rlwe_q().true_el()
-            } else {
-                // -Q/8
-                self.pbs_info.rlwe_q().false_el()
-            };
+            let mut m_vec = M::R::zeros(ring_size);
+            izip!(m_vec.as_mut().iter_mut(), m.iter()).for_each(|(m_el, m_bool)| {
+                if *m_bool {
+                    // Q/8
+                    *m_el = self.pbs_info.rlwe_q().true_el()
+                } else {
+                    // -Q/8
+                    *m_el = self.pbs_info.rlwe_q().false_el()
+                }
+            });
 
-            // b*u + e1 + m, where m is constant polynomial
-            rlwe.set(1, 0, modop.add(rlwe.get(1, 0), &m));
+            // b*u + e1 + m
+            modop.elwise_add_mut(rlwe.get_row_mut(1), m_vec.as_ref());
+            // rlwe.set(1, 0, modop.add(rlwe.get(1, 0), &m));
 
-            // sample extract index 0
-            let mut lwe_out = M::R::zeros(ring_size + 1);
-            sample_extract(&mut lwe_out, &rlwe, modop, 0);
-
-            lwe_out
+            // sample extract index required indices
+            let samples = m.len();
+            (0..samples)
+                .into_iter()
+                .map(|i| {
+                    let mut lwe_out = M::R::zeros(ring_size + 1);
+                    sample_extract(&mut lwe_out, &rlwe, modop, i);
+                    lwe_out
+                })
+                .collect_vec()
         })
     }
 
@@ -2103,7 +2332,6 @@ fn pbs<M: MatrixMut + MatrixEntity, P: PbsInfo<Element = M::MatElement>, K: PbsK
         pbs_key,
     );
 
-   
     // sample extract
     sample_extract(lwe_in, &trivial_rlwe_test_poly, pbs_info.modop_rlweq(), 0);
 }
@@ -2731,7 +2959,7 @@ mod tests {
         >::new(MP_BOOL_PARAMS);
 
         let (parties, collective_pk, _, _, server_key_eval, ideal_client_key) =
-            _multi_party_all_keygen(&bool_evaluator, 8);
+            _multi_party_all_keygen(&bool_evaluator, 64);
 
         let mut m0 = true;
         let mut m1 = false;

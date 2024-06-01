@@ -138,6 +138,21 @@ where
     }
 }
 
+impl<T> RandomFill<[T; 32]> for DefaultSecureRng
+where
+    T: PrimInt + SampleUniform,
+{
+    fn random_fill(&mut self, container: &mut [T; 32]) {
+        izip!(
+            (&mut self.rng).sample_iter(Uniform::new_inclusive(T::zero(), T::max_value())),
+            container.iter_mut()
+        )
+        .for_each(|(from, to)| {
+            *to = from;
+        });
+    }
+}
+
 impl<T> RandomElement<T> for DefaultSecureRng
 where
     T: PrimInt + SampleUniform,

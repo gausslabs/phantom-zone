@@ -307,10 +307,10 @@ pub(crate) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     auto_decomposer_base: DecompostionLogBase(7),
     auto_decomposer_count: DecompositionCount(4),
     g: 5,
-    w: 10,
+    w: 5,
 };
 
-pub(super) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+pub(crate) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_q: CiphertextModulus::new_non_native(1152921504606830593),
     lwe_q: CiphertextModulus::new_non_native(1 << 20),
     br_q: 1 << 11,
@@ -325,7 +325,7 @@ pub(super) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     auto_decomposer_base: DecompostionLogBase(12),
     auto_decomposer_count: DecompositionCount(5),
     g: 5,
-    w: 5,
+    w: 10,
 };
 
 #[cfg(test)]

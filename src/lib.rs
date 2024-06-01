@@ -1,3 +1,5 @@
+use std::{iter::Once, sync::OnceLock};
+
 use itertools::{izip, Itertools};
 use num::UnsignedInteger;
 use num_traits::{abs, Zero};
@@ -156,10 +158,17 @@ impl<T: Zero + Clone> RowEntity for Vec<T> {
     }
 }
 
-trait Encryptor<M, C> {
+trait Encryptor<M: ?Sized, C> {
     fn encrypt(&self, m: &M) -> C;
 }
 
-trait Decryptor<M, C: ?Sized> {
+trait Decryptor<M, C> {
     fn decrypt(&self, c: &C) -> M;
+}
+
+trait MultiPartyDecryptor<M, C> {
+    type DecryptionShare;
+
+    fn gen_decryption_share(&self, c: &C) -> Self::DecryptionShare;
+    fn aggregate_decryption_shares(&self, c: &C, shares: &[Self::DecryptionShare]) -> M;
 }
