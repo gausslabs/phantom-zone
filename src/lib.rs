@@ -14,6 +14,7 @@ mod multi_party;
 mod noise;
 mod ntt;
 mod num;
+mod pbs;
 mod random;
 mod rgsw;
 mod shortint;
