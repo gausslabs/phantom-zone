@@ -160,7 +160,7 @@ where
     }
 }
 
-trait BoolEncoding {
+pub(super) trait BoolEncoding {
     type Element;
     fn true_el(&self) -> Self::Element;
     fn false_el(&self) -> Self::Element;
@@ -210,7 +210,7 @@ where
     }
 }
 
-struct BoolPbsInfo<M: Matrix, Ntt, RlweModOp, LweModOp> {
+pub(super) struct BoolPbsInfo<M: Matrix, Ntt, RlweModOp, LweModOp> {
     auto_decomposer: DefaultDecomposer<M::MatElement>,
     rlwe_rgsw_decomposer: (
         DefaultDecomposer<M::MatElement>,
@@ -305,7 +305,15 @@ where
     _phantom: PhantomData<M>,
 }
 
-impl<M: Matrix, NttOp, RlweModOp, LweModOp> BoolEvaluator<M, NttOp, RlweModOp, LweModOp> {}
+impl<M: Matrix, NttOp, RlweModOp, LweModOp> BoolEvaluator<M, NttOp, RlweModOp, LweModOp> {
+    pub(super) fn parameters(&self) -> &BoolParameters<M::MatElement> {
+        &self.pbs_info.parameters
+    }
+
+    pub(super) fn pbs_info(&self) -> &BoolPbsInfo<M, NttOp, RlweModOp, LweModOp> {
+        &self.pbs_info
+    }
+}
 
 impl<M: Matrix, NttOp, RlweModOp, LweModOp> BoolEvaluator<M, NttOp, RlweModOp, LweModOp>
 where
@@ -1687,7 +1695,7 @@ mod tests {
         >::new(MP_BOOL_PARAMS);
 
         let (parties, collective_pk, _, _, server_key_eval, ideal_client_key) =
-            _multi_party_all_keygen(&bool_evaluator, 64);
+            _multi_party_all_keygen(&bool_evaluator, 2);
 
         let mut m0 = true;
         let mut m1 = false;

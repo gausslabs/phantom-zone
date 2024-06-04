@@ -279,6 +279,10 @@ where
     // T: for<'a> Sum<&'a T>,
     T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
 {
+    pub(crate) fn new() -> Self {
+        Self { samples: vec![] }
+    }
+
     pub(crate) fn mean(&self) -> f64 {
         self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
     }

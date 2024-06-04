@@ -43,7 +43,7 @@ impl Modulus for u64 {
     }
     fn map_element_to_i64(&self, v: &Self::Element) -> i64 {
         assert!(v <= self, "{v} must be <= {self}");
-        if *v > (self >> 1) {
+        if *v >= (self >> 1) {
             -ToPrimitive::to_i64(&(self - v)).unwrap()
         } else {
             ToPrimitive::to_i64(v).unwrap()

@@ -132,20 +132,21 @@ impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decompose
         let full_mask = b - T::one();
         let bby2 = b >> 1;
 
-        if value > (q >> 1) {
+        if value >= (q >> 1) {
             value = !(q - value) + T::one()
         }
 
         let mut out = Vec::with_capacity(self.d);
         for _ in 0..self.d {
             let k_i = value & full_mask;
+
             value = (value - k_i) >> logb;
 
-            if k_i > bby2 || (k_i == bby2 && ((value & full_mask) >= bby2)) {
+            if k_i > bby2 || (k_i == bby2 && ((value & T::one()) == T::one())) {
                 out.push(q - (b - k_i));
                 value = value + T::one();
             } else {
-                out.push(k_i)
+                out.push(k_i);
             }
         }
 
@@ -156,44 +157,6 @@ impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decompose
         self.d
     }
 }
-
-// impl<T> Decomposer for dyn AsRef<DefaultDecomposer<T>>
-// where
-//     DefaultDecomposer<T>: Decomposer<Element = T>,
-// {
-//     type Element = T;
-
-//     fn new(q: Self::Element, logb: usize, d: usize) -> Self {
-//         DefaultDecomposer::<T>::new(q, logb, d)
-//     }
-
-//     fn decompose(&self, v: &Self::Element) -> Vec<Self::Element> {
-//         todo!()
-//     }
-
-//     fn decomposition_count(&self) -> usize {
-//         todo!()
-//     }
-// }
-
-// impl<U: AsRef<DefaultDecomposer<T>>> Decomposer for U
-// where
-//     DefaultDecomposer<T>: Decomposer,
-// {
-//     type Element = T;
-
-//     fn new(q: Self::Element, logb: usize, d: usize) -> Self {
-//         todo!()
-//     }
-
-//     fn decompose(&self, v: &Self::Element) -> Vec<Self::Element> {
-//         todo!()
-//     }
-
-//     fn decomposition_count(&self) -> usize {
-//         todo!()
-//     }
-// }
 
 fn round_value<T: PrimInt>(value: T, ignore_bits: usize) -> T {
     if ignore_bits == 0 {
@@ -219,24 +182,23 @@ mod tests {
 
     #[test]
     fn decomposition_works() {
-        let logq = 50;
-        let logb = 5;
-        let d = 10;
+        let logq = 55;
+        let logb = 11;
+        let d = 5;
+        let ring_size = 1 << 11;
 
         let mut rng = thread_rng();
         let mut stats = Stats { samples: vec![] };
 
-        // q is prime of bits logq and i is true, other q = 1<<logq
-        // FIXME: Test fails when q is prime, albeit the difference is minute
-        for i in [false] {
+        for i in [true] {
             let q = if i {
-                generate_prime(logq, 1 << 4, 1u64 << logq).unwrap()
+                generate_prime(logq, 2 * ring_size, 1u64 << logq).unwrap()
             } else {
                 1u64 << logq
             };
             let decomposer = DefaultDecomposer::new(q, logb, d);
             let modq_op = ModularOpsU64::new(q);
-            for _ in 0..1000 {
+            for _ in 0..100000 {
                 let value = rng.gen_range(0..q);
                 let limbs = decomposer.decompose(&value);
                 let value_back = decomposer.recompose(&limbs, &modq_op);
@@ -250,6 +212,6 @@ mod tests {
             }
         }
         println!("Mean: {}", stats.mean());
-        println!("Std: {}", stats.std_dev());
+        println!("Std: {}", stats.std_dev().abs().log2());
     }
 }
