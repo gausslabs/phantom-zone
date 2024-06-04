@@ -107,19 +107,19 @@ where
 
 impl<T, C> RandomFillGaussianInModulus<[T], C> for DefaultSecureRng
 where
-    T: PrimInt + SampleUniform,
+    T: PrimInt,
     C: Modulus<Element = T>,
 {
     fn random_fill(&mut self, modulus: &C, container: &mut [T]) {
-        // izip!(
-        //     rand_distr::Normal::new(0.0, 3.19f64)
-        //         .unwrap()
-        //         .sample_iter(&mut self.rng),
-        //     container.iter_mut()
-        // )
-        // .for_each(|(from, to)| {
-        //     *to = modulus.map_element_from_f64(from);
-        // });
+        izip!(
+            rand_distr::Normal::new(0.0, 3.19f64)
+                .unwrap()
+                .sample_iter(&mut self.rng),
+            container.iter_mut()
+        )
+        .for_each(|(from, to)| {
+            *to = modulus.map_element_from_f64(from);
+        });
     }
 }
 
@@ -173,12 +173,11 @@ where
 
 impl<T, M: Modulus<Element = T>> RandomGaussianElementInModulus<T, M> for DefaultSecureRng {
     fn random(&mut self, modulus: &M) -> T {
-        // modulus.map_element_from_f64(
-        //     rand_distr::Normal::new(0.0, 3.19f64)
-        //         .unwrap()
-        //         .sample(&mut self.rng),
-        // )
-        modulus.map_element_from_f64(0.0)
+        modulus.map_element_from_f64(
+            rand_distr::Normal::new(0.0, 3.19f64)
+                .unwrap()
+                .sample(&mut self.rng),
+        )
     }
 }
 

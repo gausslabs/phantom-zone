@@ -177,7 +177,7 @@ impl AsRef<usize> for DecompositionCount {
 pub(crate) struct LweDimension(pub(crate) usize);
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) struct PolynomialSize(pub(crate) usize);
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 
 /// T equals modulus when modulus is non-native. Otherwise T equals 0. bool is
 /// true when modulus is native, false otherwise.
@@ -328,38 +328,20 @@ pub(crate) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     w: 10,
 };
 
-// pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> =
-// BoolParameters::<u64> {     rlwe_q:
-// CiphertextModulus::new_non_native(36028797018820609),     lwe_q:
-// CiphertextModulus::new_non_native(1 << 20),     br_q: 1 << 11,
-//     rlwe_n: PolynomialSize(1 << 11),
-//     lwe_n: LweDimension(600),
-//     lwe_decomposer_base: DecompostionLogBase(4),
-//     lwe_decomposer_count: DecompositionCount(5),
-//     rlrg_decomposer_base: DecompostionLogBase(11),
-//     rlrg_decomposer_count: (DecompositionCount(2), DecompositionCount(2)),
-//     rgrg_decomposer_base: DecompostionLogBase(11),
-//     rgrg_decomposer_count: (DecompositionCount(5), DecompositionCount(4)),
-//     auto_decomposer_base: DecompostionLogBase(11),
-//     auto_decomposer_count: DecompositionCount(2),
-//     g: 5,
-//     w: 10,
-// };
-
 pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_q: CiphertextModulus::new_non_native(36028797018820609),
     lwe_q: CiphertextModulus::new_non_native(1 << 20),
     br_q: 1 << 11,
     rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(500),
+    lwe_n: LweDimension(600),
     lwe_decomposer_base: DecompostionLogBase(4),
     lwe_decomposer_count: DecompositionCount(5),
     rlrg_decomposer_base: DecompostionLogBase(11),
-    rlrg_decomposer_count: (DecompositionCount(5), DecompositionCount(5)),
+    rlrg_decomposer_count: (DecompositionCount(2), DecompositionCount(2)),
     rgrg_decomposer_base: DecompostionLogBase(11),
-    rgrg_decomposer_count: (DecompositionCount(5), DecompositionCount(5)),
+    rgrg_decomposer_count: (DecompositionCount(5), DecompositionCount(4)),
     auto_decomposer_base: DecompostionLogBase(11),
-    auto_decomposer_count: DecompositionCount(5),
+    auto_decomposer_count: DecompositionCount(2),
     g: 5,
     w: 10,
 };

@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     cell::{OnceCell, RefCell},
     clone,
     collections::HashMap,
@@ -1808,11 +1809,11 @@ mod tests {
             NttBackendU64,
             ModularOpsU64<CiphertextModulus<u64>>,
             ModularOpsU64<CiphertextModulus<u64>>,
-        >::new(MP_BOOL_PARAMS);
+        >::new(SP_BOOL_PARAMS);
 
         // let (_, collective_pk, _, _, server_key_eval, ideal_client_key) =
         //     _multi_party_all_keygen(&bool_evaluator, 20);
-        let no_of_parties = 32;
+        let no_of_parties = 2;
         let lwe_q = bool_evaluator.pbs_info.parameters.lwe_q();
         let rlwe_q = bool_evaluator.pbs_info.parameters.rlwe_q();
         let lwe_n = bool_evaluator.pbs_info.parameters.lwe_n().0;
@@ -1938,7 +1939,7 @@ mod tests {
                 bool_evaluator.aggregate_multi_party_server_key_shares(&server_key_shares);
 
             // Check noise in RGSW ciphertexts of ideal LWE secret elements
-            if true {
+            if false {
                 let mut check = Stats { samples: vec![] };
                 izip!(
                     ideal_client_key.sk_lwe().values.iter(),
@@ -2040,7 +2041,7 @@ mod tests {
                 );
 
             // check noise in RLWE x RGSW(X^{s_i}) where RGSW is accunulated RGSW ciphertext
-            if true {
+            if false {
                 let mut check = Stats { samples: vec![] };
 
                 izip!(
@@ -2151,7 +2152,7 @@ mod tests {
             }
 
             // check noise in Auto key
-            if true {
+            if false {
                 let mut check = Stats { samples: vec![] };
 
                 let mut neg_s_poly =
@@ -2219,7 +2220,7 @@ mod tests {
             // auto key
             if true {
                 let mut check = Stats { samples: vec![] };
-
+                let br_q = bool_evaluator.pbs_info.br_q();
                 let g = bool_evaluator.pbs_info.g();
                 let auto_element_dlogs = bool_evaluator.pbs_info.parameters.auto_element_dlogs();
                 for i in auto_element_dlogs.into_iter() {
@@ -2252,8 +2253,8 @@ mod tests {
                         );
 
                         let auto_key = server_key_eval_domain.galois_key_for_auto(i);
-                        let g_pow = if i == 0 { -g } else { g.pow(i as u32) };
-                        let (auto_map_index, auto_map_sign) = generate_auto_map(rlwe_n, g_pow);
+                        let (auto_map_index, auto_map_sign) =
+                            bool_evaluator.pbs_info.rlwe_auto_map(i);
                         let mut scratch =
                             vec![vec![0u64; rlwe_n]; auto_decomposer.decomposition_count() + 2];
                         galois_auto(

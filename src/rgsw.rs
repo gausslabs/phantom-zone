@@ -1906,13 +1906,13 @@ pub(crate) mod tests {
 
     #[test]
     fn galois_auto_works() {
-        let logq = 50;
-        let ring_size = 1 << 8;
+        let logq = 55;
+        let ring_size = 1 << 11;
         let q = generate_prime(logq, 2 * ring_size, 1u64 << logq).unwrap();
         let logp = 3;
         let p = 1u64 << logp;
-        let d_rgsw = 10;
-        let logb = 5;
+        let d_rgsw = 5;
+        let logb = 11;
 
         let mut rng = DefaultSecureRng::new();
         let s = RlweSecret::random((ring_size >> 1) as usize, ring_size as usize);

@@ -19,7 +19,7 @@ use crate::{
 };
 
 thread_local! {
-    static BOOL_EVALUATOR: RefCell<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64<CiphertextModulus<u64>>,  ModularOpsU64<CiphertextModulus<u64>>>> = RefCell::new(BoolEvaluator::new(MP_BOOL_PARAMS));
+    static BOOL_EVALUATOR: RefCell<Option<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64<CiphertextModulus<u64>>,  ModularOpsU64<CiphertextModulus<u64>>>>> = RefCell::new(None);
 
 }
 static BOOL_SERVER_KEY: OnceLock<
@@ -29,7 +29,7 @@ static BOOL_SERVER_KEY: OnceLock<
 static MULTI_PARTY_CRS: OnceLock<MultiPartyCrs<[u8; 32]>> = OnceLock::new();
 
 pub fn set_parameter_set(parameter: &BoolParameters<u64>) {
-    BoolEvaluator::with_local_mut(|e| *e = BoolEvaluator::new(parameter.clone()))
+    BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(parameter.clone())));
 }
 
 pub fn set_mp_seed(seed: [u8; 32]) {
@@ -158,20 +158,20 @@ impl WithLocal
     where
         F: Fn(&Self) -> R,
     {
-        BOOL_EVALUATOR.with_borrow(|s| func(s))
+        BOOL_EVALUATOR.with_borrow(|s| func(s.as_ref().expect("Parameters not set")))
     }
 
     fn with_local_mut<F, R>(func: F) -> R
     where
         F: Fn(&mut Self) -> R,
     {
-        BOOL_EVALUATOR.with_borrow_mut(|s| func(s))
+        BOOL_EVALUATOR.with_borrow_mut(|s| func(s.as_mut().expect("Parameters not set")))
     }
 
     fn with_local_mut_mut<F, R>(func: &mut F) -> R
     where
         F: FnMut(&mut Self) -> R,
     {
-        BOOL_EVALUATOR.with_borrow_mut(|s| func(s))
+        BOOL_EVALUATOR.with_borrow_mut(|s| func(s.as_mut().expect("Parameters not set")))
     }
 }
