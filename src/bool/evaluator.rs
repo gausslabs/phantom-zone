@@ -1384,75 +1384,8 @@ mod tests {
 
             let m_out = !(m0 && m1);
 
-            // Trace and measure PBS noise
-            {
-                let noise0 = {
-                    let ideal = if m0 {
-                        bool_evaluator.pbs_info.parameters.rlwe_q().true_el()
-                    } else {
-                        bool_evaluator.pbs_info.parameters.rlwe_q().false_el()
-                    };
-                    let n = measure_noise_lwe(
-                        &ct0,
-                        client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                        &ideal,
-                    );
-                    let v = decrypt_lwe(
-                        &ct0,
-                        client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                    );
-                    (n, v)
-                };
-                let noise1 = {
-                    let ideal = if m1 {
-                        bool_evaluator.pbs_info.parameters.rlwe_q().true_el()
-                    } else {
-                        bool_evaluator.pbs_info.parameters.rlwe_q().false_el()
-                    };
-                    let n = measure_noise_lwe(
-                        &ct1,
-                        client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                        &ideal,
-                    );
-                    let v = decrypt_lwe(
-                        &ct1,
-                        client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                    );
-                    (n, v)
-                };
-
-                // Calculate noise in ciphertext post PBS
-                let noise_out = {
-                    let ideal = if m_out {
-                        bool_evaluator.pbs_info.parameters.rlwe_q().true_el()
-                    } else {
-                        bool_evaluator.pbs_info.parameters.rlwe_q().false_el()
-                    };
-                    let n = measure_noise_lwe(
-                        &ct_back,
-                        client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                        &ideal,
-                    );
-                    let v = decrypt_lwe(
-                        &ct_back,
-                        client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                    );
-                    (n, v)
-                };
-                dbg!(m0, m1, m_out);
-                println!(
-                    "ct0 (noise, message): {:?}  \n ct1 (noise, message): {:?} \n PBS (noise, message): {:?}", noise0, noise1, noise_out
-                );
-            }
             let m_back = bool_evaluator.sk_decrypt(&ct_back, &client_key);
             assert!(m_out == m_back, "Expected {m_out}, got {m_back}");
-            println!("----------");
 
             m1 = m0;
             m0 = m_out;
@@ -1520,8 +1453,6 @@ mod tests {
                 *ideal_i = *ideal_i + s_i;
             });
         });
-
-        println!("{:?}", &ideal_rlwe_sk);
 
         let mut m = true;
         for i in 0..100 {
@@ -1708,81 +1639,6 @@ mod tests {
             let lwe_out = bool_evaluator.nand(&lwe0, &lwe1, &server_key_eval);
 
             let m_expected = !(m0 & m1);
-
-            // measure noise
-            {
-                let noise0 = {
-                    let ideal = if m0 {
-                        bool_evaluator.pbs_info.rlwe_q().true_el()
-                    } else {
-                        bool_evaluator.pbs_info.rlwe_q().false_el()
-                    };
-                    let n = measure_noise_lwe(
-                        &lwe0,
-                        ideal_client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                        &ideal,
-                    );
-                    let v = decrypt_lwe(
-                        &lwe0,
-                        ideal_client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                    );
-                    (n, v)
-                };
-                let noise1 = {
-                    let ideal = if m1 {
-                        bool_evaluator.pbs_info.rlwe_q().true_el()
-                    } else {
-                        bool_evaluator.pbs_info.rlwe_q().false_el()
-                    };
-                    let n = measure_noise_lwe(
-                        &lwe1,
-                        ideal_client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                        &ideal,
-                    );
-                    let v = decrypt_lwe(
-                        &lwe1,
-                        ideal_client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                    );
-                    (n, v)
-                };
-
-                // // Trace PBS
-                // PBSTracer::with_local(|t| {
-                //     t.trace(
-                //         &MP_BOOL_PARAMS,
-                //         &ideal_client_key.sk_lwe.values(),
-                //         &ideal_client_key.sk_rlwe.values(),
-                //     )
-                // });
-
-                let noise_out = {
-                    let ideal_m = if m_expected {
-                        bool_evaluator.pbs_info.rlwe_q().true_el()
-                    } else {
-                        bool_evaluator.pbs_info.rlwe_q().false_el()
-                    };
-                    let n = measure_noise_lwe(
-                        &lwe_out,
-                        ideal_client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                        &ideal_m,
-                    );
-                    let v = decrypt_lwe(
-                        &lwe_out,
-                        ideal_client_key.sk_rlwe().values(),
-                        &bool_evaluator.pbs_info.rlwe_modop,
-                    );
-                    (n, v)
-                };
-                dbg!(m0, m1, m_expected);
-                println!(
-                    "ct0 (noise, message): {:?}  \n ct1 (noise, message): {:?} \n PBS (noise, message): {:?}", noise0, noise1, noise_out
-                );
-            }
 
             // multi-party decrypt
             let decryption_shares = parties

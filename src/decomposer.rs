@@ -169,7 +169,7 @@ fn round_value<T: PrimInt>(value: T, ignore_bits: usize) -> T {
 
 #[cfg(test)]
 mod tests {
-    use num_traits::Float;
+
     use rand::{thread_rng, Rng};
 
     use crate::{

@@ -92,28 +92,15 @@ mod test {
         let mut c_m0 = evaluator.pk_encrypt(pk.key(), m0);
         let mut c_m1 = evaluator.pk_encrypt(pk.key(), m1);
 
-        // println!(
-        //     "Evaluator ciphertext modulus: {:?}",
-        //     evaluator.parameters().rlwe_q()
-        // );
-
-        // {
-        //     // let v = LWE_VEC.take();
-        //     let added = decrypt_lwe(
-        //         &c_m1,
-        //         ideal_client_key.sk_rlwe().values(),
-        //         evaluator.pbs_info().modop_rlweq(),
-        //     );
-        //     println!("Of interest {added}");
-        // }
-
         let true_el_encoded = evaluator.parameters().rlwe_q().true_el();
         let false_el_encoded = evaluator.parameters().rlwe_q().false_el();
 
         let mut stats = Stats::new();
 
         for _ in 0..1000 {
+            // let now = std::time::Instant::now();
             let c_out = evaluator.xor(&c_m0, &c_m1, &server_key_eval_domain);
+            // println!("Gate time: {:?}", now.elapsed());
 
             // mp decrypt
             let decryption_shares = cks
