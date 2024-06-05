@@ -337,7 +337,7 @@ pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u6
     lwe_decomposer_base: DecompostionLogBase(4),
     lwe_decomposer_count: DecompositionCount(5),
     rlrg_decomposer_base: DecompostionLogBase(11),
-    rlrg_decomposer_count: (DecompositionCount(2), DecompositionCount(2)),
+    rlrg_decomposer_count: (DecompositionCount(2), DecompositionCount(1)),
     rgrg_decomposer_base: DecompostionLogBase(11),
     rgrg_decomposer_count: (DecompositionCount(5), DecompositionCount(4)),
     auto_decomposer_base: DecompostionLogBase(11),

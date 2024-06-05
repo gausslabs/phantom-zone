@@ -20,6 +20,7 @@ mod rgsw;
 mod shortint;
 mod utils;
 
+pub use backend::{ModInit, ModularOpsU64, VectorOps};
 pub use ntt::{Ntt, NttBackendU64, NttInit};
 
 pub trait Matrix: AsRef<[Self::R]> {

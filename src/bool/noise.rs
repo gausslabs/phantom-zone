@@ -95,12 +95,12 @@ mod test {
         let true_el_encoded = evaluator.parameters().rlwe_q().true_el();
         let false_el_encoded = evaluator.parameters().rlwe_q().false_el();
 
-        let mut stats = Stats::new();
+        // let mut stats = Stats::new();
 
         for _ in 0..1000 {
-            // let now = std::time::Instant::now();
+            let now = std::time::Instant::now();
             let c_out = evaluator.xor(&c_m0, &c_m1, &server_key_eval_domain);
-            // println!("Gate time: {:?}", now.elapsed());
+            println!("Gate time: {:?}", now.elapsed());
 
             // mp decrypt
             let decryption_shares = cks
@@ -111,36 +111,36 @@ mod test {
             let m_expected = (m0 ^ m1);
             assert_eq!(m_expected, m_out, "Expected {m_expected} but got {m_out}");
 
-            // find noise update
-            {
-                let out = decrypt_lwe(
-                    &c_out,
-                    ideal_client_key.sk_rlwe().values(),
-                    evaluator.pbs_info().modop_rlweq(),
-                );
+            // // find noise update
+            // {
+            //     let out = decrypt_lwe(
+            //         &c_out,
+            //         ideal_client_key.sk_rlwe().values(),
+            //         evaluator.pbs_info().modop_rlweq(),
+            //     );
 
-                let out_want = {
-                    if m_expected == true {
-                        true_el_encoded
-                    } else {
-                        false_el_encoded
-                    }
-                };
-                let diff = evaluator.pbs_info().modop_rlweq().sub(&out, &out_want);
+            //     let out_want = {
+            //         if m_expected == true {
+            //             true_el_encoded
+            //         } else {
+            //             false_el_encoded
+            //         }
+            //     };
+            //     let diff = evaluator.pbs_info().modop_rlweq().sub(&out, &out_want);
 
-                stats.add_more(&vec![evaluator
-                    .pbs_info()
-                    .rlwe_q()
-                    .map_element_to_i64(&diff)]);
-            }
+            //     stats.add_more(&vec![evaluator
+            //         .pbs_info()
+            //         .rlwe_q()
+            //         .map_element_to_i64(&diff)]);
+            // }
 
             m1 = m0;
-            m0 = m_out;
+            m0 = m_expected;
 
             c_m1 = c_m0;
             c_m0 = c_out;
         }
 
-        println!("log2 std dev {}", stats.std_dev().abs().log2());
+        // println!("log2 std dev {}", stats.std_dev().abs().log2());
     }
 }

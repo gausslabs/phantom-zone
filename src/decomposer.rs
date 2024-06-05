@@ -119,10 +119,7 @@ impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decompose
         }
     }
 
-    /// Signed BNAF decomposition. Only returns most significant `d`
-    /// decomposition limbs
-    ///
-    /// Implements algorithm 3 of https://eprint.iacr.org/2021/1161.pdf
+    // TODO(Jay): Outline the caveat
     fn decompose(&self, value: &T) -> Vec<T> {
         let mut value = round_value(*value, self.ignore_bits);
 

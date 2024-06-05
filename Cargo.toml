@@ -17,3 +17,7 @@ criterion = "0.5.1"
 [[bench]]
 name = "ntt"
 harness = false
+
+[[bench]]
+name = "modulus"
+harness = false

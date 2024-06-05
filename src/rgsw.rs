@@ -791,6 +791,7 @@ pub(crate) fn rlwe_by_rgsw<
         );
         scratch_matrix_d_ring
             .iter_mut()
+            .take(d_a)
             .for_each(|r| ntt_op.forward(r.as_mut()));
         // a_out += decomp<a_in> \cdot RLWE_A'(-sm)
         routine(
@@ -815,6 +816,7 @@ pub(crate) fn rlwe_by_rgsw<
     );
     scratch_matrix_d_ring
         .iter_mut()
+        .take(d_b)
         .for_each(|r| ntt_op.forward(r.as_mut()));
     // a_out += decomp<b_in> \cdot RLWE_A'(m)
     routine(
