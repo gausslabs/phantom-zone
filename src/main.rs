@@ -16,8 +16,7 @@ fn decomposer(mut value: u64, q: u64, d: usize, logb: u64) -> Vec<u64> {
     // for _ in 0..d {
     //     let k_i = carry + (value & full_mask);
     //     value = (value) >> logb;
-    //     let go = thread_rng().gen_bool(1.0 / 2.0);
-    //     if k_i > bby2 || (k_i == bby2 && ((value & 1) == 1)) {
+    //     if k_i > bby2 {
     //         // if (k_i == bby2 && ((value & 1) == 1)) {
     //         //     println!("AA");
     //         // }
@@ -31,7 +30,6 @@ fn decomposer(mut value: u64, q: u64, d: usize, logb: u64) -> Vec<u64> {
     //         carry = 0;
     //     }
     // }
-    // println!("Last carry {carry}");
     // return out;
 
     let mut out = Vec::with_capacity(d);

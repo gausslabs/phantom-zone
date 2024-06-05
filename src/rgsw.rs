@@ -518,7 +518,8 @@ pub(crate) fn decompose_r<R: RowMut, D: Decomposer<Element = R::Element>>(
     let d = decomposer.decomposition_count();
 
     for ri in 0..ring_size {
-        let el_decomposed = decomposer.decompose(&r[ri]);
+        let el_decomposed = decomposer.decompose_to_vec(&r[ri]);
+
         for j in 0..d {
             decomp_r[j].as_mut()[ri] = el_decomposed[j];
         }
@@ -570,7 +571,7 @@ pub(crate) fn galois_auto<
         .for_each(|(el_in, to_index, sign)| {
             let el_out = if !*sign { mod_op.neg(el_in) } else { *el_in };
 
-            let el_out_decomposed = decomposer.decompose(&el_out);
+            let el_out_decomposed = decomposer.decompose_to_vec(&el_out);
             for j in 0..d {
                 scratch_matrix_d_ring[j].as_mut()[*to_index] = el_out_decomposed[j];
             }

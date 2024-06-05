@@ -39,19 +39,33 @@ where
 
 pub trait Decomposer {
     type Element;
+    type Iter: Iterator<Item = Self::Element>;
     fn new(q: Self::Element, logb: usize, d: usize) -> Self;
-    //FIXME(Jay): there's no reason why it returns a vec instead of an iterator
-    fn decompose(&self, v: &Self::Element) -> Vec<Self::Element>;
+
+    fn decompose_to_vec(&self, v: &Self::Element) -> Vec<Self::Element>;
+    fn decompose_iter(&self, v: &Self::Element) -> Self::Iter;
     fn decomposition_count(&self) -> usize;
 }
 
-// TODO(Jay): Shouldn't Decompose also return corresponding gadget vector ?
 pub struct DefaultDecomposer<T> {
+    /// Ciphertext modulus
     q: T,
+    /// Log of ciphertext modulus
     logq: usize,
+    /// Log of base B
     logb: usize,
+    /// base B
+    b: T,
+    /// (B - 1). To simulate (% B) as &(B-1), that is extract least significant
+    /// logb bits
+    b_mask: T,
+    /// B/2
+    bby2: T,
+    /// Decomposition count
     d: usize,
+    /// No. of bits to ignore in rounding
     ignore_bits: usize,
+    /// No. of limbs to ignore in rounding. Set to ceil(logq / logb) - d
     ignore_limbs: usize,
 }
 
@@ -96,6 +110,7 @@ impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decompose
     for DefaultDecomposer<T>
 {
     type Element = T;
+    type Iter = DecomposerIter<T>;
 
     fn new(q: T, logb: usize, d: usize) -> DefaultDecomposer<T> {
         // if q is power of 2, then `BITS - leading_zeros` outputs logq + 1.
@@ -113,6 +128,9 @@ impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decompose
             q,
             logq,
             logb,
+            b: T::one() << logb,
+            b_mask: (T::one() << logb) - T::one(),
+            bby2: T::one() << (logb - 1),
             d,
             ignore_bits,
             ignore_limbs,
@@ -120,7 +138,7 @@ impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decompose
     }
 
     // TODO(Jay): Outline the caveat
-    fn decompose(&self, value: &T) -> Vec<T> {
+    fn decompose_to_vec(&self, value: &T) -> Vec<T> {
         let mut value = round_value(*value, self.ignore_bits);
 
         let q = self.q;
@@ -152,6 +170,75 @@ impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decompose
 
     fn decomposition_count(&self) -> usize {
         self.d
+    }
+
+    fn decompose_iter(&self, value: &T) -> DecomposerIter<T> {
+        let mut value = round_value(*value, self.ignore_bits);
+
+        if value >= (self.q >> 1) {
+            value = !(self.q - value) + T::one()
+        }
+
+        DecomposerIter {
+            value,
+            q: self.q,
+            logb: self.logb,
+            b: self.b,
+            bby2: self.bby2,
+            b_mask: self.b_mask,
+            steps_left: self.d,
+        }
+    }
+}
+
+impl<T: PrimInt> DefaultDecomposer<T> {}
+
+pub struct DecomposerIter<T> {
+    /// Value to decompose
+    value: T,
+    steps_left: usize,
+    /// (1 << logb) - 1 (for % (1<<logb); i.e. to extract least signiciant logb
+    /// bits)
+    b_mask: T,
+    logb: usize,
+    // b/2 = 1 << (logb-1)
+    bby2: T,
+    /// Ciphertext modulus
+    q: T,
+    /// b = 1 << logb
+    b: T,
+}
+
+impl<T: PrimInt> Iterator for DecomposerIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.steps_left != 0 {
+            self.steps_left -= 1;
+            let k_i = self.value & self.b_mask;
+
+            self.value = (self.value - k_i) >> self.logb;
+
+            if k_i > self.bby2 || (k_i == self.bby2 && ((self.value & T::one()) == T::one())) {
+                self.value = self.value + T::one();
+                Some(self.q + k_i - self.b)
+            } else {
+                Some(k_i)
+            }
+
+            // let carry = <T as From<bool>>::from(
+            //     k_i > self.bby2 || (k_i == self.bby2 && ((self.value &
+            // T::one()) == T::one())), );
+            // self.value = self.value + carry;
+
+            // Some(
+            //     (self.q & ((carry << self.logq) - (T::one() & carry))) + k_i
+            // - (carry << self.logb), )
+
+            // Some(k_i)
+        } else {
+            None
+        }
     }
 }
 
@@ -197,15 +284,18 @@ mod tests {
             let modq_op = ModularOpsU64::new(q);
             for _ in 0..100000 {
                 let value = rng.gen_range(0..q);
-                let limbs = decomposer.decompose(&value);
-                let value_back = decomposer.recompose(&limbs, &modq_op);
-                let rounded_value =
-                    round_value(value, decomposer.ignore_bits) << decomposer.ignore_bits;
-                stats.add_more(&Vec::<i64>::try_convert_from(&limbs, &q));
+                let limbs = decomposer.decompose_to_vec(&value);
+                let value_back = round_value(
+                    decomposer.recompose(&limbs, &modq_op),
+                    decomposer.ignore_bits,
+                );
+                let rounded_value = round_value(value, decomposer.ignore_bits);
                 assert_eq!(
                     rounded_value, value_back,
                     "Expected {rounded_value} got {value_back} for q={q}"
                 );
+
+                stats.add_more(&Vec::<i64>::try_convert_from(&limbs, &q));
             }
         }
         println!("Mean: {}", stats.mean());
