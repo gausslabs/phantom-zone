@@ -125,7 +125,7 @@ pub(crate) fn lwe_key_switch<
         .as_ref()
         .iter()
         .skip(1)
-        .flat_map(|ai| decomposer.decompose_to_vec(ai));
+        .flat_map(|ai| decomposer.decompose_iter(ai));
     izip!(lwe_in_a_decomposed, lwe_ksk.iter_rows()).for_each(|(ai_j, beta_ij_lwe)| {
         operator.elwise_fma_scalar_mut(lwe_out.as_mut(), beta_ij_lwe.as_ref(), &ai_j);
     });

@@ -106,7 +106,7 @@ impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
     }
 }
 
-impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decomposer
+impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo + From<bool>> Decomposer
     for DefaultDecomposer<T>
 {
     type Element = T;
@@ -182,6 +182,7 @@ impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decompose
         DecomposerIter {
             value,
             q: self.q,
+            logq: self.logq,
             logb: self.logb,
             b: self.b,
             bby2: self.bby2,
@@ -205,11 +206,13 @@ pub struct DecomposerIter<T> {
     bby2: T,
     /// Ciphertext modulus
     q: T,
+    /// Log of ciphertext modulus
+    logq: usize,
     /// b = 1 << logb
     b: T,
 }
 
-impl<T: PrimInt> Iterator for DecomposerIter<T> {
+impl<T: PrimInt + From<bool>> Iterator for DecomposerIter<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -219,20 +222,27 @@ impl<T: PrimInt> Iterator for DecomposerIter<T> {
 
             self.value = (self.value - k_i) >> self.logb;
 
-            if k_i > self.bby2 || (k_i == self.bby2 && ((self.value & T::one()) == T::one())) {
-                self.value = self.value + T::one();
-                Some(self.q + k_i - self.b)
-            } else {
-                Some(k_i)
-            }
+            // if k_i > self.bby2 || (k_i == self.bby2 && ((self.value &
+            // T::one()) == T::one())) {     self.value = self.value
+            // + T::one();     Some(self.q + k_i - self.b)
+            // } else {
+            //     Some(k_i)
+            // }
 
-            // let carry = <T as From<bool>>::from(
-            //     k_i > self.bby2 || (k_i == self.bby2 && ((self.value &
-            // T::one()) == T::one())), );
-            // self.value = self.value + carry;
+            // Following is without branching impl of the commented version above. It
+            // happens to speed up bootstrapping for `SMALL_MP_BOOL_PARAMS` (& other
+            // parameters as well but I haven't tested) by roughly 15ms.
+            // Suprisingly the improvement does not show up when I benchmark
+            // `decomposer_iter` in isolation. Putting this remark here as a
+            // future task to investiage (TODO).
+            let carry = <T as From<bool>>::from(
+                k_i > self.bby2 || (k_i == self.bby2 && ((self.value & T::one()) == T::one())),
+            );
+            self.value = self.value + carry;
 
-            // Some((self.q & ((carry << 55) - (T::one() & carry))) + k_i -
-            // (carry << self.logb))
+            Some(
+                (self.q & ((carry << self.logq) - (T::one() & carry))) + k_i - (carry << self.logb),
+            )
 
             // Some(k_i)
         } else {

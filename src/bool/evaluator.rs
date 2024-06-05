@@ -230,7 +230,7 @@ pub(super) struct BoolPbsInfo<M: Matrix, Ntt, RlweModOp, LweModOp> {
 
 impl<M: Matrix, NttOp, RlweModOp, LweModOp> PbsInfo for BoolPbsInfo<M, NttOp, RlweModOp, LweModOp>
 where
-    M::MatElement: PrimInt + WrappingSub + NumInfo + FromPrimitive,
+    M::MatElement: PrimInt + WrappingSub + NumInfo + FromPrimitive + From<bool>,
     RlweModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     LweModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     NttOp: Ntt<Element = M::MatElement>,
@@ -319,8 +319,14 @@ impl<M: Matrix, NttOp, RlweModOp, LweModOp> BoolEvaluator<M, NttOp, RlweModOp, L
 impl<M: Matrix, NttOp, RlweModOp, LweModOp> BoolEvaluator<M, NttOp, RlweModOp, LweModOp>
 where
     M: MatrixEntity + MatrixMut,
-    M::MatElement:
-        PrimInt + Debug + Display + NumInfo + FromPrimitive + WrappingSub + SampleUniform,
+    M::MatElement: PrimInt
+        + Debug
+        + Display
+        + NumInfo
+        + FromPrimitive
+        + WrappingSub
+        + SampleUniform
+        + From<bool>,
     NttOp: Ntt<Element = M::MatElement>,
     RlweModOp: ArithmeticOps<Element = M::MatElement>
         + VectorOps<Element = M::MatElement>
@@ -1108,7 +1114,8 @@ impl<M, NttOp, RlweModOp, LweModOp> BooleanGates for BoolEvaluator<M, NttOp, Rlw
 where
     M: MatrixMut + MatrixEntity,
     M::R: RowMut + RowEntity + Clone,
-    M::MatElement: PrimInt + FromPrimitive + One + Copy + Zero + Display + WrappingSub + NumInfo,
+    M::MatElement:
+        PrimInt + FromPrimitive + One + Copy + Zero + Display + WrappingSub + NumInfo + From<bool>,
     RlweModOp: VectorOps<Element = M::MatElement>
         + ArithmeticOps<Element = M::MatElement>
         + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,

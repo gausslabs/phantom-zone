@@ -515,21 +515,14 @@ pub(crate) fn decompose_r<R: RowMut, D: Decomposer<Element = R::Element>>(
     R::Element: Copy,
 {
     let ring_size = r.len();
-    let d = decomposer.decomposition_count();
 
     for ri in 0..ring_size {
-        // let el_decomposed = decomposer.decompose_to_vec(&r[ri]);
-
         decomposer
             .decompose_iter(&r[ri])
             .enumerate()
             .for_each(|(index, el)| {
                 decomp_r[index].as_mut()[ri] = el;
             });
-
-        // for j in 0..d {
-        //     decomp_r[j].as_mut()[ri] = el_decomposed[j];
-        // }
     }
 }
 
@@ -578,18 +571,12 @@ pub(crate) fn galois_auto<
         .for_each(|(el_in, to_index, sign)| {
             let el_out = if !*sign { mod_op.neg(el_in) } else { *el_in };
 
-            // let el_out_decomposed = decomposer.decompose_to_vec(&el_out);
-
             decomposer
                 .decompose_iter(&el_out)
                 .enumerate()
                 .for_each(|(index, el)| {
                     scratch_matrix_d_ring[index].as_mut()[*to_index] = el;
                 });
-
-            // for j in 0..d {
-            //     scratch_matrix_d_ring[j].as_mut()[*to_index] =
-            // el_out_decomposed[j]; }
         });
 
         // transform decomposed a(X^k) to evaluation domain
