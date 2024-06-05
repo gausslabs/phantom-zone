@@ -231,9 +231,8 @@ impl<T: PrimInt> Iterator for DecomposerIter<T> {
             // T::one()) == T::one())), );
             // self.value = self.value + carry;
 
-            // Some(
-            //     (self.q & ((carry << self.logq) - (T::one() & carry))) + k_i
-            // - (carry << self.logb), )
+            // Some((self.q & ((carry << 55) - (T::one() & carry))) + k_i -
+            // (carry << self.logb))
 
             // Some(k_i)
         } else {
@@ -254,6 +253,7 @@ fn round_value<T: PrimInt>(value: T, ignore_bits: usize) -> T {
 #[cfg(test)]
 mod tests {
 
+    use itertools::Itertools;
     use rand::{thread_rng, Rng};
 
     use crate::{
@@ -285,6 +285,8 @@ mod tests {
             for _ in 0..100000 {
                 let value = rng.gen_range(0..q);
                 let limbs = decomposer.decompose_to_vec(&value);
+                let limbs_from_iter = decomposer.decompose_iter(&value).collect_vec();
+                assert_eq!(limbs, limbs_from_iter);
                 let value_back = round_value(
                     decomposer.recompose(&limbs, &modq_op),
                     decomposer.ignore_bits,
