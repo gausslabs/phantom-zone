@@ -564,8 +564,8 @@ pub(crate) fn galois_auto<
     let (scratch_matrix_d_ring, other_half) = scratch_matrix.split_at_row_mut(d);
     let (tmp_rlwe_out, _) = other_half.split_at_mut(2);
 
-    assert!(tmp_rlwe_out.len() == 2);
-    assert!(scratch_matrix_d_ring.len() == d);
+    debug_assert!(tmp_rlwe_out.len() == 2);
+    debug_assert!(scratch_matrix_d_ring.len() == d);
 
     if !rlwe_in.is_trivial() {
         tmp_rlwe_out.iter_mut().for_each(|r| {
