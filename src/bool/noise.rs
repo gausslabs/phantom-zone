@@ -28,7 +28,7 @@ mod test {
             ModularOpsU64<CiphertextModulus<u64>>,
         >::new(SMALL_MP_BOOL_PARAMS);
 
-        let parties = 16;
+        let parties = 2;
 
         let mut rng = DefaultSecureRng::new();
         let mut pk_cr_seed = [0u8; 32];

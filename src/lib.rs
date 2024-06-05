@@ -20,6 +20,8 @@ mod rgsw;
 mod shortint;
 mod utils;
 
+pub use ntt::{Ntt, NttBackendU64, NttInit};
+
 pub trait Matrix: AsRef<[Self::R]> {
     type MatElement;
     type R: Row<Element = Self::MatElement>;

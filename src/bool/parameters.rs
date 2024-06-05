@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn find_prime() {
         let bits = 55;
-        let ring_size = 1 << 11;
+        let ring_size = 1 << 15;
         let prime = generate_prime(bits, ring_size * 2, 1 << bits).unwrap();
         dbg!(prime);
     }

@@ -180,6 +180,7 @@ pub(crate) fn pbs<
             });
     }
 
+    // let now = std::time::Instant::now();
     // blind rotate
     blind_rotation(
         &mut trivial_rlwe_test_poly,
@@ -195,6 +196,7 @@ pub(crate) fn pbs<
         pbs_info,
         pbs_key,
     );
+    // println!("Blind rotation time: {:?}", now.elapsed());
 
     // sample extract
     sample_extract(lwe_in, &trivial_rlwe_test_poly, pbs_info.modop_rlweq(), 0);
@@ -238,6 +240,7 @@ fn blind_rotation<
         let s_indices = &gk_to_si[q_by_4 + i];
 
         s_indices.iter().for_each(|s_index| {
+            let new = std::time::Instant::now();
             rlwe_by_rgsw(
                 trivial_rlwe_test_poly,
                 pbs_key.rgsw_ct_lwe_si(*s_index),
@@ -246,11 +249,14 @@ fn blind_rotation<
                 ntt_op,
                 mod_op,
             );
+            println!("Rlwe x Rgsw time: {:?}", new.elapsed());
         });
         v += 1;
 
         if gk_to_si[q_by_4 + i - 1].len() != 0 || v == w || i == 1 {
             let (auto_map_index, auto_map_sign) = parameters.rlwe_auto_map(v);
+
+            let now = std::time::Instant::now();
             galois_auto(
                 trivial_rlwe_test_poly,
                 pbs_key.galois_key_for_auto(v),
@@ -261,6 +267,8 @@ fn blind_rotation<
                 ntt_op,
                 auto_decomposer,
             );
+            println!("Auto time: {:?}", now.elapsed());
+
             count += 1;
             v = 0;
         }

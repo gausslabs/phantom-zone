@@ -556,22 +556,11 @@ pub(crate) fn galois_auto<
 
     let (scratch_matrix_d_ring, tmp_rlwe_out) = scratch_matrix.split_at_row_mut(d);
 
-    // send b(X) -> b(X^k)
-    izip!(
-        rlwe_in.get_row(1),
-        auto_map_index.iter(),
-        auto_map_sign.iter()
-    )
-    .for_each(|(el_in, to_index, sign)| {
-        if !*sign {
-            tmp_rlwe_out[1].as_mut()[*to_index] = mod_op.neg(el_in);
-        } else {
-            tmp_rlwe_out[1].as_mut()[*to_index] = *el_in;
-            // scratch_matrix_dplus2_ring.set(d + 1, *to_index, *el_in);
-        }
-    });
-
     if !rlwe_in.is_trivial() {
+        tmp_rlwe_out.iter_mut().for_each(|r| {
+            r.as_mut().fill(Mmut::MatElement::zero());
+        });
+
         // send a(X) -> a(X^k) and decompose a(X^k)
         izip!(
             rlwe_in.get_row(0),
@@ -595,7 +584,6 @@ pub(crate) fn galois_auto<
         // RLWE(m^k) = a', b'; RLWE(m) = a, b
         // key switch: (a * RLWE'(s(X^k)))
         let (ksk_a, ksk_b) = ksk.split_at_row(d);
-        tmp_rlwe_out[0].as_mut().fill(Mmut::MatElement::zero());
         // a' = decomp<a> * RLWE'_A(s(X^k))
         routine(
             tmp_rlwe_out[0].as_mut(),
@@ -603,9 +591,7 @@ pub(crate) fn galois_auto<
             ksk_a,
             mod_op,
         );
-        // send b(X^k) to evaluation domain
-        ntt_op.forward(tmp_rlwe_out[1].as_mut());
-        // b' = b(X^k)
+
         // b' += decomp<a(X^k)> * RLWE'_B(s(X^k))
         routine(
             tmp_rlwe_out[1].as_mut(),
@@ -619,11 +605,43 @@ pub(crate) fn galois_auto<
             .iter_mut()
             .for_each(|r| ntt_op.backward(r.as_mut()));
 
+        // send b(X) -> b(X^k) and then b'(X) += b(X^k)
+        izip!(
+            rlwe_in.get_row(1),
+            auto_map_index.iter(),
+            auto_map_sign.iter()
+        )
+        .for_each(|(el_in, to_index, sign)| {
+            let row = tmp_rlwe_out[1].as_mut();
+            if !*sign {
+                row[*to_index] = mod_op.sub(&row[*to_index], el_in);
+            } else {
+                row[*to_index] = mod_op.add(&row[*to_index], el_in);
+            }
+        });
+
+        // copy over A; Leave B for later
         rlwe_in
             .get_row_mut(0)
             .copy_from_slice(tmp_rlwe_out[0].as_ref());
+    } else {
+        // RLWE is trivial, a(X) is 0.
+        // send b(X) -> b(X^k)
+        izip!(
+            rlwe_in.get_row(1),
+            auto_map_index.iter(),
+            auto_map_sign.iter()
+        )
+        .for_each(|(el_in, to_index, sign)| {
+            if !*sign {
+                tmp_rlwe_out[1].as_mut()[*to_index] = mod_op.neg(el_in);
+            } else {
+                tmp_rlwe_out[1].as_mut()[*to_index] = *el_in;
+            }
+        });
     }
 
+    // Copy over B
     rlwe_in
         .get_row_mut(1)
         .copy_from_slice(tmp_rlwe_out[1].as_ref());
