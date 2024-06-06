@@ -230,7 +230,7 @@ pub(super) struct BoolPbsInfo<M: Matrix, Ntt, RlweModOp, LweModOp> {
 
 impl<M: Matrix, NttOp, RlweModOp, LweModOp> PbsInfo for BoolPbsInfo<M, NttOp, RlweModOp, LweModOp>
 where
-    M::MatElement: PrimInt + WrappingSub + NumInfo + FromPrimitive + From<bool>,
+    M::MatElement: PrimInt + WrappingSub + NumInfo + FromPrimitive + From<bool> + Display,
     RlweModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     LweModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     NttOp: Ntt<Element = M::MatElement>,

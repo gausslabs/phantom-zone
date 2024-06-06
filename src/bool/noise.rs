@@ -103,13 +103,13 @@ mod test {
             println!("Gate time: {:?}", now.elapsed());
 
             // mp decrypt
-            // let decryption_shares = cks
-            //     .iter()
-            //     .map(|c| evaluator.multi_party_decryption_share(&c_out, c))
-            //     .collect_vec();
-            // let m_out = evaluator.multi_party_decrypt(&decryption_shares, &c_out);
+            let decryption_shares = cks
+                .iter()
+                .map(|c| evaluator.multi_party_decryption_share(&c_out, c))
+                .collect_vec();
+            let m_out = evaluator.multi_party_decrypt(&decryption_shares, &c_out);
             let m_expected = (m0 ^ m1);
-            // assert_eq!(m_expected, m_out, "Expected {m_expected} but got {m_out}");
+            assert_eq!(m_expected, m_out, "Expected {m_expected} but got {m_out}");
 
             // // find noise update
             // {

@@ -1,6 +1,10 @@
 use itertools::Itertools;
 use num_traits::{AsPrimitive, FromPrimitive, Num, One, PrimInt, ToPrimitive, WrappingSub, Zero};
-use std::{fmt::Debug, marker::PhantomData, ops::Rem};
+use std::{
+    fmt::{Debug, Display},
+    marker::PhantomData,
+    ops::Rem,
+};
 
 use crate::backend::{ArithmeticOps, ModularOpsU64};
 
@@ -106,8 +110,8 @@ impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
     }
 }
 
-impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo + From<bool>> Decomposer
-    for DefaultDecomposer<T>
+impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo + From<bool> + Display>
+    Decomposer for DefaultDecomposer<T>
 {
     type Element = T;
     type Iter = DecomposerIter<T>;
@@ -212,7 +216,7 @@ pub struct DecomposerIter<T> {
     b: T,
 }
 
-impl<T: PrimInt + From<bool>> Iterator for DecomposerIter<T> {
+impl<T: PrimInt + From<bool> + WrappingSub + Display> Iterator for DecomposerIter<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -235,14 +239,16 @@ impl<T: PrimInt + From<bool>> Iterator for DecomposerIter<T> {
             // Suprisingly the improvement does not show up when I benchmark
             // `decomposer_iter` in isolation. Putting this remark here as a
             // future task to investiage (TODO).
-            let carry = <T as From<bool>>::from(
-                k_i > self.bby2 || (k_i == self.bby2 && ((self.value & T::one()) == T::one())),
-            );
+            let carry_bool =
+                k_i > self.bby2 || (k_i == self.bby2 && ((self.value & T::one()) == T::one()));
+            let carry = <T as From<bool>>::from(carry_bool);
+            let neg_carry = (T::zero().wrapping_sub(&carry)) >> 9;
             self.value = self.value + carry;
+            Some((neg_carry & self.q) + k_i - (carry << self.logb))
 
-            Some(
-                (self.q & ((carry << self.logq) - (T::one() & carry))) + k_i - (carry << self.logb),
-            )
+            // Some(
+            //     (self.q & ((carry << self.logq) - (T::one() & carry))) + k_i
+            // - (carry << self.logb), )
 
             // Some(k_i)
         } else {
