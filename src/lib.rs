@@ -21,6 +21,7 @@ mod shortint;
 mod utils;
 
 pub use ntt::{Ntt, NttBackendU64, NttInit};
+pub use utils::Stats;
 
 pub trait Matrix: AsRef<[Self::R]> {
     type MatElement;

@@ -123,6 +123,46 @@ impl<T: PrimInt + ToPrimitive + FromPrimitive + WrappingSub + NumInfo> Decompose
     /// decomposition limbs
     ///
     /// Implements algorithm 3 of https://eprint.iacr.org/2021/1161.pdf
+
+    // fn decompose(q){
+    //     if value > q/ 2 {
+    //         let out = decompose(q - value)
+    //         // all values in out mod Q
+    //     }else {
+    //         let value = value
+    //         for i in range(0..d) {
+    //             let k = value mod B;
+    //             value = value / B
+    //             if k > B/2 and (i < d-1) {
+    //                 out.push(Q+k-B)
+    //                 value += 1
+    //             }else {
+    //                 out.push(k)
+    //             }
+    //         }
+    //     }
+    // }
+
+    // fn decompose(q){
+    // let neg_flag = False
+    //     if value > q/ 2 {
+    //            value = !(q - value) + 1
+    //            neg_flag = True
+    //     }
+    //         let value = value
+    //         for i in range(0..d) {
+    //             let k = value mod B;
+    //             value = value / B
+    //             if (k > B/2 and i < d-1) or ((i == d-1) and neg_flag == True) {
+    //                 out.push(Q+k-B)
+    //                 value += 1
+    //             }else {
+    //                 out.push(k)
+    //             }
+    //         }
+    //     }
+    // }
+
     fn decompose(&self, value: &T) -> Vec<T> {
         let mut value = round_value(*value, self.ignore_bits);
 

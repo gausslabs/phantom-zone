@@ -270,7 +270,7 @@ impl<P: Modulus> TryConvertFrom1<[P::Element], P> for Vec<i64> {
 //     }
 // }
 
-pub(crate) struct Stats<T> {
+pub struct Stats<T> {
     pub(crate) samples: Vec<T>,
 }
 
@@ -279,15 +279,15 @@ where
     // T: for<'a> Sum<&'a T>,
     T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
 {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self { samples: vec![] }
     }
 
-    pub(crate) fn mean(&self) -> f64 {
+    pub fn mean(&self) -> f64 {
         self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
     }
 
-    pub(crate) fn std_dev(&self) -> f64 {
+    pub fn std_dev(&self) -> f64 {
         let mean = self.mean();
 
         // diff
@@ -304,7 +304,7 @@ where
         (diff_sq / (self.samples.len() as f64)).sqrt()
     }
 
-    pub(crate) fn add_more(&mut self, values: &[T]) {
+    pub fn add_more(&mut self, values: &[T]) {
         self.samples.extend(values.iter());
     }
 }
