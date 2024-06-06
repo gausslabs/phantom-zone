@@ -56,22 +56,23 @@ fn decomposer(mut value: u64, q: u64, d: usize, logb: u64) -> Vec<u64> {
     // }
 
     // ------------------ METHOD WE USR CURRENTLY (Signed Balanced decomposition)
-    // let mut out = Vec::with_capacity(d);
 
-    // if value >= (q >> 1) {
-    //     value = !(q - value) + 1;
-    // }
-    // for i in 0..d {
-    //     let k_i = value & full_mask;
-    //     value = (value - k_i) >> logb;
+    let mut out = Vec::with_capacity(d);
 
-    //     if k_i > bby2 || ((k_i == bby2) && ((value & 1) == 1)) {
-    //         out.push(q - (b - k_i));
-    //         value += 1;
-    //     } else {
-    //         out.push(k_i);
-    //     }
-    // }
+    if value >= (q >> 1) {
+        value = !(q - value) + 1;
+    }
+    for i in 0..d {
+        let k_i = value & full_mask;
+        value = (value - k_i) >> logb;
+
+        if k_i > bby2 || ((k_i == bby2) && ((value & 1) == 1)) {
+            out.push(q - (b - k_i));
+            value += 1;
+        } else {
+            out.push(k_i);
+        }
+    }
 
     // ------------------ BRIAN's Method --------------------
     // let mut is_neg = false;
