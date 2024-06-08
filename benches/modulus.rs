@@ -32,7 +32,7 @@ fn benchmark_decomposer(c: &mut Criterion) {
     for prime in [36028797017456641] {
         for ring_size in [1 << 11] {
             let logb = 11;
-            let decomposer = DefaultDecomposer::new(prime, logb, 2);
+            let decomposer = DefaultDecomposer::new(prime, logb, 1);
 
             let mut rng = thread_rng();
             let dist = Uniform::new(0, prime);
@@ -65,6 +65,17 @@ fn benchmark_decomposer(c: &mut Criterion) {
     group.finish();
 }
 
+pub(crate) fn routine(
+    write_to_row: &mut [u64],
+    matrix_a: &[Vec<u64>],
+    matrix_b: &[Vec<u64>],
+    mod_op: &ModularOpsU64<u64>,
+) {
+    izip!(matrix_a.iter(), matrix_b.iter()).for_each(|(a, b)| {
+        mod_op.elwise_fma_mut(write_to_row, a.as_ref(), b.as_ref());
+    });
+}
+
 fn benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("modulus");
     // 55
@@ -85,6 +96,26 @@ fn benchmark(c: &mut Criterion) {
                     b.iter_batched_ref(
                         || (a0.clone(), a1.clone(), a2.clone()),
                         |(a0, a1, a2)| black_box(modop.elwise_fma_mut(a0, a1, a2)),
+                        criterion::BatchSize::PerIteration,
+                    )
+                },
+            );
+
+            let d = 2;
+            let a1_mat = (0..d)
+                .into_iter()
+                .map(|_| (&mut rng).sample_iter(dist).take(ring_size).collect_vec())
+                .collect_vec();
+            let a2_mat = (0..d)
+                .into_iter()
+                .map(|_| (&mut rng).sample_iter(dist).take(ring_size).collect_vec())
+                .collect_vec();
+            group.bench_function(
+                BenchmarkId::new("routine", format!("q={prime}/{ring_size}")),
+                |b| {
+                    b.iter_batched_ref(
+                        || (a0.clone(), a1_mat.clone(), a2_mat.clone()),
+                        |(a0, a1_mat, a2_mat)| black_box(routine(a0, &a1_mat, &a2_mat, &modop)),
                         criterion::BatchSize::PerIteration,
                     )
                 },

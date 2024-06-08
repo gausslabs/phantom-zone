@@ -590,13 +590,16 @@ pub(crate) fn galois_auto<
         });
 
         // transform decomposed a(X^k) to evaluation domain
+        // let now = std::time::Instant::now();
         scratch_matrix_d_ring.iter_mut().for_each(|r| {
             ntt_op.forward(r.as_mut());
         });
+        // println!("2 NTTs: {:?}", now.elapsed());
 
         // RLWE(m^k) = a', b'; RLWE(m) = a, b
         // key switch: (a * RLWE'(s(X^k)))
         let (ksk_a, ksk_b) = ksk.split_at_row(d);
+
         // a' = decomp<a> * RLWE'_A(s(X^k))
         routine(
             tmp_rlwe_out[0].as_mut(),
@@ -637,6 +640,8 @@ pub(crate) fn galois_auto<
         rlwe_in
             .get_row_mut(0)
             .copy_from_slice(tmp_rlwe_out[0].as_ref());
+
+        rlwe_in.set_not_trivial();
     } else {
         // RLWE is trivial, a(X) is 0.
         // send b(X) -> b(X^k)
@@ -708,10 +713,13 @@ pub(crate) fn rlwe_by_rgsw<
             &mut scratch_matrix_d_ring[..d_a],
             decomposer_a,
         );
+
+        let now = std::time::Instant::now();
         scratch_matrix_d_ring
             .iter_mut()
             .take(d_a)
             .for_each(|r| ntt_op.forward(r.as_mut()));
+
         // a_out += decomp<a_in> \cdot RLWE_A'(-sm)
         routine(
             scratch_rlwe_out[0].as_mut(),
@@ -737,6 +745,7 @@ pub(crate) fn rlwe_by_rgsw<
         .iter_mut()
         .take(d_b)
         .for_each(|r| ntt_op.forward(r.as_mut()));
+
     // a_out += decomp<b_in> \cdot RLWE_A'(m)
     routine(
         scratch_rlwe_out[0].as_mut(),

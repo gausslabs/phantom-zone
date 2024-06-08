@@ -21,3 +21,6 @@ harness = false
 [[bench]]
 name = "modulus"
 harness = false
+
+[profile.release]
+debug = true
