@@ -28,7 +28,7 @@ pub trait Ntt {
 /// and both x' and y' are \in [0, 4q)
 ///
 /// Implements Algorithm 4 of [FASTER ARITHMETIC FOR NUMBER-THEORETIC TRANSFORMS](https://arxiv.org/pdf/1205.2926.pdf)
-pub fn forward_butterly(
+pub fn forward_butterly_0_to_4q(
     mut x: u64,
     y: u64,
     w: u64,
@@ -48,6 +48,33 @@ pub fn forward_butterly(
     let t = w.wrapping_mul(y).wrapping_sub(k.wrapping_mul(q));
 
     (x + t, x + q_twice - t)
+}
+
+pub fn forward_butterly_0_to_2q(
+    mut x: u64,
+    mut y: u64,
+    w: u64,
+    w_shoup: u64,
+    q: u64,
+    q_twice: u64,
+) -> (u64, u64) {
+    debug_assert!(x < q * 4, "{} >= (4q){}", x, 4 * q);
+    debug_assert!(y < q * 4, "{} >= (4q){}", y, 4 * q);
+
+    if x >= q_twice {
+        x = x - q_twice;
+    }
+
+    let k = ((w_shoup as u128 * y as u128) >> 64) as u64;
+    let t = w.wrapping_mul(y).wrapping_sub(k.wrapping_mul(q));
+
+    let ox = x.wrapping_add(t);
+    let oy = x.wrapping_sub(t);
+
+    (
+        (ox).min(ox.wrapping_sub(q_twice)),
+        oy.min(oy.wrapping_add(q_twice)),
+    )
 }
 
 /// Inverse butterfly routine of Inverse Number theoretic transform. Given
@@ -96,34 +123,63 @@ pub fn ntt_lazy(a: &mut [u64], psi: &[u64], psi_shoup: &[u64], q: u64, q_twice: 
         let w = &psi[m..];
         let w_shoup = &psi_shoup[m..];
 
-        // for (vector, w, w_shoup) in
-        //     izip!(a.chunks_mut(t << 1), psi[m..].iter(), psi_shoup[m..].iter())
-        // {
-        //     let (left, right) = vector.split_at_mut(t);
+        if t == 1 {
+            for (a, w, w_shoup) in izip!(a.chunks_mut(2), w.iter(), w_shoup.iter()) {
+                let (ox, oy) = forward_butterly_0_to_2q(a[0], a[1], *w, *w_shoup, q, q_twice);
+                a[0] = ox;
+                a[1] = oy;
+            }
+        } else {
+            for i in 0..m {
+                let a = &mut a[2 * i * t..(2 * (i + 1) * t)];
+                let (left, right) = a.split_at_mut(t);
 
-        //     for (x, y) in izip!(left.iter_mut(), right.iter_mut()) {
-        //         let (ox, oy) = forward_butterly(*x, *y, *w, *w_shoup, q, q_twice);
-        //         *x = ox;
-        //         *y = oy;
-        //     }
-        // }
-
-        for i in 0..m {
-            let a = &mut a[2 * i * t..(2 * (i + 1) * t)];
-            let (left, right) = a.split_at_mut(t);
-
-            for (x, y) in izip!(left.iter_mut(), right.iter_mut()) {
-                let (ox, oy) = forward_butterly(*x, *y, w[i], w_shoup[i], q, q_twice);
-                *x = ox;
-                *y = oy;
+                for (x, y) in izip!(left.iter_mut(), right.iter_mut()) {
+                    let (ox, oy) = forward_butterly_0_to_4q(*x, *y, w[i], w_shoup[i], q, q_twice);
+                    *x = ox;
+                    *y = oy;
+                }
             }
         }
+
         m <<= 1;
     }
+}
 
-    a.iter_mut().for_each(|a0| {
-        *a0 = (*a0).min((*a0).wrapping_sub(q_twice));
-    });
+/// Same as `ntt_lazy` with output in range [0, q)
+pub fn ntt(a: &mut [u64], psi: &[u64], psi_shoup: &[u64], q: u64, q_twice: u64) {
+    assert!(a.len() == psi.len());
+
+    let n = a.len();
+    let mut t = n;
+
+    let mut m = 1;
+    while m < n {
+        t >>= 1;
+        let w = &psi[m..];
+        let w_shoup = &psi_shoup[m..];
+
+        if t == 1 {
+            for (a, w, w_shoup) in izip!(a.chunks_mut(2), w.iter(), w_shoup.iter()) {
+                let (ox, oy) = forward_butterly_0_to_2q(a[0], a[1], *w, *w_shoup, q, q_twice);
+                a[0] = ox.min(ox.wrapping_sub(q_twice));
+                a[1] = oy.min(oy.wrapping_sub(q_twice));
+            }
+        } else {
+            for i in 0..m {
+                let a = &mut a[2 * i * t..(2 * (i + 1) * t)];
+                let (left, right) = a.split_at_mut(t);
+
+                for (x, y) in izip!(left.iter_mut(), right.iter_mut()) {
+                    let (ox, oy) = forward_butterly_0_to_4q(*x, *y, w[i], w_shoup[i], q, q_twice);
+                    *x = ox;
+                    *y = oy;
+                }
+            }
+        }
+
+        m <<= 1;
+    }
 }
 
 /// Inverse number theoretic transform of input vector `a` with each element can
@@ -307,14 +363,13 @@ impl Ntt for NttBackendU64 {
     }
 
     fn forward(&self, v: &mut [Self::Element]) {
-        ntt_lazy(
+        ntt(
             v,
             &self.psi_powers_bo,
             &self.psi_powers_bo_shoup,
             self.q,
             self.q_twice,
         );
-        self.reduce_from_lazy(v);
     }
 
     fn backward_lazy(&self, v: &mut [Self::Element]) {
