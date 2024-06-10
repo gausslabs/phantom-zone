@@ -234,26 +234,4 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use rand::{thread_rng, Rng};
-
-    use super::ShoupMul;
-
-    #[test]
-    fn gg() {
-        let mut rng = thread_rng();
-        let p = 36028797018820609;
-
-        let a = rng.gen_range(0..p);
-        let b = rng.gen_range(0..p);
-        let a_shoup = ShoupMul::representation(a, p);
-
-        // let c = ShoupMul::mul(b, a, a_shoup, p);
-        // assert!(c == ((a as u128 * b as u128) % p as u128) as u64);
-
-        let mut quotient = ((a_shoup as u128 * b as u128) >> 64) as u64;
-        quotient -= 1;
-        let c = (b.wrapping_mul(a)).wrapping_sub(p.wrapping_mul(quotient));
-        assert!(c - p == ((a as u128 * b as u128) % p as u128) as u64);
-    }
-}
+mod tests {}
