@@ -4,7 +4,7 @@ use rand_chacha::{rand_core::le, ChaCha8Rng};
 
 use crate::{
     backend::{ArithmeticOps, ModInit, ModularOpsU64, Modulus},
-    utils::{mod_exponent, mod_inverse, shoup_representation_fq},
+    utils::{mod_exponent, mod_inverse, ShoupMul},
 };
 
 pub trait NttInit<M> {
@@ -43,9 +43,7 @@ pub fn forward_butterly_0_to_4q(
         x = x - q_twice;
     }
 
-    // TODO (Jay): Hot path expected. How expensive is it?
-    let k = ((w_shoup as u128 * y as u128) >> 64) as u64;
-    let t = w.wrapping_mul(y).wrapping_sub(k.wrapping_mul(q));
+    let t = ShoupMul::mul(y, w, w_shoup, q);
 
     (x + t, x + q_twice - t)
 }
@@ -65,8 +63,7 @@ pub fn forward_butterly_0_to_2q(
         x = x - q_twice;
     }
 
-    let k = ((w_shoup as u128 * y as u128) >> 64) as u64;
-    let t = w.wrapping_mul(y).wrapping_sub(k.wrapping_mul(q));
+    let t = ShoupMul::mul(y, w, w_shoup, q);
 
     let ox = x.wrapping_add(t);
     let oy = x.wrapping_sub(t);
@@ -84,7 +81,7 @@ pub fn forward_butterly_0_to_2q(
 /// and both x' and y' are \in [0, 2q)
 ///
 /// Implements Algorithm 3 of [FASTER ARITHMETIC FOR NUMBER-THEORETIC TRANSFORMS](https://arxiv.org/pdf/1205.2926.pdf)
-pub fn inverse_butterfly(
+pub fn inverse_butterfly_0_to_2q(
     x: u64,
     y: u64,
     w_inv: u64,
@@ -101,8 +98,7 @@ pub fn inverse_butterfly(
     }
 
     let t = x + q_twice - y;
-    let k = ((w_inv_shoup as u128 * t as u128) >> 64) as u64;
-    let y = w_inv.wrapping_mul(t).wrapping_sub(k.wrapping_mul(q));
+    let y = ShoupMul::mul(t, w_inv, w_inv_shoup, q);
 
     (x_dash, y)
 }
@@ -202,68 +198,82 @@ pub fn ntt_inv_lazy(
     let mut t = 1;
 
     while m > 0 {
-        let w_inv = &psi_inv[m..];
-        let w_inv_shoup = &psi_inv_shoup[m..];
-
         if m == 1 {
             let (left, right) = a.split_at_mut(t);
 
             for (x, y) in izip!(left.iter_mut(), right.iter_mut()) {
-                let (ox, oy) = inverse_butterfly(*x, *y, w_inv[0], w_inv_shoup[0], q, q_twice);
-
-                *x = (n_inv.wrapping_mul(ox)).wrapping_sub(
-                    q.wrapping_mul(((ox as u128 * n_inv_shoup as u128) >> 64) as u64),
-                );
-                *y = (n_inv.wrapping_mul(oy)).wrapping_sub(
-                    q.wrapping_mul(((oy as u128 * n_inv_shoup as u128) >> 64) as u64),
-                );
+                let (ox, oy) =
+                    inverse_butterfly_0_to_2q(*x, *y, psi_inv[1], psi_inv_shoup[1], q, q_twice);
+                *x = ShoupMul::mul(ox, n_inv, n_inv_shoup, q);
+                *y = ShoupMul::mul(oy, n_inv, n_inv_shoup, q);
             }
         } else {
+            let w_inv = &psi_inv[m..];
+            let w_inv_shoup = &psi_inv_shoup[m..];
             for i in 0..m {
                 let a = &mut a[2 * i * t..2 * (i + 1) * t];
                 let (left, right) = a.split_at_mut(t);
 
                 for (x, y) in izip!(left.iter_mut(), right.iter_mut()) {
-                    let (ox, oy) = inverse_butterfly(*x, *y, w_inv[i], w_inv_shoup[i], q, q_twice);
+                    let (ox, oy) =
+                        inverse_butterfly_0_to_2q(*x, *y, w_inv[i], w_inv_shoup[i], q, q_twice);
                     *x = ox;
                     *y = oy;
                 }
             }
         }
 
-        // for i in 0..m {
-        //     let a = &mut a[2 * i * t..2 * (i + 1) * t];
-        //     let (left, right) = a.split_at_mut(t);
-
-        //     for (x, y) in izip!(left.iter_mut(), right.iter_mut()) {
-        //         let (ox, oy) = inverse_butterfly(*x, *y, w_inv[i], w_inv_shoup[i], q,
-        // q_twice);         *x = ox;
-        //         *y = oy;
-        //     }
-        // }
-
-        // for i in 0..h {
-        //     let j_2 = j_1 + t;
-        //     unsafe {
-        //         let w_inv = psi_inv.get_unchecked(h + i);
-        //         let w_inv_shoup = psi_inv_shoup.get_unchecked(h + i);
-
-        //         for j in j_1..j_2 {
-        //             let x = a.get_unchecked_mut(j) as *mut u64;
-        //             let y = a.get_unchecked_mut(j + t) as *mut u64;
-        //             inverse_butterfly(x, y, w_inv, w_inv_shoup, &q, &q_twice);
-        //         }
-        //     }
-        //     j_1 = j_1 + 2 * t;
-        // }
         t *= 2;
         m >>= 1;
     }
+}
 
-    // a.iter_mut().for_each(|a0| {
-    //     *a0 = (n_inv.wrapping_mul(*a0))
-    //         .wrapping_sub(((*a0 as u128 * n_inv_shoup as u128) >> 64) as u64)
-    // });
+/// Same as `ntt_inv_lazy` with output in range [0, q)
+pub fn ntt_inv(
+    a: &mut [u64],
+    psi_inv: &[u64],
+    psi_inv_shoup: &[u64],
+    n_inv: u64,
+    n_inv_shoup: u64,
+    q: u64,
+    q_twice: u64,
+) {
+    assert!(a.len() == psi_inv.len());
+
+    let mut m = a.len() >> 1;
+    let mut t = 1;
+
+    while m > 0 {
+        if m == 1 {
+            let (left, right) = a.split_at_mut(t);
+
+            for (x, y) in izip!(left.iter_mut(), right.iter_mut()) {
+                let (ox, oy) =
+                    inverse_butterfly_0_to_2q(*x, *y, psi_inv[1], psi_inv_shoup[1], q, q_twice);
+                let ox = ShoupMul::mul(ox, n_inv, n_inv_shoup, q);
+                let oy = ShoupMul::mul(oy, n_inv, n_inv_shoup, q);
+                *x = ox.min(ox.wrapping_sub(q));
+                *y = oy.min(oy.wrapping_sub(q));
+            }
+        } else {
+            let w_inv = &psi_inv[m..];
+            let w_inv_shoup = &psi_inv_shoup[m..];
+            for i in 0..m {
+                let a = &mut a[2 * i * t..2 * (i + 1) * t];
+                let (left, right) = a.split_at_mut(t);
+
+                for (x, y) in izip!(left.iter_mut(), right.iter_mut()) {
+                    let (ox, oy) =
+                        inverse_butterfly_0_to_2q(*x, *y, w_inv[i], w_inv_shoup[i], q, q_twice);
+                    *x = ox;
+                    *y = oy;
+                }
+            }
+        }
+
+        t *= 2;
+        m >>= 1;
+    }
 }
 
 /// Find n^{th} root of unity in field F_q, if one exists
@@ -350,11 +360,11 @@ impl NttBackendU64 {
         // shoup representation
         let psi_powers_bo_shoup = psi_powers_bo
             .iter()
-            .map(|v| shoup_representation_fq(*v, q))
+            .map(|v| ShoupMul::representation(*v, q))
             .collect_vec();
         let psi_inv_powers_bo_shoup = psi_inv_powers_bo
             .iter()
-            .map(|v| shoup_representation_fq(*v, q))
+            .map(|v| ShoupMul::representation(*v, q))
             .collect_vec();
 
         // n^{-1} \mod{q}
@@ -365,7 +375,7 @@ impl NttBackendU64 {
             q_twice: 2 * q,
             n: n as u64,
             n_inv,
-            n_inv_shoup: shoup_representation_fq(n_inv, q),
+            n_inv_shoup: ShoupMul::representation(n_inv, q),
             psi_powers_bo: psi_powers_bo.into_boxed_slice(),
             psi_inv_powers_bo: psi_inv_powers_bo.into_boxed_slice(),
             psi_powers_bo_shoup: psi_powers_bo_shoup.into_boxed_slice(),
@@ -429,7 +439,7 @@ impl Ntt for NttBackendU64 {
     }
 
     fn backward(&self, v: &mut [Self::Element]) {
-        ntt_inv_lazy(
+        ntt_inv(
             v,
             &self.psi_inv_powers_bo,
             &self.psi_inv_powers_bo_shoup,
@@ -438,10 +448,10 @@ impl Ntt for NttBackendU64 {
             self.q,
             self.q_twice,
         );
-        self.reduce_from_lazy(v);
     }
 }
 
+#[cfg(test)]
 mod tests {
     use itertools::Itertools;
     use rand::{thread_rng, Rng};

@@ -25,6 +25,25 @@ pub trait Global {
     fn global() -> &'static Self;
 }
 
+pub trait ShoupMul {
+    fn representation(value: Self, q: Self) -> Self;
+    fn mul(a: Self, b: Self, b_shoup: Self, q: Self) -> Self;
+}
+
+impl ShoupMul for u64 {
+    #[inline]
+    fn representation(value: Self, q: Self) -> Self {
+        ((value as u128 * (1u128 << 64)) / q as u128) as u64
+    }
+
+    #[inline]
+    /// Returns a * b % q
+    fn mul(a: Self, b: Self, b_shoup: Self, q: Self) -> Self {
+        (b.wrapping_mul(a))
+            .wrapping_sub(q.wrapping_mul(((b_shoup as u128 * a as u128) >> 64) as u64))
+    }
+}
+
 pub fn fill_random_ternary_secret_with_hamming_weight<
     T: Signed,
     R: RandomFill<[u8]> + RandomElementInModulus<usize, usize>,
@@ -119,10 +138,6 @@ pub fn mod_exponent(a: u64, mut b: u64, q: u64) -> u64 {
 
 pub fn mod_inverse(a: u64, q: u64) -> u64 {
     mod_exponent(a, q - 2, q)
-}
-
-pub fn shoup_representation_fq(v: u64, q: u64) -> u64 {
-    ((v as u128 * (1u128 << 64)) / q as u128) as u64
 }
 
 pub fn negacyclic_mul<T: PrimInt, F: Fn(&T, &T) -> T>(

@@ -306,7 +306,7 @@ mod tests {
         bool::{
             aggregate_public_key_shares, aggregate_server_key_shares, gen_client_key, gen_keys,
             gen_mp_keys_phase1, gen_mp_keys_phase2,
-            parameters::{MP_BOOL_PARAMS, SP_BOOL_PARAMS},
+            parameters::{MP_BOOL_PARAMS, SMALL_MP_BOOL_PARAMS, SP_BOOL_PARAMS},
             set_mp_seed, set_parameter_set,
         },
         shortint::types::FheUint8,
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn fheuint8_test_multi_party() {
-        set_parameter_set(&MP_BOOL_PARAMS);
+        set_parameter_set(&SMALL_MP_BOOL_PARAMS);
         set_mp_seed([0; 32]);
 
         let parties = 8;
@@ -497,10 +497,12 @@ mod tests {
         let ct_b = public_key.encrypt(&b);
         let ct_c = public_key.encrypt(&c);
 
+        let now = std::time::Instant::now();
         // server computes
         // a*b + c
         let mut ct_ab = &ct_a * &ct_b;
         ct_ab += &ct_c;
+        println!("Circuit time: {:?}", now.elapsed());
 
         // decrypt ab and check
         // generate decryption shares

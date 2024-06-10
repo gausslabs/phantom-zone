@@ -13,6 +13,15 @@ fn forward_lazy_matrix(a: &mut [Vec<u64>], nttop: &NttBackendU64) {
         .for_each(|r| nttop.forward_lazy(r.as_mut_slice()));
 }
 
+fn backward_matrix(a: &mut [Vec<u64>], nttop: &NttBackendU64) {
+    a.iter_mut().for_each(|r| nttop.backward(r.as_mut_slice()));
+}
+
+fn backward_lazy_matrix(a: &mut [Vec<u64>], nttop: &NttBackendU64) {
+    a.iter_mut()
+        .for_each(|r| nttop.backward_lazy(r.as_mut_slice()));
+}
+
 fn benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("ntt");
     // 55
@@ -86,11 +95,47 @@ fn benchmark(c: &mut Criterion) {
 
             {
                 group.bench_function(
+                    BenchmarkId::new("backward", format!("q={prime}/N={ring_size}")),
+                    |b| {
+                        b.iter_batched_ref(
+                            || a.clone(),
+                            |mut a| black_box(ntt.backward(&mut a)),
+                            criterion::BatchSize::PerIteration,
+                        )
+                    },
+                );
+
+                group.bench_function(
                     BenchmarkId::new("backward_lazy", format!("q={prime}/N={ring_size}")),
                     |b| {
                         b.iter_batched_ref(
                             || a.clone(),
                             |mut a| black_box(ntt.backward_lazy(&mut a)),
+                            criterion::BatchSize::PerIteration,
+                        )
+                    },
+                );
+
+                group.bench_function(
+                    BenchmarkId::new("backward_matrix", format!("q={prime}/N={ring_size}")),
+                    |b| {
+                        b.iter_batched_ref(
+                            || a_matrix.clone(),
+                            |a_matrix| black_box(backward_matrix(a_matrix, &ntt)),
+                            criterion::BatchSize::PerIteration,
+                        )
+                    },
+                );
+
+                group.bench_function(
+                    BenchmarkId::new(
+                        "backward_lazy_matrix",
+                        format!("q={prime}/N={ring_size}/d={d}"),
+                    ),
+                    |b| {
+                        b.iter_batched_ref(
+                            || a_matrix.clone(),
+                            |a_matrix| black_box(backward_lazy_matrix(a_matrix, &ntt)),
                             criterion::BatchSize::PerIteration,
                         )
                     },

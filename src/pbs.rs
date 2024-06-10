@@ -342,7 +342,7 @@ fn blind_rotation<
             mod_op,
         );
     });
-    println!("Auto count: {count}");
+    // println!("Auto count: {count}");
 }
 
 fn mod_switch_odd(v: f64, from_q: f64, to_q: f64) -> usize {
