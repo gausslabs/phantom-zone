@@ -230,34 +230,15 @@ impl<T> VectorOps for ModularOpsU64<T> {
     // }
 }
 
-impl<M: Matrix<MatElement = u64>, T> ShoupMatrixFMA<M> for ModularOpsU64<T>
-where
-    M::R: RowMut,
-{
-    fn shoup_matrix_fma(&self, out: &mut <M as Matrix>::R, a: &M, a_shoup: &M, b: &M) {
-        assert!(a.dimension() == a_shoup.dimension());
-        assert!(a.dimension() == b.dimension());
+impl<R: RowMut<Element = u64>, T> ShoupMatrixFMA<R> for ModularOpsU64<T> {
+    fn shoup_matrix_fma(&self, out: &mut [R::Element], a: &[R], a_shoup: &[R], b: &[R]) {
+        assert!(a.len() == a_shoup.len());
+        assert!(a.len() == b.len());
 
         let q = self.q;
         let q_twice = self.q << 1;
 
-        // first row (without summation)
-        izip!(
-            out.as_mut().iter_mut(),
-            a.get_row(0),
-            a_shoup.get_row(0),
-            b.get_row(0)
-        )
-        .for_each(|(o, a, a_shoup, b)| {
-            *o = ShoupMul::mul(*b, *a, *a_shoup, q);
-        });
-
-        izip!(
-            a.iter_rows().skip(1),
-            a_shoup.iter_rows().skip(1),
-            b.iter_rows().skip(1)
-        )
-        .for_each(|(a_row, a_shoup_row, b_row)| {
+        izip!(a.iter(), a_shoup.iter(), b.iter()).for_each(|(a_row, a_shoup_row, b_row)| {
             izip!(
                 out.as_mut().iter_mut(),
                 a_row.as_ref().iter(),

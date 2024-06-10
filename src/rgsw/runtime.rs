@@ -2,7 +2,7 @@ use itertools::izip;
 use num_traits::Zero;
 
 use crate::{
-    backend::{ArithmeticOps, GetModulus, Modulus, VectorOps},
+    backend::{ArithmeticOps, GetModulus, Modulus, ShoupMatrixFMA, VectorOps},
     decomposer::{Decomposer, RlweDecomposer},
     ntt::Ntt,
     Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
@@ -132,6 +132,134 @@ pub(crate) fn galois_auto<
             scratch_matrix_d_ring,
             ksk_b,
             mod_op,
+        );
+
+        // transform RLWE(m^k) to coefficient domain
+        tmp_rlwe_out
+            .iter_mut()
+            .for_each(|r| ntt_op.backward(r.as_mut()));
+
+        // send b(X) -> b(X^k) and then b'(X) += b(X^k)
+        izip!(
+            rlwe_in.get_row(1),
+            auto_map_index.iter(),
+            auto_map_sign.iter()
+        )
+        .for_each(|(el_in, to_index, sign)| {
+            let row = tmp_rlwe_out[1].as_mut();
+            if !*sign {
+                row[*to_index] = mod_op.sub(&row[*to_index], el_in);
+            } else {
+                row[*to_index] = mod_op.add(&row[*to_index], el_in);
+            }
+        });
+
+        // copy over A; Leave B for later
+        rlwe_in
+            .get_row_mut(0)
+            .copy_from_slice(tmp_rlwe_out[0].as_ref());
+    } else {
+        // RLWE is trivial, a(X) is 0.
+        // send b(X) -> b(X^k)
+        izip!(
+            rlwe_in.get_row(1),
+            auto_map_index.iter(),
+            auto_map_sign.iter()
+        )
+        .for_each(|(el_in, to_index, sign)| {
+            if !*sign {
+                tmp_rlwe_out[1].as_mut()[*to_index] = mod_op.neg(el_in);
+            } else {
+                tmp_rlwe_out[1].as_mut()[*to_index] = *el_in;
+            }
+        });
+    }
+
+    // Copy over B
+    rlwe_in
+        .get_row_mut(1)
+        .copy_from_slice(tmp_rlwe_out[1].as_ref());
+}
+
+pub(crate) fn galois_auto_shoup<
+    MT: Matrix + IsTrivial + MatrixMut,
+    Mmut: MatrixMut<MatElement = MT::MatElement>,
+    ModOp: ArithmeticOps<Element = MT::MatElement>
+        + VectorOps<Element = MT::MatElement>
+        + ShoupMatrixFMA<Mmut::R>,
+    NttOp: Ntt<Element = MT::MatElement>,
+    D: Decomposer<Element = MT::MatElement>,
+>(
+    rlwe_in: &mut MT,
+    ksk: &Mmut,
+    ksk_shoup: &Mmut,
+    scratch_matrix: &mut Mmut,
+    auto_map_index: &[usize],
+    auto_map_sign: &[bool],
+    mod_op: &ModOp,
+    ntt_op: &NttOp,
+    decomposer: &D,
+) where
+    <Mmut as Matrix>::R: RowMut,
+    <MT as Matrix>::R: RowMut,
+    MT::MatElement: Copy + Zero,
+{
+    let d = decomposer.decomposition_count();
+    let ring_size = rlwe_in.dimension().1;
+    assert!(rlwe_in.dimension().0 == 2);
+    assert!(scratch_matrix.fits(d + 2, ring_size));
+
+    let (scratch_matrix_d_ring, other_half) = scratch_matrix.split_at_row_mut(d);
+    let (tmp_rlwe_out, _) = other_half.split_at_mut(2);
+
+    debug_assert!(tmp_rlwe_out.len() == 2);
+    debug_assert!(scratch_matrix_d_ring.len() == d);
+
+    if !rlwe_in.is_trivial() {
+        tmp_rlwe_out.iter_mut().for_each(|r| {
+            r.as_mut().fill(Mmut::MatElement::zero());
+        });
+
+        // send a(X) -> a(X^k) and decompose a(X^k)
+        izip!(
+            rlwe_in.get_row(0),
+            auto_map_index.iter(),
+            auto_map_sign.iter()
+        )
+        .for_each(|(el_in, to_index, sign)| {
+            let el_out = if !*sign { mod_op.neg(el_in) } else { *el_in };
+
+            decomposer
+                .decompose_iter(&el_out)
+                .enumerate()
+                .for_each(|(index, el)| {
+                    scratch_matrix_d_ring[index].as_mut()[*to_index] = el;
+                });
+        });
+
+        // transform decomposed a(X^k) to evaluation domain
+        scratch_matrix_d_ring.iter_mut().for_each(|r| {
+            ntt_op.forward_lazy(r.as_mut());
+        });
+
+        // RLWE(m^k) = a', b'; RLWE(m) = a, b
+        // key switch: (a * RLWE'(s(X^k)))
+        let (ksk_a, ksk_b) = ksk.split_at_row(d);
+        let (ksk_a_shoup, ksk_b_shoup) = ksk_shoup.split_at_row(d);
+        // a' = decomp<a> * RLWE'_A(s(X^k))
+        mod_op.shoup_matrix_fma(
+            tmp_rlwe_out[0].as_mut(),
+            ksk_a,
+            ksk_a_shoup,
+            scratch_matrix_d_ring,
+        );
+
+        // b'= decomp<a(X^k)> * RLWE'_B(s(X^k))
+        mod_op.shoup_matrix_fma(
+            tmp_rlwe_out[1].as_mut(),
+            ksk_b,
+            ksk_b_shoup,
+            scratch_matrix_d_ring,
         );
 
         // transform RLWE(m^k) to coefficient domain

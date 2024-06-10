@@ -158,8 +158,9 @@ pub fn ntt(a: &mut [u64], psi: &[u64], psi_shoup: &[u64], q: u64, q_twice: u64) 
         if t == 1 {
             for (a, w, w_shoup) in izip!(a.chunks_mut(2), w.iter(), w_shoup.iter()) {
                 let (ox, oy) = forward_butterly_0_to_2q(a[0], a[1], *w, *w_shoup, q, q_twice);
-                a[0] = ox.min(ox.wrapping_sub(q_twice));
-                a[1] = oy.min(oy.wrapping_sub(q_twice));
+                // reduce from range [0, 2q) to [0, q)
+                a[0] = ox.min(ox.wrapping_sub(q));
+                a[1] = oy.min(oy.wrapping_sub(q));
             }
         } else {
             for i in 0..m {
@@ -476,6 +477,11 @@ mod tests {
             .collect_vec()
     }
 
+    fn assert_output_range(a: &[u64], max_val: u64) {
+        a.iter()
+            .for_each(|v| assert!(v <= &max_val, "{v} > {max_val}"));
+    }
+
     #[test]
     fn native_ntt_backend_works() {
         // TODO(Jay): Improve tests. Add tests for different primes and ring size.
@@ -485,20 +491,26 @@ mod tests {
             let a_clone = a.clone();
 
             ntt_backend.forward(&mut a);
+            assert_output_range(a.as_ref(), Q_60_BITS - 1);
             assert_ne!(a, a_clone);
             ntt_backend.backward(&mut a);
+            assert_output_range(a.as_ref(), Q_60_BITS - 1);
             assert_eq!(a, a_clone);
 
             ntt_backend.forward_lazy(&mut a);
+            assert_output_range(a.as_ref(), (2 * Q_60_BITS) - 1);
             assert_ne!(a, a_clone);
             ntt_backend.backward(&mut a);
+            assert_output_range(a.as_ref(), Q_60_BITS - 1);
             assert_eq!(a, a_clone);
 
             ntt_backend.forward(&mut a);
+            assert_output_range(a.as_ref(), Q_60_BITS - 1);
             ntt_backend.backward_lazy(&mut a);
+            assert_output_range(a.as_ref(), (2 * Q_60_BITS) - 1);
             // reduce
             a.iter_mut().for_each(|a0| {
-                if *a0 > Q_60_BITS {
+                if *a0 >= Q_60_BITS {
                     *a0 -= *a0 - Q_60_BITS;
                 }
             });

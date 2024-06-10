@@ -16,7 +16,7 @@ use crate::{
         DefaultSecureRng, NewWithSeed, RandomElementInModulus, RandomFill,
         RandomFillGaussianInModulus, RandomFillUniformInModulus,
     },
-    utils::{fill_random_ternary_secret_with_hamming_weight, TryConvertFrom1, WithLocal},
+    utils::{fill_random_ternary_secret_with_hamming_weight, ToShoup, TryConvertFrom1, WithLocal},
     Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
 };
 
@@ -91,21 +91,17 @@ where
     }
 }
 
-pub(crate) trait ToShoup {
-    fn to_shoup(value: Self, modulus: Self) -> Self;
-}
-
 pub struct ShoupAutoKeyEvaluationDomain<M> {
     data: M,
 }
 
 impl<M: MatrixMut + MatrixEntity, Mod: Modulus<Element = M::MatElement>, R, N>
-    From<AutoKeyEvaluationDomain<M, Mod, R, N>> for ShoupAutoKeyEvaluationDomain<M>
+    From<&AutoKeyEvaluationDomain<M, Mod, R, N>> for ShoupAutoKeyEvaluationDomain<M>
 where
     M::R: RowMut,
     M::MatElement: ToShoup + Copy,
 {
-    fn from(value: AutoKeyEvaluationDomain<M, Mod, R, N>) -> Self {
+    fn from(value: &AutoKeyEvaluationDomain<M, Mod, R, N>) -> Self {
         let (row, col) = value.data.dimension();
         let mut shoup_data = M::zeros(row, col);
 
@@ -538,6 +534,7 @@ pub(crate) mod tests {
         decomposer::{Decomposer, DefaultDecomposer, RlweDecomposer},
         ntt::{self, Ntt, NttBackendU64, NttInit},
         random::{DefaultSecureRng, NewWithSeed, RandomFillUniformInModulus},
+        rgsw::{galois_auto_shoup, ShoupAutoKeyEvaluationDomain},
         utils::{generate_prime, negacyclic_mul, Stats, TryConvertFrom1},
         Matrix, Secret,
     };
@@ -961,16 +958,45 @@ pub(crate) mod tests {
         // Send RLWE_{s}(m) -> RLWE_{s}(m^k)
         let mut scratch_space = vec![vec![0u64; ring_size as usize]; d_rgsw + 2];
         let (auto_map_index, auto_map_sign) = generate_auto_map(ring_size as usize, auto_k);
-        galois_auto(
-            &mut rlwe_m,
-            &auto_key.data,
-            &mut scratch_space,
-            &auto_map_index,
-            &auto_map_sign,
-            &mod_op,
-            &ntt_op,
-            &decomposer,
-        );
+
+        // galois auto with additional auto key in shoup repr
+        let rlwe_m_shoup = {
+            let auto_key_shoup = ShoupAutoKeyEvaluationDomain::from(&auto_key);
+            let mut rlwe_m_shoup = RlweCiphertext::<_, DefaultSecureRng> {
+                data: rlwe_m.data.clone(),
+                is_trivial: rlwe_m.is_trivial,
+                _phatom: PhantomData::default(),
+            };
+            galois_auto_shoup(
+                &mut rlwe_m_shoup,
+                &auto_key.data,
+                &auto_key_shoup.data,
+                &mut scratch_space,
+                &auto_map_index,
+                &auto_map_sign,
+                &mod_op,
+                &ntt_op,
+                &decomposer,
+            );
+            rlwe_m_shoup
+        };
+
+        // normal galois auto
+        {
+            galois_auto(
+                &mut rlwe_m,
+                &auto_key.data,
+                &mut scratch_space,
+                &auto_map_index,
+                &auto_map_sign,
+                &mod_op,
+                &ntt_op,
+                &decomposer,
+            );
+        }
+
+        // rlwe out from both functions must be same
+        assert_eq!(rlwe_m.data, rlwe_m_shoup.data);
 
         let rlwe_m_k = rlwe_m;
 

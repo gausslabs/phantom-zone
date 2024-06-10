@@ -25,9 +25,13 @@ pub trait Global {
     fn global() -> &'static Self;
 }
 
-pub trait ShoupMul {
+pub(crate) trait ShoupMul {
     fn representation(value: Self, q: Self) -> Self;
     fn mul(a: Self, b: Self, b_shoup: Self, q: Self) -> Self;
+}
+
+pub(crate) trait ToShoup {
+    fn to_shoup(value: Self, modulus: Self) -> Self;
 }
 
 impl ShoupMul for u64 {
@@ -41,6 +45,12 @@ impl ShoupMul for u64 {
     fn mul(a: Self, b: Self, b_shoup: Self, q: Self) -> Self {
         (b.wrapping_mul(a))
             .wrapping_sub(q.wrapping_mul(((b_shoup as u128 * a as u128) >> 64) as u64))
+    }
+}
+
+impl ToShoup for u64 {
+    fn to_shoup(value: Self, modulus: Self) -> Self {
+        ((value as u128 * (1u128 << 64)) / modulus as u128) as u64
     }
 }
 

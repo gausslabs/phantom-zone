@@ -1,6 +1,6 @@
 use num_traits::ToPrimitive;
 
-use crate::{Matrix, RowMut};
+use crate::{Matrix, Row, RowMut};
 
 mod modulus_u64;
 mod word_size;
@@ -126,10 +126,7 @@ pub trait ArithmeticLazyOps {
     fn add_lazy(&self, a: &Self::Element, b: &Self::Element) -> Self::Element;
 }
 
-pub trait ShoupMatrixFMA<M: Matrix>
-where
-    M::R: RowMut,
-{
-    /// Returns summation of row-wise product of matrix a and b.
-    fn shoup_matrix_fma(&self, out: &mut M::R, a: &M, a_shoup: &M, b: &M);
+pub trait ShoupMatrixFMA<R: Row> {
+    /// Returns summation of `row-wise product of matrix a and b` + out.
+    fn shoup_matrix_fma(&self, out: &mut [R::Element], a: &[R], a_shoup: &[R], b: &[R]);
 }
