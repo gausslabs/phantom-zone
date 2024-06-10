@@ -35,52 +35,67 @@ fn benchmark(c: &mut Criterion) {
                 })
                 .collect_vec();
 
-            group.bench_function(
-                BenchmarkId::new("forward", format!("q={prime}/N={ring_size}")),
-                |b| {
-                    b.iter_batched_ref(
-                        || a.clone(),
-                        |mut a| black_box(ntt.forward(&mut a)),
-                        criterion::BatchSize::PerIteration,
-                    )
-                },
-            );
+            {
+                group.bench_function(
+                    BenchmarkId::new("forward", format!("q={prime}/N={ring_size}")),
+                    |b| {
+                        b.iter_batched_ref(
+                            || a.clone(),
+                            |mut a| black_box(ntt.forward(&mut a)),
+                            criterion::BatchSize::PerIteration,
+                        )
+                    },
+                );
 
-            group.bench_function(
-                BenchmarkId::new("forward_lazy", format!("q={prime}/N={ring_size}")),
-                |b| {
-                    b.iter_batched_ref(
-                        || a.clone(),
-                        |mut a| black_box(ntt.forward_lazy(&mut a)),
-                        criterion::BatchSize::PerIteration,
-                    )
-                },
-            );
+                group.bench_function(
+                    BenchmarkId::new("forward_lazy", format!("q={prime}/N={ring_size}")),
+                    |b| {
+                        b.iter_batched_ref(
+                            || a.clone(),
+                            |mut a| black_box(ntt.forward_lazy(&mut a)),
+                            criterion::BatchSize::PerIteration,
+                        )
+                    },
+                );
 
-            group.bench_function(
-                BenchmarkId::new("forward_matrix", format!("q={prime}/N={ring_size}/d={d}")),
-                |b| {
-                    b.iter_batched_ref(
-                        || a_matrix.clone(),
-                        |a_matrix| black_box(forward_matrix(a_matrix, &ntt)),
-                        criterion::BatchSize::PerIteration,
-                    )
-                },
-            );
+                group.bench_function(
+                    BenchmarkId::new("forward_matrix", format!("q={prime}/N={ring_size}/d={d}")),
+                    |b| {
+                        b.iter_batched_ref(
+                            || a_matrix.clone(),
+                            |a_matrix| black_box(forward_matrix(a_matrix, &ntt)),
+                            criterion::BatchSize::PerIteration,
+                        )
+                    },
+                );
 
-            group.bench_function(
-                BenchmarkId::new(
-                    "forward_lazy_matrix",
-                    format!("q={prime}/N={ring_size}/d={d}"),
-                ),
-                |b| {
-                    b.iter_batched_ref(
-                        || a_matrix.clone(),
-                        |a_matrix| black_box(forward_lazy_matrix(a_matrix, &ntt)),
-                        criterion::BatchSize::PerIteration,
-                    )
-                },
-            );
+                group.bench_function(
+                    BenchmarkId::new(
+                        "forward_lazy_matrix",
+                        format!("q={prime}/N={ring_size}/d={d}"),
+                    ),
+                    |b| {
+                        b.iter_batched_ref(
+                            || a_matrix.clone(),
+                            |a_matrix| black_box(forward_lazy_matrix(a_matrix, &ntt)),
+                            criterion::BatchSize::PerIteration,
+                        )
+                    },
+                );
+            }
+
+            {
+                group.bench_function(
+                    BenchmarkId::new("backward_lazy", format!("q={prime}/N={ring_size}")),
+                    |b| {
+                        b.iter_batched_ref(
+                            || a.clone(),
+                            |mut a| black_box(ntt.backward_lazy(&mut a)),
+                            criterion::BatchSize::PerIteration,
+                        )
+                    },
+                );
+            }
         }
     }
 
