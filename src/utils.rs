@@ -194,97 +194,6 @@ impl<P: Modulus> TryConvertFrom1<[P::Element], P> for Vec<i64> {
     }
 }
 
-// pub trait TryConvertFrom<T: ?Sized> {
-//     type Parameters: ?Sized;
-
-//     fn try_convert_from(value: &T, parameters: &Self::Parameters) -> Self;
-// }
-
-// impl TryConvertFrom1<[i32]> for Vec<Vec<u32>> {
-//     type Parameters = u32;
-//     fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self
-// {         let row0 = value
-//             .iter()
-//             .map(|v| {
-//                 let is_neg = v.is_negative();
-//                 let v_u32 = v.abs() as u32;
-
-//                 assert!(v_u32 < *parameters);
-
-//                 if is_neg {
-//                     parameters - v_u32
-//                 } else {
-//                     v_u32
-//                 }
-//             })
-//             .collect_vec();
-
-//         vec![row0]
-//     }
-// }
-
-// impl TryConvertFrom1<[i32]> for Vec<Vec<u64>> {
-//     type Parameters = u64;
-//     fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self
-// {         let row0 = value
-//             .iter()
-//             .map(|v| {
-//                 let is_neg = v.is_negative();
-//                 let v_u64 = v.abs() as u64;
-
-//                 assert!(v_u64 < *parameters);
-
-//                 if is_neg {
-//                     parameters - v_u64
-//                 } else {
-//                     v_u64
-//                 }
-//             })
-//             .collect_vec();
-
-//         vec![row0]
-//     }
-// }
-
-// impl TryConvertFrom1<[i32]> for Vec<u64> {
-//     type Parameters = u64;
-//     fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self
-// {         value
-//             .iter()
-//             .map(|v| {
-//                 let is_neg = v.is_negative();
-//                 let v_u64 = v.abs() as u64;
-
-//                 assert!(v_u64 < *parameters);
-
-//                 if is_neg {
-//                     parameters - v_u64
-//                 } else {
-//                     v_u64
-//                 }
-//             })
-//             .collect_vec()
-//     }
-// }
-
-// impl TryConvertFrom1<[u64]> for Vec<i64> {
-//     type Parameters = u64;
-//     fn try_convert_from(value: &[u64], parameters: &Self::Parameters) -> Self
-// {         let q = *parameters;
-//         let qby2 = q / 2;
-//         value
-//             .iter()
-//             .map(|v| {
-//                 if *v > qby2 {
-//                     -((q - v) as i64)
-//                 } else {
-//                     *v as i64
-//                 }
-//             })
-//             .collect_vec()
-//     }
-// }
-
 pub(crate) struct Stats<T> {
     pub(crate) samples: Vec<T>,
 }
@@ -321,5 +230,30 @@ where
 
     pub(crate) fn add_more(&mut self, values: &[T]) {
         self.samples.extend(values.iter());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rand::{thread_rng, Rng};
+
+    use super::ShoupMul;
+
+    #[test]
+    fn gg() {
+        let mut rng = thread_rng();
+        let p = 36028797018820609;
+
+        let a = rng.gen_range(0..p);
+        let b = rng.gen_range(0..p);
+        let a_shoup = ShoupMul::representation(a, p);
+
+        // let c = ShoupMul::mul(b, a, a_shoup, p);
+        // assert!(c == ((a as u128 * b as u128) % p as u128) as u64);
+
+        let mut quotient = ((a_shoup as u128 * b as u128) >> 64) as u64;
+        quotient -= 1;
+        let c = (b.wrapping_mul(a)).wrapping_sub(p.wrapping_mul(quotient));
+        assert!(c - p == ((a as u128 * b as u128) % p as u128) as u64);
     }
 }
