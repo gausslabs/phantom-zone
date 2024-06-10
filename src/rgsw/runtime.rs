@@ -345,9 +345,12 @@ pub(crate) fn rlwe_by_rgsw<
 
     // decomposed RLWE x RGSW
     let (rlwe_dash_nsm, rlwe_dash_m) = rgsw_in.split_at_row(d_a * 2);
-    let (scratch_matrix_d_ring, scratch_rlwe_out) = scratch_matrix.split_at_row_mut(max_d);
+    let (scratch_matrix_d_ring, rest) = scratch_matrix.split_at_row_mut(max_d);
+    let (scratch_rlwe_out, _) = rest.split_at_mut(2);
+
     scratch_rlwe_out[0].as_mut().fill(Mmut::MatElement::zero());
     scratch_rlwe_out[1].as_mut().fill(Mmut::MatElement::zero());
+
     // RLWE_in = a_in, b_in; RLWE_out = a_out, b_out
     if !rlwe_in.is_trivial() {
         // a_in = 0 when RLWE_in is trivial RLWE ciphertext
@@ -364,14 +367,14 @@ pub(crate) fn rlwe_by_rgsw<
         // a_out += decomp<a_in> \cdot RLWE_A'(-sm)
         routine(
             scratch_rlwe_out[0].as_mut(),
-            scratch_matrix_d_ring.as_ref(),
+            &scratch_matrix_d_ring[..d_a],
             &rlwe_dash_nsm[..d_a],
             mod_op,
         );
         // b_out += decomp<a_in> \cdot RLWE_B'(-sm)
         routine(
             scratch_rlwe_out[1].as_mut(),
-            scratch_matrix_d_ring.as_ref(),
+            &scratch_matrix_d_ring[..d_a],
             &rlwe_dash_nsm[d_a..],
             mod_op,
         );
@@ -389,17 +392,127 @@ pub(crate) fn rlwe_by_rgsw<
     // a_out += decomp<b_in> \cdot RLWE_A'(m)
     routine(
         scratch_rlwe_out[0].as_mut(),
-        scratch_matrix_d_ring.as_ref(),
+        &scratch_matrix_d_ring[..d_b],
         &rlwe_dash_m[..d_b],
         mod_op,
     );
     // b_out += decomp<b_in> \cdot RLWE_B'(m)
     routine(
         scratch_rlwe_out[1].as_mut(),
-        scratch_matrix_d_ring.as_ref(),
+        &scratch_matrix_d_ring[..d_b],
         &rlwe_dash_m[d_b..],
         mod_op,
     );
+
+    // transform rlwe_out to coefficient domain
+    scratch_rlwe_out
+        .iter_mut()
+        .for_each(|r| ntt_op.backward(r.as_mut()));
+
+    rlwe_in
+        .get_row_mut(0)
+        .copy_from_slice(scratch_rlwe_out[0].as_mut());
+    rlwe_in
+        .get_row_mut(1)
+        .copy_from_slice(scratch_rlwe_out[1].as_mut());
+    rlwe_in.set_not_trivial();
+}
+
+pub(crate) fn rlwe_by_rgsw_shoup<
+    Mmut: MatrixMut,
+    MT: Matrix<MatElement = Mmut::MatElement> + MatrixMut<MatElement = Mmut::MatElement> + IsTrivial,
+    D: RlweDecomposer<Element = Mmut::MatElement>,
+    ModOp: VectorOps<Element = Mmut::MatElement> + ShoupMatrixFMA<Mmut::R>,
+    NttOp: Ntt<Element = Mmut::MatElement>,
+>(
+    rlwe_in: &mut MT,
+    rgsw_in: &Mmut,
+    rgsw_in_shoup: &Mmut,
+    scratch_matrix: &mut Mmut,
+    decomposer: &D,
+    ntt_op: &NttOp,
+    mod_op: &ModOp,
+) where
+    Mmut::MatElement: Copy + Zero,
+    <Mmut as Matrix>::R: RowMut,
+    <MT as Matrix>::R: RowMut,
+{
+    let decomposer_a = decomposer.a();
+    let decomposer_b = decomposer.b();
+    let d_a = decomposer_a.decomposition_count();
+    let d_b = decomposer_b.decomposition_count();
+    let max_d = std::cmp::max(d_a, d_b);
+    assert!(scratch_matrix.fits(max_d + 2, rlwe_in.dimension().1));
+    assert!(rgsw_in.dimension() == (d_a * 2 + d_b * 2, rlwe_in.dimension().1));
+    assert!(rgsw_in.dimension() == rgsw_in_shoup.dimension());
+
+    // decomposed RLWE x RGSW
+    let (rlwe_dash_nsm, rlwe_dash_m) = rgsw_in.split_at_row(d_a * 2);
+    let (rlwe_dash_nsm_shoup, rlwe_dash_m_shoup) = rgsw_in_shoup.split_at_row(d_a * 2);
+    let (scratch_matrix_d_ring, rest) = scratch_matrix.split_at_row_mut(max_d);
+    let (scratch_rlwe_out, _) = rest.split_at_mut(2);
+
+    scratch_rlwe_out[1].as_mut().fill(Mmut::MatElement::zero());
+    scratch_rlwe_out[0].as_mut().fill(Mmut::MatElement::zero());
+
+    // RLWE_in = a_in, b_in; RLWE_out = a_out, b_out
+    if !rlwe_in.is_trivial() {
+        // a_in = 0 when RLWE_in is trivial RLWE ciphertext
+        // decomp<a_in>
+        decompose_r(
+            rlwe_in.get_row_slice(0),
+            &mut scratch_matrix_d_ring[..d_a],
+            decomposer_a,
+        );
+        scratch_matrix_d_ring
+            .iter_mut()
+            .take(d_a)
+            .for_each(|r| ntt_op.forward_lazy(r.as_mut()));
+
+        // a_out += decomp<a_in> \cdot RLWE_A'(-sm)
+        mod_op.shoup_matrix_fma(
+            scratch_rlwe_out[0].as_mut(),
+            &rlwe_dash_nsm[..d_a],
+            &rlwe_dash_nsm_shoup[..d_a],
+            &scratch_matrix_d_ring[..d_a],
+        );
+
+        // b_out += decomp<a_in> \cdot RLWE_B'(-sm)
+        mod_op.shoup_matrix_fma(
+            scratch_rlwe_out[1].as_mut(),
+            &rlwe_dash_nsm[d_a..],
+            &rlwe_dash_nsm_shoup[d_a..],
+            &scratch_matrix_d_ring[..d_a],
+        );
+    }
+    {
+        // decomp<b_in>
+        decompose_r(
+            rlwe_in.get_row_slice(1),
+            &mut scratch_matrix_d_ring[..d_b],
+            decomposer_b,
+        );
+        scratch_matrix_d_ring
+            .iter_mut()
+            .take(d_b)
+            .for_each(|r| ntt_op.forward_lazy(r.as_mut()));
+
+        // a_out += decomp<b_in> \cdot RLWE_A'(m)
+        mod_op.shoup_matrix_fma(
+            scratch_rlwe_out[0].as_mut(),
+            &rlwe_dash_m[..d_b],
+            &rlwe_dash_m_shoup[..d_b],
+            &scratch_matrix_d_ring[..d_b],
+        );
+
+        // b_out += decomp<b_in> \cdot RLWE_B'(m)
+        mod_op.shoup_matrix_fma(
+            scratch_rlwe_out[1].as_mut(),
+            &rlwe_dash_m[d_b..],
+            &rlwe_dash_m_shoup[d_b..],
+            &scratch_matrix_d_ring[..d_b],
+        );
+    }
 
     // transform rlwe_out to coefficient domain
     scratch_rlwe_out

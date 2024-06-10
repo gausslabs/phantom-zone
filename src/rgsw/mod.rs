@@ -329,12 +329,12 @@ pub struct ShoupRgswCiphertextEvaluationDomain<M> {
 }
 
 impl<M: MatrixMut + MatrixEntity, Mod: Modulus<Element = M::MatElement>, R, N>
-    From<RgswCiphertextEvaluationDomain<M, Mod, R, N>> for ShoupRgswCiphertextEvaluationDomain<M>
+    From<&RgswCiphertextEvaluationDomain<M, Mod, R, N>> for ShoupRgswCiphertextEvaluationDomain<M>
 where
     M::R: RowMut,
     M::MatElement: ToShoup + Copy,
 {
-    fn from(value: RgswCiphertextEvaluationDomain<M, Mod, R, N>) -> Self {
+    fn from(value: &RgswCiphertextEvaluationDomain<M, Mod, R, N>) -> Self {
         let (row, col) = value.data.dimension();
         let mut shoup_data = M::zeros(row, col);
 
@@ -534,7 +534,10 @@ pub(crate) mod tests {
         decomposer::{Decomposer, DefaultDecomposer, RlweDecomposer},
         ntt::{self, Ntt, NttBackendU64, NttInit},
         random::{DefaultSecureRng, NewWithSeed, RandomFillUniformInModulus},
-        rgsw::{galois_auto_shoup, ShoupAutoKeyEvaluationDomain},
+        rgsw::{
+            galois_auto_shoup, rlwe_by_rgsw_shoup, ShoupAutoKeyEvaluationDomain,
+            ShoupRgswCiphertextEvaluationDomain,
+        },
         utils::{generate_prime, negacyclic_mul, Stats, TryConvertFrom1},
         Matrix, Secret,
     };
@@ -846,14 +849,46 @@ pub(crate) mod tests {
                 decomposer.b().decomposition_count()
             ) + 2
         ];
-        rlwe_by_rgsw(
-            &mut rlwe_in_ct,
-            &rgsw_ct.data,
-            &mut scratch_space,
-            &decomposer,
-            &ntt_op,
-            &mod_op,
-        );
+
+        // rlwe x rgsw with additional RGSW ciphertexts in shoup repr
+        let rlwe_in_ct_shoup = {
+            let mut rlwe_in_ct_shoup = RlweCiphertext::<_, DefaultSecureRng> {
+                data: rlwe_in_ct.data.clone(),
+                is_trivial: rlwe_in_ct.is_trivial,
+                _phatom: PhantomData::default(),
+            };
+
+            let rgsw_ct_shoup = ShoupRgswCiphertextEvaluationDomain::from(&rgsw_ct);
+
+            rlwe_by_rgsw_shoup(
+                &mut rlwe_in_ct_shoup,
+                &rgsw_ct.data,
+                &rgsw_ct_shoup.data,
+                &mut scratch_space,
+                &decomposer,
+                &ntt_op,
+                &mod_op,
+            );
+
+            rlwe_in_ct_shoup
+        };
+
+        // rlwe x rgsw normal
+        {
+            rlwe_by_rgsw(
+                &mut rlwe_in_ct,
+                &rgsw_ct.data,
+                &mut scratch_space,
+                &decomposer,
+                &ntt_op,
+                &mod_op,
+            );
+        }
+
+        // output from both functions must be equal
+        {
+            assert_eq!(rlwe_in_ct.data, rlwe_in_ct_shoup.data);
+        }
 
         // Decrypt RLWE(m0m1)
         let mut encoded_m0m1_back = vec![0u64; ring_size as usize];
