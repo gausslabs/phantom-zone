@@ -103,9 +103,9 @@ mod test {
         // let mut stats = Stats::new();
 
         for _ in 0..1000 {
-            let now = std::time::Instant::now();
+            // let now = std::time::Instant::now();
             let c_out = evaluator.xor(&c_m0, &c_m1, &runtime_server_key);
-            println!("Gate time: {:?}", now.elapsed());
+            // println!("Gate time: {:?}", now.elapsed());
 
             // mp decrypt
             let decryption_shares = cks

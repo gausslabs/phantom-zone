@@ -34,7 +34,7 @@ fn benchmark(c: &mut Criterion) {
                 .sample_iter(Uniform::new(0, prime))
                 .take(ring_size)
                 .collect_vec();
-            let d = 3;
+            let d = 2;
             let a_matrix = (0..d)
                 .map(|_| {
                     (&mut rng)

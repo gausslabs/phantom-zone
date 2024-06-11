@@ -192,7 +192,7 @@ pub(crate) fn pbs<
             });
     }
 
-    // let now = std::time::Instant::now();
+    let now = std::time::Instant::now();
     // blind rotate
     blind_rotation(
         &mut trivial_rlwe_test_poly,
@@ -208,7 +208,7 @@ pub(crate) fn pbs<
         pbs_info,
         pbs_key,
     );
-    // println!("Blind rotation time: {:?}", now.elapsed());
+    println!("Blind rotation time: {:?}", now.elapsed());
 
     // sample extract
     sample_extract(lwe_in, &trivial_rlwe_test_poly, pbs_info.modop_rlweq(), 0);
@@ -372,7 +372,7 @@ fn blind_rotation<
             mod_op,
         );
     });
-    // println!("Auto count: {count}");
+    println!("Auto count: {count}");
 }
 
 fn mod_switch_odd(v: f64, from_q: f64, to_q: f64) -> usize {

@@ -85,7 +85,7 @@ fn benchmark(c: &mut Criterion) {
             let a1 = (&mut rng).sample_iter(dist).take(ring_size).collect_vec();
             let a2 = (&mut rng).sample_iter(dist).take(ring_size).collect_vec();
 
-            let d = 2;
+            let d = 1;
             let a0_matrix = (0..d)
                 .into_iter()
                 .map(|_| (&mut rng).sample_iter(dist).take(ring_size).collect_vec())
