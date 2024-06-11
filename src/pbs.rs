@@ -8,18 +8,25 @@ use crate::{
     lwe::lwe_key_switch,
     ntt::Ntt,
     random::DefaultSecureRng,
-    rgsw::{galois_auto, rlwe_by_rgsw, IsTrivial, RlweCiphertext},
+    rgsw::{galois_auto, rlwe_by_rgsw, rlwe_by_rgsw_shoup, IsTrivial, RlweCiphertext},
     Matrix, MatrixEntity, MatrixMut, RowMut,
 };
 pub(crate) trait PbsKey {
-    type M: Matrix;
+    type RgswCt;
+    type AutoKey;
+    type LweKskKey;
 
     /// RGSW ciphertext of LWE secret elements
-    fn rgsw_ct_lwe_si(&self, si: usize) -> &Self::M;
+    fn rgsw_ct_lwe_si(&self, si: usize) -> &Self::RgswCt;
     /// Key for automorphism with g^k. For -g use k = 0
-    fn galois_key_for_auto(&self, k: usize) -> &Self::M;
+    fn galois_key_for_auto(&self, k: usize) -> &Self::AutoKey;
     /// LWE ksk to key switch from RLWE secret to LWE secret
-    fn lwe_ksk(&self) -> &Self::M;
+    fn lwe_ksk(&self) -> &Self::LweKskKey;
+}
+
+trait WithShoupRepr: AsRef<Self::M> {
+    type M;
+    fn shoup_repr(&self) -> Self::M;
 }
 
 pub(crate) trait PbsInfo {
@@ -73,7 +80,7 @@ pub(crate) trait PbsInfo {
 pub(crate) fn pbs<
     M: MatrixMut + MatrixEntity,
     P: PbsInfo<Element = M::MatElement>,
-    K: PbsKey<M = M>,
+    K: PbsKey<RgswCt = M, AutoKey = M, LweKskKey = M>,
 >(
     pbs_info: &P,
     test_vec: &M::R,
@@ -211,7 +218,8 @@ fn blind_rotation<
     D: Decomposer<Element = MT::MatElement>,
     NttOp: Ntt<Element = MT::MatElement>,
     ModOp: ArithmeticOps<Element = MT::MatElement> + VectorOps<Element = MT::MatElement>,
-    K: PbsKey<M = Mmut>,
+    MShoup: WithShoupRepr<M = Mmut>,
+    K: PbsKey<RgswCt = MShoup, AutoKey = MShoup>,
     P: PbsInfo<Element = MT::MatElement>,
 >(
     trivial_rlwe_test_poly: &mut MT,
@@ -241,9 +249,19 @@ fn blind_rotation<
 
         s_indices.iter().for_each(|s_index| {
             // let new = std::time::Instant::now();
-            rlwe_by_rgsw(
+            // rlwe_by_rgsw(
+            // trivial_rlwe_test_poly,
+            // pbs_key.rgsw_ct_lwe_si(*s_index),
+            // scratch_matrix,
+            // rlwe_rgsw_decomposer,
+            // ntt_op,
+            // mod_op,
+            // );
+            let ct = pbs_key.rgsw_ct_lwe_si(*s_index);
+            rlwe_by_rgsw_shoup(
                 trivial_rlwe_test_poly,
-                pbs_key.rgsw_ct_lwe_si(*s_index),
+                ct.as_ref(),
+                &ct.shoup_repr(),
                 scratch_matrix,
                 rlwe_rgsw_decomposer,
                 ntt_op,

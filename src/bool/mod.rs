@@ -23,7 +23,7 @@ thread_local! {
 
 }
 static BOOL_SERVER_KEY: OnceLock<
-    ServerKeyEvaluationDomain<Vec<Vec<u64>>, DefaultSecureRng, NttBackendU64>,
+    ServerKeyEvaluationDomain<Vec<Vec<u64>>, BoolParameters<u64>, DefaultSecureRng, NttBackendU64>,
 > = OnceLock::new();
 
 static MULTI_PARTY_CRS: OnceLock<MultiPartyCrs<[u8; 32]>> = OnceLock::new();
@@ -39,7 +39,14 @@ pub fn set_mp_seed(seed: [u8; 32]) {
     )
 }
 
-fn set_server_key(key: ServerKeyEvaluationDomain<Vec<Vec<u64>>, DefaultSecureRng, NttBackendU64>) {
+fn set_server_key(
+    key: ServerKeyEvaluationDomain<
+        Vec<Vec<u64>>,
+        BoolParameters<u64>,
+        DefaultSecureRng,
+        NttBackendU64,
+    >,
+) {
     assert!(
         BOOL_SERVER_KEY.set(key).is_ok(),
         "Attempted to set server key twice."
@@ -108,6 +115,7 @@ impl SeededServerKey<Vec<Vec<u64>>, BoolParameters<u64>, [u8; 32]> {
     pub fn set_server_key(&self) {
         set_server_key(ServerKeyEvaluationDomain::<
             _,
+            _,
             DefaultSecureRng,
             NttBackendU64,
         >::from(self));
@@ -123,14 +131,22 @@ impl
 {
     pub fn set_server_key(&self) {
         set_server_key(ServerKeyEvaluationDomain::<
-            Vec<Vec<u64>>,
+            _,
+            _,
             DefaultSecureRng,
             NttBackendU64,
         >::from(self))
     }
 }
 
-impl Global for ServerKeyEvaluationDomain<Vec<Vec<u64>>, DefaultSecureRng, NttBackendU64> {
+impl Global
+    for ServerKeyEvaluationDomain<
+        Vec<Vec<u64>>,
+        BoolParameters<u64>,
+        DefaultSecureRng,
+        NttBackendU64,
+    >
+{
     fn global() -> &'static Self {
         BOOL_SERVER_KEY.get().unwrap()
     }

@@ -391,7 +391,7 @@ impl<M: Matrix, S> SeededServerKey<M, BoolParameters<M::MatElement>, S> {
 }
 
 /// Server key in evaluation domain
-pub(crate) struct ServerKeyEvaluationDomain<M, R, N> {
+pub(crate) struct ServerKeyEvaluationDomain<M, P, R, N> {
     /// Rgsw cts of LWE secret elements
     rgsw_cts: Vec<M>,
     /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
@@ -399,6 +399,7 @@ pub(crate) struct ServerKeyEvaluationDomain<M, R, N> {
     galois_keys: HashMap<usize, M>,
     /// LWE ksk to key switching LWE ciphertext from RLWE secret to LWE secret
     lwe_ksk: M,
+    parameters: P,
     _phanton: PhantomData<(R, N)>,
 }
 
@@ -406,13 +407,14 @@ pub(super) mod impl_server_key_eval_domain {
     use itertools::{izip, Itertools};
 
     use crate::{
+        backend::Modulus,
         ntt::{Ntt, NttInit},
         pbs::PbsKey,
     };
 
     use super::*;
 
-    impl<M, R, N> ServerKeyEvaluationDomain<M, R, N> {
+    impl<M, Mod, R, N> ServerKeyEvaluationDomain<M, Mod, R, N> {
         pub(in super::super) fn rgsw_cts(&self) -> &[M] {
             &self.rgsw_cts
         }
@@ -424,7 +426,7 @@ pub(super) mod impl_server_key_eval_domain {
                 + NewWithSeed,
             N: NttInit<CiphertextModulus<M::MatElement>> + Ntt<Element = M::MatElement>,
         > From<&SeededServerKey<M, BoolParameters<M::MatElement>, R::Seed>>
-        for ServerKeyEvaluationDomain<M, R, N>
+        for ServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, R, N>
     where
         <M as Matrix>::R: RowMut,
         M::MatElement: Copy,
@@ -542,6 +544,7 @@ pub(super) mod impl_server_key_eval_domain {
                 rgsw_cts,
                 galois_keys: auto_keys,
                 lwe_ksk,
+                parameters: parameters.clone(),
                 _phanton: PhantomData,
             }
         }
@@ -552,7 +555,7 @@ pub(super) mod impl_server_key_eval_domain {
             Rng: NewWithSeed,
             N: NttInit<CiphertextModulus<M::MatElement>> + Ntt<Element = M::MatElement>,
         > From<&SeededMultiPartyServerKey<M, Rng::Seed, BoolParameters<M::MatElement>>>
-        for ServerKeyEvaluationDomain<M, Rng, N>
+        for ServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, Rng, N>
     where
         <M as Matrix>::R: RowMut,
         Rng::Seed: Copy,
@@ -640,21 +643,63 @@ pub(super) mod impl_server_key_eval_domain {
                 rgsw_cts,
                 galois_keys: auto_keys,
                 lwe_ksk,
+                parameters: value.parameters.clone(),
                 _phanton: PhantomData,
             }
         }
     }
 
-    impl<M: Matrix, R, N> PbsKey for ServerKeyEvaluationDomain<M, R, N> {
-        type M = M;
-        fn galois_key_for_auto(&self, k: usize) -> &Self::M {
+    impl<M: Matrix, P, R, N> PbsKey for ServerKeyEvaluationDomain<M, P, R, N> {
+        type AutoKey = M;
+        type LweKskKey = M;
+        type RgswCt = M;
+
+        fn galois_key_for_auto(&self, k: usize) -> &Self::AutoKey {
             self.galois_keys.get(&k).unwrap()
         }
-        fn rgsw_ct_lwe_si(&self, si: usize) -> &Self::M {
+        fn rgsw_ct_lwe_si(&self, si: usize) -> &Self::RgswCt {
             &self.rgsw_cts[si]
         }
 
-        fn lwe_ksk(&self) -> &Self::M {
+        fn lwe_ksk(&self) -> &Self::LweKskKey {
+            &self.lwe_ksk
+        }
+    }
+}
+
+/// Server key in evaluation domain
+pub(crate) struct ShoupServerKeyEvaluationDomain<M, P, R, N> {
+    /// Rgsw cts of LWE secret elements
+    rgsw_cts: Vec<NormalAndShoup<M>>,
+    /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
+    /// to -g is at 0
+    galois_keys: HashMap<usize, NormalAndShoup<M>>,
+    /// LWE ksk to key switching LWE ciphertext from RLWE secret to LWE secret
+    lwe_ksk: M,
+    parameters: P,
+    _phanton: PhantomData<(R, N)>,
+}
+
+pub(crate) struct NormalAndShoup<M>(M, M);
+
+mod shoup_server_key_eval_domain {
+    use crate::pbs::PbsKey;
+
+    use super::*;
+
+    impl<M: Matrix, P, R, N> PbsKey for ShoupServerKeyEvaluationDomain<M, P, R, N> {
+        type AutoKey = NormalAndShoup<M>;
+        type LweKskKey = M;
+        type RgswCt = NormalAndShoup<M>;
+
+        fn galois_key_for_auto(&self, k: usize) -> &Self::AutoKey {
+            self.galois_keys.get(&k).unwrap()
+        }
+        fn rgsw_ct_lwe_si(&self, si: usize) -> &Self::RgswCt {
+            &self.rgsw_cts[si]
+        }
+
+        fn lwe_ksk(&self) -> &Self::LweKskKey {
             &self.lwe_ksk
         }
     }

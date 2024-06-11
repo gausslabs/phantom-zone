@@ -244,4 +244,30 @@ where
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+
+    // #[test]
+    // fn gg() {
+    //     let n = 1 << (11 + 1);
+    //     let mut start = 1 << 55;
+    //     while start < (1 << 56) {
+    //         if start % n == 1 {
+    //             break;
+    //         }
+    //         start += 1;
+    //     }
+
+    //     let mut prime = None;
+    //     while start < (1 << 56) {
+    //         if is_probably_prime(start) {
+    //             dbg!(start);
+    //             prime = Some(start);
+    //             break;
+    //         }
+    //         dbg!(start);
+    //         start += (n);
+    //     }
+
+    //     println!("{:?}", prime);
+    // }
+}
