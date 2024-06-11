@@ -3,7 +3,7 @@ use num_traits::{ConstZero, FromPrimitive, PrimInt};
 use crate::{backend::Modulus, decomposer::Decomposer};
 
 #[derive(Clone, PartialEq)]
-pub(crate) struct BoolParameters<El> {
+pub struct BoolParameters<El> {
     rlwe_q: CiphertextModulus<El>,
     lwe_q: CiphertextModulus<El>,
     br_q: usize,
@@ -181,7 +181,7 @@ pub(crate) struct PolynomialSize(pub(crate) usize);
 
 /// T equals modulus when modulus is non-native. Otherwise T equals 0. bool is
 /// true when modulus is native, false otherwise.
-pub(crate) struct CiphertextModulus<T>(T, bool);
+pub struct CiphertextModulus<T>(T, bool);
 
 impl<T: ConstZero> CiphertextModulus<T> {
     const fn new_native() -> Self {

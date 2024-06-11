@@ -12,7 +12,7 @@ thread_local! {
     pub(crate) static DEFAULT_RNG: RefCell<DefaultSecureRng> = RefCell::new(DefaultSecureRng::new_seeded([0u8;32]));
 }
 
-pub(crate) trait NewWithSeed {
+pub trait NewWithSeed {
     type Seed;
     fn new_with_seed(seed: Self::Seed) -> Self;
 }
@@ -59,7 +59,7 @@ where
     fn random_fill(&mut self, modulus: &P, container: &mut M);
 }
 
-pub(crate) struct DefaultSecureRng {
+pub struct DefaultSecureRng {
     rng: ChaCha8Rng,
 }
 

@@ -1,5 +1,5 @@
 #[derive(Clone)]
-pub(super) struct FheUint8<C> {
+pub struct FheUint8<C> {
     pub(super) data: Vec<C>,
 }
 

@@ -26,8 +26,16 @@ static BOOL_SERVER_KEY: OnceLock<ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>> 
 
 static MULTI_PARTY_CRS: OnceLock<MultiPartyCrs<[u8; 32]>> = OnceLock::new();
 
-pub fn set_parameter_set(parameter: &BoolParameters<u64>) {
-    BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(parameter.clone())));
+pub enum ParameterSelector {
+    MultiPartyLessThan16,
+}
+
+pub fn set_parameter_set(select: ParameterSelector) {
+    match select {
+        ParameterSelector::MultiPartyLessThan16 => {
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(SMALL_MP_BOOL_PARAMS)));
+        }
+    }
 }
 
 pub fn set_mp_seed(seed: [u8; 32]) {

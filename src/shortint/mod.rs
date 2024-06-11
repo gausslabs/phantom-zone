@@ -8,7 +8,7 @@ use crate::{
 mod ops;
 mod types;
 
-type FheUint8 = types::FheUint8<Vec<u64>>;
+pub type FheUint8 = types::FheUint8<Vec<u64>>;
 
 impl Encryptor<u8, FheUint8> for ClientKey {
     fn encrypt(&self, m: &u8) -> FheUint8 {
@@ -308,9 +308,7 @@ mod tests {
     use crate::{
         bool::{
             aggregate_public_key_shares, aggregate_server_key_shares, gen_client_key, gen_keys,
-            gen_mp_keys_phase1, gen_mp_keys_phase2,
-            parameters::{MP_BOOL_PARAMS, SMALL_MP_BOOL_PARAMS, SP_BOOL_PARAMS},
-            set_mp_seed, set_parameter_set,
+            gen_mp_keys_phase1, gen_mp_keys_phase2, set_mp_seed, set_parameter_set,
         },
         shortint::types::FheUint8,
         Decryptor, Encryptor, MultiPartyDecryptor,
@@ -318,7 +316,7 @@ mod tests {
 
     #[test]
     fn all_uint8_apis() {
-        set_parameter_set(&SP_BOOL_PARAMS);
+        set_parameter_set(crate::ParameterSelector::MultiPartyLessThan16);
 
         let (ck, sk) = gen_keys();
         sk.set_server_key();
@@ -466,7 +464,7 @@ mod tests {
 
     #[test]
     fn fheuint8_test_multi_party() {
-        set_parameter_set(&SMALL_MP_BOOL_PARAMS);
+        set_parameter_set(crate::ParameterSelector::MultiPartyLessThan16);
         set_mp_seed([0; 32]);
 
         let parties = 8;
