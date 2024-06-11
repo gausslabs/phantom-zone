@@ -1,6 +1,6 @@
 use itertools::{izip, Itertools};
-use rand::{thread_rng, Rng, RngCore, SeedableRng};
-use rand_chacha::{rand_core::le, ChaCha8Rng};
+use rand::{Rng, RngCore, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 
 use crate::{
     backend::{ArithmeticOps, ModInit, ModularOpsU64, Modulus},

@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn all_uint8_apis() {
-        set_parameter_set(crate::ParameterSelector::MultiPartyLessThan16);
+        set_parameter_set(crate::ParameterSelector::MultiPartyLessThanOrEqualTo16);
 
         let (ck, sk) = gen_keys();
         sk.set_server_key();
@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn fheuint8_test_multi_party() {
-        set_parameter_set(crate::ParameterSelector::MultiPartyLessThan16);
+        set_parameter_set(crate::ParameterSelector::MultiPartyLessThanOrEqualTo16);
         set_mp_seed([0; 32]);
 
         let parties = 8;

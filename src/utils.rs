@@ -1,11 +1,11 @@
 use std::{fmt::Debug, usize, vec};
 
 use itertools::{izip, Itertools};
-use num_traits::{FromPrimitive, PrimInt, Signed, Unsigned};
+use num_traits::{FromPrimitive, PrimInt, Signed};
 
 use crate::{
     backend::Modulus,
-    random::{RandomElement, RandomElementInModulus, RandomFill},
+    random::{RandomElementInModulus, RandomFill},
     Matrix,
 };
 pub trait WithLocal {
@@ -118,7 +118,7 @@ fn is_probably_prime(candidate: u64) -> bool {
 /// - $prime \lt upper_bound$
 /// - $\log{prime} = num_bits$
 /// - `prime % modulo == 1`
-pub fn generate_prime(num_bits: usize, modulo: u64, upper_bound: u64) -> Option<u64> {
+pub(crate) fn generate_prime(num_bits: usize, modulo: u64, upper_bound: u64) -> Option<u64> {
     let leading_zeros = (64 - num_bits) as u32;
 
     let mut tentative_prime = upper_bound - 1;

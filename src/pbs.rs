@@ -8,9 +8,7 @@ use crate::{
     lwe::lwe_key_switch,
     ntt::Ntt,
     random::DefaultSecureRng,
-    rgsw::{
-        galois_auto, galois_auto_shoup, rlwe_by_rgsw, rlwe_by_rgsw_shoup, IsTrivial, RlweCiphertext,
-    },
+    rgsw::{galois_auto_shoup, rlwe_by_rgsw_shoup, IsTrivial, RlweCiphertext},
     Matrix, MatrixEntity, MatrixMut, RowMut,
 };
 pub(crate) trait PbsKey {

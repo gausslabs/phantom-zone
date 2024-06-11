@@ -1,10 +1,7 @@
 use itertools::izip;
-use num_traits::{PrimInt, Signed, ToPrimitive, WrappingAdd, WrappingMul, WrappingSub, Zero};
+use num_traits::{WrappingAdd, WrappingMul, WrappingSub, Zero};
 
-use super::{
-    ArithmeticLazyOps, ArithmeticOps, GetModulus, ModInit, Modulus, ShoupMatrixFMA, VectorOps,
-};
-use crate::{utils::ShoupMul, Matrix, RowMut};
+use super::{ArithmeticOps, GetModulus, ModInit, Modulus, VectorOps};
 
 pub struct WordSizeModulus<T> {
     modulus: T,

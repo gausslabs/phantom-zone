@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use itertools::izip;
 use num_traits::{PrimInt, Zero};
-use rand::{distributions::Uniform, thread_rng, CryptoRng, Rng, RngCore, SeedableRng};
+use rand::{distributions::Uniform, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{uniform::SampleUniform, Distribution};
 
@@ -15,11 +15,6 @@ thread_local! {
 pub trait NewWithSeed {
     type Seed;
     fn new_with_seed(seed: Self::Seed) -> Self;
-}
-
-pub trait RandomElement<T> {
-    /// Sample Random element of type T
-    fn random(&mut self) -> T;
 }
 
 pub trait RandomElementInModulus<T, M> {
@@ -150,15 +145,6 @@ where
         .for_each(|(from, to)| {
             *to = from;
         });
-    }
-}
-
-impl<T> RandomElement<T> for DefaultSecureRng
-where
-    T: PrimInt + SampleUniform,
-{
-    fn random(&mut self) -> T {
-        Uniform::new_inclusive(T::zero(), T::max_value()).sample(&mut self.rng)
     }
 }
 

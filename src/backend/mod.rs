@@ -1,6 +1,6 @@
 use num_traits::ToPrimitive;
 
-use crate::{Matrix, Row, RowMut};
+use crate::Row;
 
 mod modulus_u64;
 mod power_of_2;
@@ -8,7 +8,6 @@ mod word_size;
 
 pub use modulus_u64::ModularOpsU64;
 pub(crate) use power_of_2::ModulusPowerOf2;
-pub use word_size::WordSizeModulus;
 
 pub trait Modulus {
     type Element;

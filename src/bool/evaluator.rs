@@ -1299,7 +1299,6 @@ mod tests {
     use rand_distr::Uniform;
 
     use crate::{
-        backend::{GetModulus, ModInit, ModularOpsU64, WordSizeModulus},
         bool::{
             self, CommonReferenceSeededMultiPartyServerKeyShare, PublicKey,
             SeededMultiPartyServerKey,

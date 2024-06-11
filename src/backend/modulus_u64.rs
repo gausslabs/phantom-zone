@@ -1,12 +1,10 @@
-use std::marker::PhantomData;
-
 use itertools::izip;
-use num_traits::{PrimInt, Signed, ToPrimitive, WrappingAdd, WrappingMul, WrappingSub, Zero};
+use num_traits::WrappingMul;
 
 use super::{
     ArithmeticLazyOps, ArithmeticOps, GetModulus, ModInit, Modulus, ShoupMatrixFMA, VectorOps,
 };
-use crate::{utils::ShoupMul, Matrix, RowMut};
+use crate::RowMut;
 
 pub struct ModularOpsU64<T> {
     q: u64,
