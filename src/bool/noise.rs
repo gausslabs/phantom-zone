@@ -2,7 +2,7 @@ mod test {
     use itertools::{izip, Itertools};
 
     use crate::{
-        backend::{ArithmeticOps, ModularOpsU64, Modulus},
+        backend::{ArithmeticOps, ModularOpsU64, Modulus, ModulusPowerOf2},
         bool::{
             set_parameter_set, BoolEncoding, BoolEvaluator, BooleanGates, CiphertextModulus,
             ClientKey, PublicKey, ServerKeyEvaluationDomain, ShoupServerKeyEvaluationDomain,
@@ -24,7 +24,7 @@ mod test {
             Vec<Vec<u64>>,
             NttBackendU64,
             ModularOpsU64<CiphertextModulus<u64>>,
-            ModularOpsU64<CiphertextModulus<u64>>,
+            ModulusPowerOf2<CiphertextModulus<u64>>,
             ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
         >::new(SMALL_MP_BOOL_PARAMS);
 
@@ -103,9 +103,9 @@ mod test {
         // let mut stats = Stats::new();
 
         for _ in 0..1000 {
-            // let now = std::time::Instant::now();
+            let now = std::time::Instant::now();
             let c_out = evaluator.xor(&c_m0, &c_m1, &runtime_server_key);
-            // println!("Gate time: {:?}", now.elapsed());
+            println!("Gate time: {:?}", now.elapsed());
 
             // mp decrypt
             let decryption_shares = cks

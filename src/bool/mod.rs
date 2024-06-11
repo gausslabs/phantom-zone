@@ -12,14 +12,14 @@ use keys::*;
 use parameters::*;
 
 use crate::{
-    backend::ModularOpsU64,
+    backend::{ModularOpsU64, ModulusPowerOf2},
     ntt::NttBackendU64,
     random::{DefaultSecureRng, NewWithSeed},
     utils::{Global, WithLocal},
 };
 
 thread_local! {
-    static BOOL_EVALUATOR: RefCell<Option<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64<CiphertextModulus<u64>>,  ModularOpsU64<CiphertextModulus<u64>>, ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>>>> = RefCell::new(None);
+    static BOOL_EVALUATOR: RefCell<Option<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64<CiphertextModulus<u64>>,  ModulusPowerOf2<CiphertextModulus<u64>>, ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>>>> = RefCell::new(None);
 
 }
 static BOOL_SERVER_KEY: OnceLock<ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>> = OnceLock::new();
@@ -138,7 +138,7 @@ impl WithLocal
         Vec<Vec<u64>>,
         NttBackendU64,
         ModularOpsU64<CiphertextModulus<u64>>,
-        ModularOpsU64<CiphertextModulus<u64>>,
+        ModulusPowerOf2<CiphertextModulus<u64>>,
         ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
     >
 {

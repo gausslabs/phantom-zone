@@ -112,6 +112,7 @@ pub(crate) fn pbs<
     });
 
     // key switch RLWE secret to LWE secret
+    // let now = std::time::Instant::now();
     scratch_lwe_vec.as_mut().fill(M::MatElement::zero());
     lwe_key_switch(
         scratch_lwe_vec,
@@ -120,6 +121,7 @@ pub(crate) fn pbs<
         pbs_info.modop_lweq(),
         pbs_info.lwe_decomposer(),
     );
+    // println!("Time: {:?}", now.elapsed());
 
     // odd mowdown Q_ks -> q
     let g_k_dlog_map = pbs_info.g_k_dlog_map();
