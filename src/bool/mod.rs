@@ -23,7 +23,12 @@ thread_local! {
 
 }
 static BOOL_SERVER_KEY: OnceLock<
-    ServerKeyEvaluationDomain<Vec<Vec<u64>>, BoolParameters<u64>, DefaultSecureRng, NttBackendU64>,
+    ShoupServerKeyEvaluationDomain<
+        Vec<Vec<u64>>,
+        BoolParameters<u64>,
+        DefaultSecureRng,
+        NttBackendU64,
+    >,
 > = OnceLock::new();
 
 static MULTI_PARTY_CRS: OnceLock<MultiPartyCrs<[u8; 32]>> = OnceLock::new();
@@ -40,7 +45,7 @@ pub fn set_mp_seed(seed: [u8; 32]) {
 }
 
 fn set_server_key(
-    key: ServerKeyEvaluationDomain<
+    key: ShoupServerKeyEvaluationDomain<
         Vec<Vec<u64>>,
         BoolParameters<u64>,
         DefaultSecureRng,
@@ -140,7 +145,7 @@ impl
 }
 
 impl Global
-    for ServerKeyEvaluationDomain<
+    for ShoupServerKeyEvaluationDomain<
         Vec<Vec<u64>>,
         BoolParameters<u64>,
         DefaultSecureRng,

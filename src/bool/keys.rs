@@ -3,6 +3,7 @@ use std::{collections::HashMap, hash::Hash, marker::PhantomData};
 use crate::{
     backend::{ModInit, VectorOps},
     lwe::LweSecret,
+    pbs::WithShoupRepr,
     random::{NewWithSeed, RandomFillUniformInModulus},
     rgsw::RlweSecret,
     utils::WithLocal,
@@ -681,6 +682,19 @@ pub(crate) struct ShoupServerKeyEvaluationDomain<M, P, R, N> {
 }
 
 pub(crate) struct NormalAndShoup<M>(M, M);
+
+impl<M> AsRef<M> for NormalAndShoup<M> {
+    fn as_ref(&self) -> &M {
+        &self.0
+    }
+}
+
+impl<M> WithShoupRepr for NormalAndShoup<M> {
+    type M = M;
+    fn shoup_repr(&self) -> &Self::M {
+        &self.1
+    }
+}
 
 mod shoup_server_key_eval_domain {
     use crate::pbs::PbsKey;

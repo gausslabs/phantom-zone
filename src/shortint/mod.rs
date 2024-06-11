@@ -97,11 +97,17 @@ mod frontend {
         eight_bit_mul,
     };
     use crate::{
-        bool::{evaluator::BoolEvaluator, keys::ServerKeyEvaluationDomain},
+        bool::{
+            evaluator::{self, BoolEvaluator, BooleanGates},
+            keys::{ServerKeyEvaluationDomain, ShoupServerKeyEvaluationDomain},
+        },
         utils::{Global, WithLocal},
     };
 
     use super::FheUint8;
+
+    type ShortIntBoolEvaluator<M, Ntt, RlweModOp, LweModOp> =
+        BoolEvaluator<M, Ntt, RlweModOp, LweModOp>;
 
     mod arithetic {
         use crate::bool::{evaluator::BooleanGates, FheBool};
@@ -111,8 +117,8 @@ mod frontend {
 
         impl AddAssign<&FheUint8> for FheUint8 {
             fn add_assign(&mut self, rhs: &FheUint8) {
-                BoolEvaluator::with_local_mut_mut(&mut |e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                ShortIntBoolEvaluator::with_local_mut_mut(&mut |e| {
+                    let key = <ShortIntBoolEvaluator<_, _, _, _> as BooleanGates>::Key::global();
                     arbitrary_bit_adder(e, self.data_mut(), rhs.data(), false, key);
                 });
             }

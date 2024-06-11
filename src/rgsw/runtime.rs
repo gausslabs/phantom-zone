@@ -185,7 +185,7 @@ pub(crate) fn galois_auto_shoup<
     MT: Matrix + IsTrivial + MatrixMut,
     Mmut: MatrixMut<MatElement = MT::MatElement>,
     ModOp: ArithmeticOps<Element = MT::MatElement>
-        + VectorOps<Element = MT::MatElement>
+        // + VectorOps<Element = MT::MatElement>
         + ShoupMatrixFMA<Mmut::R>,
     NttOp: Ntt<Element = MT::MatElement>,
     D: Decomposer<Element = MT::MatElement>,
@@ -422,7 +422,7 @@ pub(crate) fn rlwe_by_rgsw_shoup<
     Mmut: MatrixMut,
     MT: Matrix<MatElement = Mmut::MatElement> + MatrixMut<MatElement = Mmut::MatElement> + IsTrivial,
     D: RlweDecomposer<Element = Mmut::MatElement>,
-    ModOp: VectorOps<Element = Mmut::MatElement> + ShoupMatrixFMA<Mmut::R>,
+    ModOp: ShoupMatrixFMA<Mmut::R>,
     NttOp: Ntt<Element = Mmut::MatElement>,
 >(
     rlwe_in: &mut MT,

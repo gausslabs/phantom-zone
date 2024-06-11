@@ -15,7 +15,9 @@ use num_traits::{FromPrimitive, Num, One, Pow, PrimInt, ToPrimitive, WrappingSub
 use rand_distr::uniform::SampleUniform;
 
 use crate::{
-    backend::{ArithmeticOps, GetModulus, ModInit, ModularOpsU64, Modulus, VectorOps},
+    backend::{
+        ArithmeticOps, GetModulus, ModInit, ModularOpsU64, Modulus, ShoupMatrixFMA, VectorOps,
+    },
     decomposer::{Decomposer, DefaultDecomposer, NumInfo, RlweDecomposer},
     lwe::{decrypt_lwe, encrypt_lwe, lwe_key_switch, lwe_ksk_keygen, measure_noise_lwe, LweSecret},
     multi_party::public_key_share,
@@ -43,6 +45,7 @@ use super::{
     parameters::{BoolParameters, CiphertextModulus},
     CommonReferenceSeededCollectivePublicKeyShare, CommonReferenceSeededMultiPartyServerKeyShare,
     SeededMultiPartyServerKey, SeededServerKey, ServerKeyEvaluationDomain,
+    ShoupServerKeyEvaluationDomain,
 };
 
 pub struct MultiPartyCrs<S> {
@@ -78,7 +81,7 @@ impl<S: Default + Copy> MultiPartyCrs<S> {
 
 pub(crate) trait BooleanGates {
     type Ciphertext: RowEntity;
-    type Key;
+    type Key: Global;
 
     fn and_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
     fn nand_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
@@ -231,12 +234,12 @@ pub(super) struct BoolPbsInfo<M: Matrix, Ntt, RlweModOp, LweModOp> {
 impl<M: Matrix, NttOp, RlweModOp, LweModOp> PbsInfo for BoolPbsInfo<M, NttOp, RlweModOp, LweModOp>
 where
     M::MatElement: PrimInt + WrappingSub + NumInfo + FromPrimitive + From<bool> + Display,
-    RlweModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
+    RlweModOp: ArithmeticOps<Element = M::MatElement> + ShoupMatrixFMA<M::R>,
     LweModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     NttOp: Ntt<Element = M::MatElement>,
 {
+    type M = M;
     type Modulus = CiphertextModulus<M::MatElement>;
-    type Element = M::MatElement;
     type D = DefaultDecomposer<M::MatElement>;
     type RlweModOp = RlweModOp;
     type LweModOp = LweModOp;
@@ -291,7 +294,7 @@ where
     }
 }
 
-pub(crate) struct BoolEvaluator<M, Ntt, RlweModOp, LweModOp>
+pub(crate) struct BoolEvaluator<Info, SKey>
 where
     M: Matrix,
 {
@@ -316,7 +319,7 @@ impl<M: Matrix, NttOp, RlweModOp, LweModOp> BoolEvaluator<M, NttOp, RlweModOp, L
     }
 }
 
-impl<M: Matrix, NttOp, RlweModOp, LweModOp> BoolEvaluator<M, NttOp, RlweModOp, LweModOp>
+impl<M: Matrix, NttOp, RlweModOp, LweModOp, SKey> BoolEvaluator<M, NttOp, RlweModOp, LweModOp, SKey>
 where
     M: MatrixEntity + MatrixMut,
     M::MatElement: PrimInt
@@ -330,7 +333,8 @@ where
     NttOp: Ntt<Element = M::MatElement>,
     RlweModOp: ArithmeticOps<Element = M::MatElement>
         + VectorOps<Element = M::MatElement>
-        + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
+        + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>
+        + ShoupMatrixFMA<M::R>,
     LweModOp: ArithmeticOps<Element = M::MatElement>
         + VectorOps<Element = M::MatElement>
         + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
@@ -1083,12 +1087,8 @@ where
     M: MatrixMut + MatrixEntity,
     M::R: RowMut + RowEntity,
     M::MatElement: PrimInt + FromPrimitive + One + Copy + Zero + Display + WrappingSub + NumInfo,
-    RlweModOp: VectorOps<Element = M::MatElement>
-        + ArithmeticOps<Element = M::MatElement>
-        + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
-    LweModOp: VectorOps<Element = M::MatElement>
-        + ArithmeticOps<Element = M::MatElement>
-        + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
+    RlweModOp: VectorOps<Element = M::MatElement> + ArithmeticOps<Element = M::MatElement>,
+    LweModOp: VectorOps<Element = M::MatElement> + ArithmeticOps<Element = M::MatElement>,
     NttOp: Ntt<Element = M::MatElement>,
 {
     /// Returns c0 + c1 + Q/4
@@ -1118,14 +1118,12 @@ where
         PrimInt + FromPrimitive + One + Copy + Zero + Display + WrappingSub + NumInfo + From<bool>,
     RlweModOp: VectorOps<Element = M::MatElement>
         + ArithmeticOps<Element = M::MatElement>
-        + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
-    LweModOp: VectorOps<Element = M::MatElement>
-        + ArithmeticOps<Element = M::MatElement>
-        + GetModulus<Element = M::MatElement, M = CiphertextModulus<M::MatElement>>,
+        + ShoupMatrixFMA<M::R>,
+    LweModOp: VectorOps<Element = M::MatElement> + ArithmeticOps<Element = M::MatElement>,
     NttOp: Ntt<Element = M::MatElement>,
 {
     type Ciphertext = M::R;
-    type Key = ServerKeyEvaluationDomain<M, BoolParameters<u64>, DefaultSecureRng, NttOp>;
+    type Key = Key;
 
     fn nand_inplace(&mut self, c0: &mut M::R, c1: &M::R, server_key: &Self::Key) {
         self._add_and_shift_lwe_cts(c0, c1);
@@ -1307,7 +1305,7 @@ where
 //             self, measure_noise, public_key_encrypt_rlwe,
 // secret_key_encrypt_rlwe,             tests::{_measure_noise_rgsw,
 // _sk_encrypt_rlwe},             RgswCiphertext,
-// RgswCiphertextEvaluationDomain, SeededRgswCiphertext,             
+// RgswCiphertextEvaluationDomain, SeededRgswCiphertext,
 // SeededRlweCiphertext,         },
 //         utils::{negacyclic_mul, Stats},
 //     };
@@ -1439,7 +1437,7 @@ where
 //             let public_key_share = parties
 //                 .iter()
 //                 .map(|k|
-// bool_evaluator.multi_party_public_key_share(pk_cr_seed, k))                 
+// bool_evaluator.multi_party_public_key_share(pk_cr_seed, k))
 // .collect_vec();
 
 //             let collective_pk = PublicKey::<
@@ -1559,7 +1557,7 @@ where
 // &collective_pk.key(), k)             })
 //             .collect_vec();
 //         let seeded_server_key =
-//             
+//
 // bool_evaluator.aggregate_multi_party_server_key_shares(&server_key_shares);
 //         let server_key_eval = ServerKeyEvaluationDomain::<_,
 // DefaultSecureRng, NttBackendU64>::from(             &seeded_server_key,
@@ -1570,7 +1568,7 @@ where
 //             let mut ideal_rlwe_sk = vec![0i32;
 // bool_evaluator.pbs_info.rlwe_n()];             parties.iter().for_each(|k| {
 //                 izip!(ideal_rlwe_sk.iter_mut(),
-// k.sk_rlwe().values()).for_each(|(ideal_i, s_i)| {                     
+// k.sk_rlwe().values()).for_each(|(ideal_i, s_i)| {
 // *ideal_i = *ideal_i + s_i;                 });
 //             });
 //             let mut ideal_lwe_sk = vec![0i32;
@@ -1628,7 +1626,7 @@ where
 //             let decryption_shares = parties
 //                 .iter()
 //                 .map(|k|
-// bool_evaluator.multi_party_decryption_share(&lwe_out, k))                 
+// bool_evaluator.multi_party_decryption_share(&lwe_out, k))
 // .collect_vec();             let m_back =
 // bool_evaluator.multi_party_decrypt(&decryption_shares, &lwe_out);
 
@@ -1687,7 +1685,7 @@ where
 //             let mut ideal_rlwe_sk = vec![0i32;
 // bool_evaluator.pbs_info.rlwe_n()];             parties.iter().for_each(|k| {
 //                 izip!(ideal_rlwe_sk.iter_mut(),
-// k.sk_rlwe().values()).for_each(|(ideal_i, s_i)| {                     
+// k.sk_rlwe().values()).for_each(|(ideal_i, s_i)| {
 // *ideal_i = *ideal_i + s_i;                 });
 //             });
 //             let mut ideal_lwe_sk = vec![0i32;
@@ -1718,7 +1716,7 @@ where
 //                 let public_key_share = parties
 //                     .iter()
 //                     .map(|k|
-// bool_evaluator.multi_party_public_key_share(pk_cr_seed, k))                  
+// bool_evaluator.multi_party_public_key_share(pk_cr_seed, k))
 // .collect_vec();                 let collective_pk = PublicKey::<
 //                     Vec<Vec<u64>>,
 //                     DefaultSecureRng,
@@ -1763,7 +1761,7 @@ where
 //             let public_key_share = parties
 //                 .iter()
 //                 .map(|k|
-// bool_evaluator.multi_party_public_key_share(pk_cr_seed, k))                 
+// bool_evaluator.multi_party_public_key_share(pk_cr_seed, k))
 // .collect_vec();             let collective_pk = PublicKey::<
 //                 Vec<Vec<u64>>,
 //                 DefaultSecureRng,
@@ -1780,7 +1778,7 @@ where
 //                 .collect_vec();
 
 //             let seeded_server_key =
-//                 
+//
 // bool_evaluator.aggregate_multi_party_server_key_shares(&server_key_shares);
 
 //             // Check noise in RGSW ciphertexts of ideal LWE secret elements
@@ -1802,21 +1800,21 @@ where
 
 //                     // RLWE'(-sm)
 //                     let mut neg_s_eval =
-//                         
+//
 // Vec::<u64>::try_convert_from(ideal_client_key.sk_rlwe().values(), rlwe_q);
 //                     rlwe_modop.elwise_neg_mut(&mut neg_s_eval);
 //                     rlwe_nttop.forward(&mut neg_s_eval);
 //                     for j in
-// 0..rlwe_rgsw_decomposer.a().decomposition_count() {                         
+// 0..rlwe_rgsw_decomposer.a().decomposition_count() {
 // // RLWE(B^{j} * -s[X]*X^{s_lwe[i]})
 
 //                         // -s[X]*X^{s_lwe[i]}*B_j
 //                         let mut m_ideal = m_si.clone();
 //                         rlwe_nttop.forward(m_ideal.as_mut_slice());
 //                         rlwe_modop.elwise_mul_mut(m_ideal.as_mut_slice(),
-// neg_s_eval.as_slice());                         
-// rlwe_nttop.backward(m_ideal.as_mut_slice());                         
-// rlwe_modop                             
+// neg_s_eval.as_slice());
+// rlwe_nttop.backward(m_ideal.as_mut_slice());
+// rlwe_modop
 // .elwise_scalar_mul_mut(m_ideal.as_mut_slice(), &rlwe_rgsw_gadget_a[j]);
 
 //                         // RLWE(-s*X^{s_lwe[i]}*B_j)
@@ -1842,7 +1840,7 @@ where
 
 //                     // RLWE'(m)
 //                     for j in
-// 0..rlwe_rgsw_decomposer.b().decomposition_count() {                         
+// 0..rlwe_rgsw_decomposer.b().decomposition_count() {
 // // RLWE(B^{j} * X^{s_lwe[i]})
 
 //                         // X^{s_lwe[i]}*B_j
@@ -1959,7 +1957,7 @@ where
 //                     );
 //                     rlwe_nttop.forward(m_plus_e_times_m1.as_mut_slice());
 //                     rlwe_nttop.forward(m1.as_mut_slice());
-//                     
+//
 // rlwe_modop.elwise_mul_mut(m_plus_e_times_m1.as_mut_slice(), m1.as_slice());
 //                     rlwe_nttop.backward(m_plus_e_times_m1.as_mut_slice());
 
@@ -2010,7 +2008,7 @@ where
 //                 let mut check = Stats { samples: vec![] };
 
 //                 let mut neg_s_poly =
-//                     
+//
 // Vec::<u64>::try_convert_from(ideal_client_key.sk_rlwe().values(), rlwe_q);
 //                 rlwe_modop.elwise_neg_mut(neg_s_poly.as_mut_slice());
 
@@ -2045,7 +2043,7 @@ where
 //                     auto_gadget.iter().enumerate().for_each(|(i, b_i)| {
 //                         // B^i * -s[X^k]
 //                         let mut m_ideal = neg_s_poly_auto_i.clone();
-//                         
+//
 // rlwe_modop.elwise_scalar_mul_mut(m_ideal.as_mut_slice(), b_i);
 
 //                         let mut m_out = vec![0u64; rlwe_n];
@@ -2053,14 +2051,8 @@ where
 //                         rlwe_ct[0].copy_from_slice(&auto_key_i[i]);
 //                         rlwe_ct[1].copy_from_slice(
 //                             &auto_key_i[auto_decomposer.decomposition_count()
-// + i],                         );
-//                         decrypt_rlwe(
-//                             &rlwe_ct,
-//                             ideal_client_key.sk_rlwe().values(),
-//                             &mut m_out,
-//                             rlwe_nttop,
-//                             rlwe_modop,
-//                         );
+// + i],                         ); decrypt_rlwe( &rlwe_ct,
+//   ideal_client_key.sk_rlwe().values(), &mut m_out, rlwe_nttop, rlwe_modop, );
 
 //                         // diff
 //                         rlwe_modop.elwise_sub_mut(m_out.as_mut_slice(),
@@ -2111,10 +2103,10 @@ where
 
 //                         let auto_key =
 // server_key_eval_domain.galois_key_for_auto(i);                         let
-// (auto_map_index, auto_map_sign) =                             
+// (auto_map_index, auto_map_sign) =
 // bool_evaluator.pbs_info.rlwe_auto_map(i);                         let mut
 // scratch =                             vec![vec![0u64; rlwe_n];
-// auto_decomposer.decomposition_count() + 2];                         
+// auto_decomposer.decomposition_count() + 2];
 // galois_auto(                             &mut rlwe_ct,
 //                             auto_key,
 //                             &mut scratch,
@@ -2149,7 +2141,7 @@ where
 //                         rlwe_modop.elwise_sub_mut(m_out.as_mut_slice(),
 // m_plus_e_auto.as_slice());
 
-//                         
+//
 // check.add_more(&Vec::<i64>::try_convert_from(m_out.as_slice(), rlwe_q));
 //                     }
 //                 }

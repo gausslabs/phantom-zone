@@ -3,12 +3,14 @@ use std::{fmt::Display, marker::PhantomData};
 use num_traits::{FromPrimitive, One, PrimInt, ToPrimitive, Zero};
 
 use crate::{
-    backend::{ArithmeticOps, Modulus, VectorOps},
+    backend::{ArithmeticOps, Modulus, ShoupMatrixFMA, VectorOps},
     decomposer::Decomposer,
     lwe::lwe_key_switch,
     ntt::Ntt,
     random::DefaultSecureRng,
-    rgsw::{galois_auto, rlwe_by_rgsw, rlwe_by_rgsw_shoup, IsTrivial, RlweCiphertext},
+    rgsw::{
+        galois_auto, galois_auto_shoup, rlwe_by_rgsw, rlwe_by_rgsw_shoup, IsTrivial, RlweCiphertext,
+    },
     Matrix, MatrixEntity, MatrixMut, RowMut,
 };
 pub(crate) trait PbsKey {
@@ -24,22 +26,24 @@ pub(crate) trait PbsKey {
     fn lwe_ksk(&self) -> &Self::LweKskKey;
 }
 
-trait WithShoupRepr: AsRef<Self::M> {
+pub(crate) trait WithShoupRepr: AsRef<Self::M> {
     type M;
-    fn shoup_repr(&self) -> Self::M;
+    fn shoup_repr(&self) -> &Self::M;
 }
 
 pub(crate) trait PbsInfo {
-    type Element;
-    type Modulus: Modulus<Element = Self::Element>;
-    type NttOp: Ntt<Element = Self::Element>;
-    type D: Decomposer<Element = Self::Element>;
+    type M: Matrix;
+    type Modulus: Modulus<Element = <Self::M as Matrix>::MatElement>;
+    type NttOp: Ntt<Element = <Self::M as Matrix>::MatElement>;
+    type D: Decomposer<Element = <Self::M as Matrix>::MatElement>;
 
     // Although both types have same bounds, they can be different types. For ex,
     // type RlweModOp may only support native modulus, where LweModOp may only
     // support prime modulus, etc.
-    type RlweModOp: VectorOps<Element = Self::Element> + ArithmeticOps<Element = Self::Element>;
-    type LweModOp: VectorOps<Element = Self::Element> + ArithmeticOps<Element = Self::Element>;
+    type RlweModOp: ArithmeticOps<Element = <Self::M as Matrix>::MatElement>
+        + ShoupMatrixFMA<<Self::M as Matrix>::R>;
+    type LweModOp: VectorOps<Element = <Self::M as Matrix>::MatElement>
+        + ArithmeticOps<Element = <Self::M as Matrix>::MatElement>;
 
     fn rlwe_q(&self) -> &Self::Modulus;
     fn lwe_q(&self) -> &Self::Modulus;
@@ -79,8 +83,9 @@ pub(crate) trait PbsInfo {
 /// - blind rotate
 pub(crate) fn pbs<
     M: MatrixMut + MatrixEntity,
-    P: PbsInfo<Element = M::MatElement>,
-    K: PbsKey<RgswCt = M, AutoKey = M, LweKskKey = M>,
+    MShoup: WithShoupRepr<M = M>,
+    P: PbsInfo<M = M>,
+    K: PbsKey<RgswCt = MShoup, AutoKey = MShoup, LweKskKey = M>,
 >(
     pbs_info: &P,
     test_vec: &M::R,
@@ -217,10 +222,10 @@ fn blind_rotation<
     Mmut: MatrixMut<MatElement = MT::MatElement>,
     D: Decomposer<Element = MT::MatElement>,
     NttOp: Ntt<Element = MT::MatElement>,
-    ModOp: ArithmeticOps<Element = MT::MatElement> + VectorOps<Element = MT::MatElement>,
+    ModOp: ArithmeticOps<Element = MT::MatElement> + ShoupMatrixFMA<Mmut::R>,
     MShoup: WithShoupRepr<M = Mmut>,
     K: PbsKey<RgswCt = MShoup, AutoKey = MShoup>,
-    P: PbsInfo<Element = MT::MatElement>,
+    P: PbsInfo<M = Mmut>,
 >(
     trivial_rlwe_test_poly: &mut MT,
     scratch_matrix: &mut Mmut,
@@ -249,19 +254,11 @@ fn blind_rotation<
 
         s_indices.iter().for_each(|s_index| {
             // let new = std::time::Instant::now();
-            // rlwe_by_rgsw(
-            // trivial_rlwe_test_poly,
-            // pbs_key.rgsw_ct_lwe_si(*s_index),
-            // scratch_matrix,
-            // rlwe_rgsw_decomposer,
-            // ntt_op,
-            // mod_op,
-            // );
             let ct = pbs_key.rgsw_ct_lwe_si(*s_index);
             rlwe_by_rgsw_shoup(
                 trivial_rlwe_test_poly,
                 ct.as_ref(),
-                &ct.shoup_repr(),
+                ct.shoup_repr(),
                 scratch_matrix,
                 rlwe_rgsw_decomposer,
                 ntt_op,
@@ -275,9 +272,11 @@ fn blind_rotation<
             let (auto_map_index, auto_map_sign) = parameters.rlwe_auto_map(v);
 
             // let now = std::time::Instant::now();
-            galois_auto(
+            let auto_key = pbs_key.galois_key_for_auto(v);
+            galois_auto_shoup(
                 trivial_rlwe_test_poly,
-                pbs_key.galois_key_for_auto(v),
+                auto_key.as_ref(),
+                auto_key.shoup_repr(),
                 scratch_matrix,
                 &auto_map_index,
                 &auto_map_sign,
@@ -293,37 +292,46 @@ fn blind_rotation<
     }
 
     // -(g^0)
-    gk_to_si[q_by_4].iter().for_each(|s_index| {
-        rlwe_by_rgsw(
+    {
+        gk_to_si[q_by_4].iter().for_each(|s_index| {
+            let ct = pbs_key.rgsw_ct_lwe_si(*s_index);
+            rlwe_by_rgsw_shoup(
+                trivial_rlwe_test_poly,
+                ct.as_ref(),
+                ct.shoup_repr(),
+                scratch_matrix,
+                rlwe_rgsw_decomposer,
+                ntt_op,
+                mod_op,
+            );
+        });
+
+        let (auto_map_index, auto_map_sign) = parameters.rlwe_auto_map(0);
+        let auto_key = pbs_key.galois_key_for_auto(0);
+        galois_auto_shoup(
             trivial_rlwe_test_poly,
-            pbs_key.rgsw_ct_lwe_si(*s_index),
+            auto_key.as_ref(),
+            auto_key.shoup_repr(),
             scratch_matrix,
-            rlwe_rgsw_decomposer,
-            ntt_op,
+            &auto_map_index,
+            &auto_map_sign,
             mod_op,
+            ntt_op,
+            auto_decomposer,
         );
-    });
-    let (auto_map_index, auto_map_sign) = parameters.rlwe_auto_map(0);
-    galois_auto(
-        trivial_rlwe_test_poly,
-        pbs_key.galois_key_for_auto(0),
-        scratch_matrix,
-        &auto_map_index,
-        &auto_map_sign,
-        mod_op,
-        ntt_op,
-        auto_decomposer,
-    );
-    count += 1;
+        count += 1;
+    }
 
     // +(g^k)
     let mut v = 0;
     for i in (1..q_by_4).rev() {
         let s_indices = &gk_to_si[i];
         s_indices.iter().for_each(|s_index| {
-            rlwe_by_rgsw(
+            let ct = pbs_key.rgsw_ct_lwe_si(*s_index);
+            rlwe_by_rgsw_shoup(
                 trivial_rlwe_test_poly,
-                pbs_key.rgsw_ct_lwe_si(*s_index),
+                ct.as_ref(),
+                ct.shoup_repr(),
                 scratch_matrix,
                 rlwe_rgsw_decomposer,
                 ntt_op,
@@ -334,9 +342,11 @@ fn blind_rotation<
 
         if gk_to_si[i - 1].len() != 0 || v == w || i == 1 {
             let (auto_map_index, auto_map_sign) = parameters.rlwe_auto_map(v);
-            galois_auto(
+            let auto_key = pbs_key.galois_key_for_auto(v);
+            galois_auto_shoup(
                 trivial_rlwe_test_poly,
-                pbs_key.galois_key_for_auto(v),
+                auto_key.as_ref(),
+                auto_key.shoup_repr(),
                 scratch_matrix,
                 &auto_map_index,
                 &auto_map_sign,
@@ -351,9 +361,11 @@ fn blind_rotation<
 
     // +(g^0)
     gk_to_si[0].iter().for_each(|s_index| {
-        rlwe_by_rgsw(
+        let ct = pbs_key.rgsw_ct_lwe_si(*s_index);
+        rlwe_by_rgsw_shoup(
             trivial_rlwe_test_poly,
-            pbs_key.rgsw_ct_lwe_si(*s_index),
+            ct.as_ref(),
+            ct.shoup_repr(),
             scratch_matrix,
             rlwe_rgsw_decomposer,
             ntt_op,
