@@ -106,19 +106,16 @@ mod frontend {
 
     use super::FheUint8;
 
-    type ShortIntBoolEvaluator<M, Ntt, RlweModOp, LweModOp> =
-        BoolEvaluator<M, Ntt, RlweModOp, LweModOp>;
-
     mod arithetic {
-        use crate::bool::{evaluator::BooleanGates, FheBool};
+        use crate::bool::{FheBool, RuntimeServerKey};
 
         use super::*;
         use std::ops::{Add, AddAssign, Div, Mul, Rem, Sub};
 
         impl AddAssign<&FheUint8> for FheUint8 {
             fn add_assign(&mut self, rhs: &FheUint8) {
-                ShortIntBoolEvaluator::with_local_mut_mut(&mut |e| {
-                    let key = <ShortIntBoolEvaluator<_, _, _, _> as BooleanGates>::Key::global();
+                BoolEvaluator::with_local_mut_mut(&mut |e| {
+                    let key = RuntimeServerKey::global();
                     arbitrary_bit_adder(e, self.data_mut(), rhs.data(), false, key);
                 });
             }
@@ -137,7 +134,7 @@ mod frontend {
             type Output = FheUint8;
             fn sub(self, rhs: &FheUint8) -> Self::Output {
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let (out, _, _) = arbitrary_bit_subtractor(e, self.data(), rhs.data(), key);
                     FheUint8 { data: out }
                 })
@@ -148,7 +145,7 @@ mod frontend {
             type Output = FheUint8;
             fn mul(self, rhs: &FheUint8) -> Self::Output {
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let out = eight_bit_mul(e, self.data(), rhs.data(), key);
                     FheUint8 { data: out }
                 })
@@ -160,7 +157,7 @@ mod frontend {
             fn div(self, rhs: &FheUint8) -> Self::Output {
                 // TODO(Jay:) Figure out how to set zero error flag
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let (quotient, _) = arbitrary_bit_division_for_quotient_and_rem(
                         e,
                         self.data(),
@@ -176,7 +173,7 @@ mod frontend {
             type Output = FheUint8;
             fn rem(self, rhs: &FheUint8) -> Self::Output {
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let (_, remainder) = arbitrary_bit_division_for_quotient_and_rem(
                         e,
                         self.data(),
@@ -191,7 +188,7 @@ mod frontend {
         impl FheUint8 {
             pub fn overflowing_add_assign(&mut self, rhs: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut_mut(&mut |e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let (overflow, _) =
                         arbitrary_bit_adder(e, self.data_mut(), rhs.data(), false, key);
                     overflow
@@ -201,7 +198,7 @@ mod frontend {
             pub fn overflowing_add(self, rhs: &FheUint8) -> (FheUint8, FheBool) {
                 BoolEvaluator::with_local_mut(|e| {
                     let mut lhs = self.clone();
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let (overflow, _) =
                         arbitrary_bit_adder(e, lhs.data_mut(), rhs.data(), false, key);
                     (lhs, overflow)
@@ -210,7 +207,7 @@ mod frontend {
 
             pub fn overflowing_sub(&self, rhs: &FheUint8) -> (FheUint8, FheBool) {
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let (out, mut overflow, _) =
                         arbitrary_bit_subtractor(e, self.data(), rhs.data(), key);
                     e.not_inplace(&mut overflow);
@@ -221,7 +218,7 @@ mod frontend {
             pub fn div_rem(&self, rhs: &FheUint8) -> (FheUint8, FheUint8) {
                 // TODO(Jay:) Figure out how to set zero error flag
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let (quotient, remainder) = arbitrary_bit_division_for_quotient_and_rem(
                         e,
                         self.data(),
@@ -236,7 +233,7 @@ mod frontend {
 
     mod booleans {
         use crate::{
-            bool::{evaluator::BooleanGates, FheBool},
+            bool::{evaluator::BooleanGates, FheBool, RuntimeServerKey},
             shortint::ops::{
                 arbitrary_bit_comparator, arbitrary_bit_equality, arbitrary_signed_bit_comparator,
             },
@@ -248,7 +245,7 @@ mod frontend {
             /// a == b
             pub fn eq(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     arbitrary_bit_equality(e, self.data(), other.data(), key)
                 })
             }
@@ -256,7 +253,7 @@ mod frontend {
             /// a != b
             pub fn neq(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let mut is_equal = arbitrary_bit_equality(e, self.data(), other.data(), key);
                     e.not_inplace(&mut is_equal);
                     is_equal
@@ -266,7 +263,7 @@ mod frontend {
             /// a < b
             pub fn lt(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     arbitrary_bit_comparator(e, other.data(), self.data(), key)
                 })
             }
@@ -274,7 +271,7 @@ mod frontend {
             /// a > b
             pub fn gt(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     arbitrary_bit_comparator(e, self.data(), other.data(), key)
                 })
             }
@@ -282,7 +279,7 @@ mod frontend {
             /// a <= b
             pub fn le(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let mut a_greater_b =
                         arbitrary_bit_comparator(e, self.data(), other.data(), key);
                     e.not_inplace(&mut a_greater_b);
@@ -293,7 +290,7 @@ mod frontend {
             /// a >= b
             pub fn ge(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
-                    let key = ServerKeyEvaluationDomain::global();
+                    let key = RuntimeServerKey::global();
                     let mut a_less_b = arbitrary_bit_comparator(e, other.data(), self.data(), key);
                     e.not_inplace(&mut a_less_b);
                     a_less_b

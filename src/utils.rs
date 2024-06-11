@@ -1,11 +1,12 @@
-use std::{fmt::Debug, usize};
+use std::{fmt::Debug, usize, vec};
 
-use itertools::Itertools;
+use itertools::{izip, Itertools};
 use num_traits::{FromPrimitive, PrimInt, Signed, Unsigned};
 
 use crate::{
     backend::Modulus,
     random::{RandomElement, RandomElementInModulus, RandomFill},
+    Matrix,
 };
 pub trait WithLocal {
     fn with_local<F, R>(func: F) -> R
@@ -30,10 +31,6 @@ pub(crate) trait ShoupMul {
     fn mul(a: Self, b: Self, b_shoup: Self, q: Self) -> Self;
 }
 
-pub(crate) trait ToShoup {
-    fn to_shoup(value: Self, modulus: Self) -> Self;
-}
-
 impl ShoupMul for u64 {
     #[inline]
     fn representation(value: Self, q: Self) -> Self {
@@ -48,9 +45,29 @@ impl ShoupMul for u64 {
     }
 }
 
+pub(crate) trait ToShoup {
+    type Modulus;
+    fn to_shoup(value: &Self, modulus: Self::Modulus) -> Self;
+}
+
 impl ToShoup for u64 {
-    fn to_shoup(value: Self, modulus: Self) -> Self {
-        ((value as u128 * (1u128 << 64)) / modulus as u128) as u64
+    type Modulus = u64;
+    fn to_shoup(value: &Self, modulus: Self) -> Self {
+        ((*value as u128 * (1u128 << 64)) / modulus as u128) as u64
+    }
+}
+
+impl ToShoup for Vec<Vec<u64>> {
+    type Modulus = u64;
+    fn to_shoup(value: &Self, modulus: Self::Modulus) -> Self {
+        let (row, col) = value.dimension();
+        let mut shoup_value = vec![vec![0u64; col]; row];
+        izip!(shoup_value.iter_mut(), value.iter()).for_each(|(shoup_r, r)| {
+            izip!(shoup_r.iter_mut(), r.iter()).for_each(|(s, e)| {
+                *s = u64::to_shoup(e, modulus);
+            })
+        });
+        shoup_value
     }
 }
 

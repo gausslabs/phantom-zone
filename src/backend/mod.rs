@@ -127,6 +127,7 @@ pub trait ArithmeticLazyOps {
 }
 
 pub trait ShoupMatrixFMA<R: Row> {
-    /// Returns summation of `row-wise product of matrix a and b` + out.
+    /// Returns summation of `row-wise product of matrix a and b` + out where
+    /// each element is in range [0, 2q)
     fn shoup_matrix_fma(&self, out: &mut [R::Element], a: &[R], a_shoup: &[R], b: &[R]);
 }

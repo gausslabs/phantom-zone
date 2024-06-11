@@ -19,17 +19,10 @@ use crate::{
 };
 
 thread_local! {
-    static BOOL_EVALUATOR: RefCell<Option<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64<CiphertextModulus<u64>>,  ModularOpsU64<CiphertextModulus<u64>>>>> = RefCell::new(None);
+    static BOOL_EVALUATOR: RefCell<Option<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64<CiphertextModulus<u64>>,  ModularOpsU64<CiphertextModulus<u64>>, ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>>>> = RefCell::new(None);
 
 }
-static BOOL_SERVER_KEY: OnceLock<
-    ShoupServerKeyEvaluationDomain<
-        Vec<Vec<u64>>,
-        BoolParameters<u64>,
-        DefaultSecureRng,
-        NttBackendU64,
-    >,
-> = OnceLock::new();
+static BOOL_SERVER_KEY: OnceLock<ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>> = OnceLock::new();
 
 static MULTI_PARTY_CRS: OnceLock<MultiPartyCrs<[u8; 32]>> = OnceLock::new();
 
@@ -44,14 +37,7 @@ pub fn set_mp_seed(seed: [u8; 32]) {
     )
 }
 
-fn set_server_key(
-    key: ShoupServerKeyEvaluationDomain<
-        Vec<Vec<u64>>,
-        BoolParameters<u64>,
-        DefaultSecureRng,
-        NttBackendU64,
-    >,
-) {
+fn set_server_key(key: ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>) {
     assert!(
         BOOL_SERVER_KEY.set(key).is_ok(),
         "Attempted to set server key twice."
@@ -64,7 +50,7 @@ pub(crate) fn gen_keys() -> (
 ) {
     BoolEvaluator::with_local_mut(|e| {
         let ck = e.client_key();
-        let sk = e.server_key(&ck);
+        let sk = e.single_party_server_key(&ck);
 
         (ck, sk)
     })
@@ -115,15 +101,11 @@ pub fn aggregate_server_key_shares(
     BoolEvaluator::with_local(|e| e.aggregate_multi_party_server_key_shares(shares))
 }
 
-// SERVER KEY EVAL DOMAIN //
+// SERVER KEY EVAL (/SHOUP) DOMAIN //
 impl SeededServerKey<Vec<Vec<u64>>, BoolParameters<u64>, [u8; 32]> {
     pub fn set_server_key(&self) {
-        set_server_key(ServerKeyEvaluationDomain::<
-            _,
-            _,
-            DefaultSecureRng,
-            NttBackendU64,
-        >::from(self));
+        let eval = ServerKeyEvaluationDomain::<_, _, DefaultSecureRng, NttBackendU64>::from(self);
+        set_server_key(ShoupServerKeyEvaluationDomain::from(eval));
     }
 }
 
@@ -135,25 +117,9 @@ impl
     >
 {
     pub fn set_server_key(&self) {
-        set_server_key(ServerKeyEvaluationDomain::<
-            _,
-            _,
-            DefaultSecureRng,
-            NttBackendU64,
-        >::from(self))
-    }
-}
-
-impl Global
-    for ShoupServerKeyEvaluationDomain<
-        Vec<Vec<u64>>,
-        BoolParameters<u64>,
-        DefaultSecureRng,
-        NttBackendU64,
-    >
-{
-    fn global() -> &'static Self {
-        BOOL_SERVER_KEY.get().unwrap()
+        set_server_key(ShoupServerKeyEvaluationDomain::from(
+            ServerKeyEvaluationDomain::<_, _, DefaultSecureRng, NttBackendU64>::from(self),
+        ))
     }
 }
 
@@ -173,6 +139,7 @@ impl WithLocal
         NttBackendU64,
         ModularOpsU64<CiphertextModulus<u64>>,
         ModularOpsU64<CiphertextModulus<u64>>,
+        ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
     >
 {
     fn with_local<F, R>(func: F) -> R
@@ -194,5 +161,12 @@ impl WithLocal
         F: FnMut(&mut Self) -> R,
     {
         BOOL_EVALUATOR.with_borrow_mut(|s| func(s.as_mut().expect("Parameters not set")))
+    }
+}
+
+pub(crate) type RuntimeServerKey = ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>;
+impl Global for RuntimeServerKey {
+    fn global() -> &'static Self {
+        BOOL_SERVER_KEY.get().expect("Server key not set!")
     }
 }

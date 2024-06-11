@@ -1,4 +1,7 @@
-use bin_rs::{ArithmeticOps, Decomposer, DefaultDecomposer, ModInit, ModularOpsU64, VectorOps};
+use bin_rs::{
+    ArithmeticLazyOps, ArithmeticOps, Decomposer, DefaultDecomposer, ModInit, ModularOpsU64,
+    ShoupMatrixFMA, VectorOps,
+};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use itertools::{izip, Itertools};
 use rand::{thread_rng, Rng};
@@ -21,12 +24,9 @@ fn decompose_r(r: &[u64], decomp_r: &mut [Vec<u64>], decomposer: &DefaultDecompo
 }
 
 fn matrix_fma(out: &mut [u64], a: &Vec<Vec<u64>>, b: &Vec<Vec<u64>>, modop: &ModularOpsU64<u64>) {
-    izip!(out.iter_mut(), a[0].iter(), b[0].iter())
-        .for_each(|(o, ai, bi)| *o = modop.add(o, &modop.mul_lazy(ai, bi)));
-
-    izip!(a.iter().skip(1), b.iter().skip(1)).for_each(|(a_r, b_r)| {
+    izip!(a.iter(), b.iter()).for_each(|(a_r, b_r)| {
         izip!(out.iter_mut(), a_r.iter(), b_r.iter())
-            .for_each(|(o, ai, bi)| *o = modop.add_lazy(o, &modop.mul(ai, bi)));
+            .for_each(|(o, ai, bi)| *o = modop.add_lazy(o, &modop.mul_lazy(ai, bi)));
     });
 }
 
@@ -127,7 +127,7 @@ fn benchmark(c: &mut Criterion) {
                     b.iter_batched_ref(
                         || (vec![0u64; ring_size]),
                         |(out)| {
-                            black_box(modop.shoup_fma(
+                            black_box(modop.shoup_matrix_fma(
                                 out,
                                 &a0_matrix,
                                 &a0_shoup_matrix,

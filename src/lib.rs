@@ -20,7 +20,9 @@ mod rgsw;
 mod shortint;
 mod utils;
 
-pub use backend::{ArithmeticOps, ModInit, ModularOpsU64, VectorOps};
+pub use backend::{
+    ArithmeticLazyOps, ArithmeticOps, ModInit, ModularOpsU64, ShoupMatrixFMA, VectorOps,
+};
 pub use decomposer::{Decomposer, DecomposerIter, DefaultDecomposer};
 pub use ntt::{Ntt, NttBackendU64, NttInit};
 

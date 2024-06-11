@@ -95,23 +95,13 @@ pub struct ShoupAutoKeyEvaluationDomain<M> {
     data: M,
 }
 
-impl<M: MatrixMut + MatrixEntity, Mod: Modulus<Element = M::MatElement>, R, N>
+impl<M: Matrix + ToShoup<Modulus = M::MatElement>, Mod: Modulus<Element = M::MatElement>, R, N>
     From<&AutoKeyEvaluationDomain<M, Mod, R, N>> for ShoupAutoKeyEvaluationDomain<M>
-where
-    M::R: RowMut,
-    M::MatElement: ToShoup + Copy,
 {
     fn from(value: &AutoKeyEvaluationDomain<M, Mod, R, N>) -> Self {
-        let (row, col) = value.data.dimension();
-        let mut shoup_data = M::zeros(row, col);
-
-        izip!(shoup_data.iter_rows_mut(), value.data.iter_rows()).for_each(|(shoup_r, r)| {
-            izip!(shoup_r.as_mut().iter_mut(), r.as_ref().iter()).for_each(|(s, e)| {
-                *s = M::MatElement::to_shoup(*e, value.modulus.q().unwrap());
-            });
-        });
-
-        Self { data: shoup_data }
+        Self {
+            data: M::to_shoup(&value.data, value.modulus.q().unwrap()),
+        }
     }
 }
 
@@ -328,23 +318,13 @@ pub struct ShoupRgswCiphertextEvaluationDomain<M> {
     pub(crate) data: M,
 }
 
-impl<M: MatrixMut + MatrixEntity, Mod: Modulus<Element = M::MatElement>, R, N>
+impl<M: Matrix + ToShoup<Modulus = M::MatElement>, Mod: Modulus<Element = M::MatElement>, R, N>
     From<&RgswCiphertextEvaluationDomain<M, Mod, R, N>> for ShoupRgswCiphertextEvaluationDomain<M>
-where
-    M::R: RowMut,
-    M::MatElement: ToShoup + Copy,
 {
     fn from(value: &RgswCiphertextEvaluationDomain<M, Mod, R, N>) -> Self {
-        let (row, col) = value.data.dimension();
-        let mut shoup_data = M::zeros(row, col);
-
-        izip!(shoup_data.iter_rows_mut(), value.data.iter_rows()).for_each(|(shoup_r, r)| {
-            izip!(shoup_r.as_mut().iter_mut(), r.as_ref().iter()).for_each(|(s, e)| {
-                *s = M::MatElement::to_shoup(*e, value.modulus.q().unwrap());
-            });
-        });
-
-        Self { data: shoup_data }
+        Self {
+            data: M::to_shoup(&value.data, value.modulus.q().unwrap()),
+        }
     }
 }
 

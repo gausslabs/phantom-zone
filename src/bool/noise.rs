@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 mod test {
     use itertools::{izip, Itertools};
 
@@ -7,7 +5,8 @@ mod test {
         backend::{ArithmeticOps, ModularOpsU64, Modulus},
         bool::{
             set_parameter_set, BoolEncoding, BoolEvaluator, BooleanGates, CiphertextModulus,
-            ClientKey, PublicKey, ServerKeyEvaluationDomain, MP_BOOL_PARAMS, SMALL_MP_BOOL_PARAMS,
+            ClientKey, PublicKey, ServerKeyEvaluationDomain, ShoupServerKeyEvaluationDomain,
+            MP_BOOL_PARAMS, SMALL_MP_BOOL_PARAMS,
         },
         lwe::{decrypt_lwe, LweSecret},
         ntt::NttBackendU64,
@@ -15,7 +14,7 @@ mod test {
         random::DefaultSecureRng,
         rgsw::RlweSecret,
         utils::Stats,
-        Secret,
+        Ntt, Secret,
     };
 
     #[test]
@@ -26,6 +25,7 @@ mod test {
             NttBackendU64,
             ModularOpsU64<CiphertextModulus<u64>>,
             ModularOpsU64<CiphertextModulus<u64>>,
+            ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
         >::new(SMALL_MP_BOOL_PARAMS);
 
         let parties = 2;
@@ -84,7 +84,12 @@ mod test {
             .collect_vec();
 
         let server_key = evaluator.aggregate_multi_party_server_key_shares(&server_key_shares);
-        let server_key_eval_domain = ServerKeyEvaluationDomain::from(&server_key);
+        let runtime_server_key = ShoupServerKeyEvaluationDomain::from(ServerKeyEvaluationDomain::<
+            _,
+            _,
+            DefaultSecureRng,
+            NttBackendU64,
+        >::from(&server_key));
 
         let mut m0 = false;
         let mut m1 = true;
@@ -99,7 +104,7 @@ mod test {
 
         for _ in 0..1000 {
             let now = std::time::Instant::now();
-            let c_out = evaluator.xor(&c_m0, &c_m1, &server_key_eval_domain);
+            let c_out = evaluator.xor(&c_m0, &c_m1, &runtime_server_key);
             println!("Gate time: {:?}", now.elapsed());
 
             // mp decrypt

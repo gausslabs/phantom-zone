@@ -6,7 +6,7 @@ use crate::{
     pbs::WithShoupRepr,
     random::{NewWithSeed, RandomFillUniformInModulus},
     rgsw::RlweSecret,
-    utils::WithLocal,
+    utils::{ToShoup, WithLocal},
     Decryptor, Encryptor, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor, RowEntity, RowMut,
 };
 
@@ -669,7 +669,7 @@ pub(super) mod impl_server_key_eval_domain {
 }
 
 /// Server key in evaluation domain
-pub(crate) struct ShoupServerKeyEvaluationDomain<M, P, R, N> {
+pub(crate) struct ShoupServerKeyEvaluationDomain<M> {
     /// Rgsw cts of LWE secret elements
     rgsw_cts: Vec<NormalAndShoup<M>>,
     /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
@@ -677,11 +677,17 @@ pub(crate) struct ShoupServerKeyEvaluationDomain<M, P, R, N> {
     galois_keys: HashMap<usize, NormalAndShoup<M>>,
     /// LWE ksk to key switching LWE ciphertext from RLWE secret to LWE secret
     lwe_ksk: M,
-    parameters: P,
-    _phanton: PhantomData<(R, N)>,
 }
 
+/// Stores normal and shoup representation of Matrix elements (Normal, Shoup)
 pub(crate) struct NormalAndShoup<M>(M, M);
+
+impl<M: ToShoup> NormalAndShoup<M> {
+    fn new_with_modulus(value: M, modulus: <M as ToShoup>::Modulus) -> Self {
+        let value_shoup = M::to_shoup(&value, modulus);
+        NormalAndShoup(value, value_shoup)
+    }
+}
 
 impl<M> AsRef<M> for NormalAndShoup<M> {
     fn as_ref(&self) -> &M {
@@ -697,11 +703,43 @@ impl<M> WithShoupRepr for NormalAndShoup<M> {
 }
 
 mod shoup_server_key_eval_domain {
-    use crate::pbs::PbsKey;
+    use itertools::{izip, Itertools};
+    use num_traits::{FromPrimitive, PrimInt};
+
+    use crate::{backend::Modulus, pbs::PbsKey};
 
     use super::*;
 
-    impl<M: Matrix, P, R, N> PbsKey for ShoupServerKeyEvaluationDomain<M, P, R, N> {
+    impl<M: MatrixMut + MatrixEntity + ToShoup<Modulus = M::MatElement>, R, N>
+        From<ServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, R, N>>
+        for ShoupServerKeyEvaluationDomain<M>
+    where
+        <M as Matrix>::R: RowMut,
+        M::MatElement: PrimInt + FromPrimitive,
+    {
+        fn from(value: ServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, R, N>) -> Self {
+            let q = value.parameters.rlwe_q().q().unwrap();
+            // Rgsw ciphertexts
+            let rgsw_cts = value
+                .rgsw_cts
+                .into_iter()
+                .map(|ct| NormalAndShoup::new_with_modulus(ct, q))
+                .collect_vec();
+
+            let mut auto_keys = HashMap::new();
+            value.galois_keys.into_iter().for_each(|(index, key)| {
+                auto_keys.insert(index, NormalAndShoup::new_with_modulus(key, q));
+            });
+
+            Self {
+                rgsw_cts,
+                galois_keys: auto_keys,
+                lwe_ksk: value.lwe_ksk,
+            }
+        }
+    }
+
+    impl<M: Matrix> PbsKey for ShoupServerKeyEvaluationDomain<M> {
         type AutoKey = NormalAndShoup<M>;
         type LweKskKey = M;
         type RgswCt = NormalAndShoup<M>;
