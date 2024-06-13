@@ -1301,7 +1301,7 @@ mod tests {
     use crate::{
         bool::{
             self, CommonReferenceSeededMultiPartyServerKeyShare, PublicKey,
-            SeededMultiPartyServerKey,
+            SeededMultiPartyServerKey, SMALL_MP_BOOL_PARAMS,
         },
         ntt::NttBackendU64,
         random::{RandomElementInModulus, DEFAULT_RNG},
@@ -1665,11 +1665,11 @@ mod tests {
             ModularOpsU64<CiphertextModulus<u64>>,
             ModularOpsU64<CiphertextModulus<u64>>,
             ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
-        >::new(SP_BOOL_PARAMS);
+        >::new(SMALL_MP_BOOL_PARAMS);
 
         // let (_, collective_pk, _, _, server_key_eval, ideal_client_key) =
         //     _multi_party_all_keygen(&bool_evaluator, 20);
-        let no_of_parties = 2;
+        let no_of_parties = 16;
         let lwe_q = bool_evaluator.pbs_info.parameters.lwe_q();
         let rlwe_q = bool_evaluator.pbs_info.parameters.rlwe_q();
         let lwe_n = bool_evaluator.pbs_info.parameters.lwe_n().0;

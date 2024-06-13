@@ -262,29 +262,37 @@ where
 
 #[cfg(test)]
 mod tests {
-
-    // #[test]
-    // fn gg() {
-    //     let n = 1 << (11 + 1);
-    //     let mut start = 1 << 55;
-    //     while start < (1 << 56) {
-    //         if start % n == 1 {
-    //             break;
-    //         }
-    //         start += 1;
+    use super::is_probably_prime;
+    // let n = 1 << (11 + 1);
+    // let mut start = 1 << 55;
+    // while start < (1 << 56) {
+    //     if start % n == 1 {
+    //         break;
     //     }
-
-    //     let mut prime = None;
-    //     while start < (1 << 56) {
-    //         if is_probably_prime(start) {
-    //             dbg!(start);
-    //             prime = Some(start);
-    //             break;
-    //         }
-    //         dbg!(start);
-    //         start += (n);
-    //     }
-
-    //     println!("{:?}", prime);
+    //     start += 1;
     // }
+
+    // let mut prime = None;
+    // while start < (1 << 56) {
+    //     if is_probably_prime(start) {
+    //         dbg!(start);
+    //         prime = Some(start);
+    //         break;
+    //     }
+    //     dbg!(start);
+    //     start += (n);
+    // }
+    #[test]
+    fn gg() {
+        let q = 30;
+        for i in 0..1000 {
+            let x = (1u64 << (q * 2)) + (i * (1 << q)) + 1;
+            let is_prime = is_probably_prime(x);
+            if is_prime {
+                println!("{x} = 2^{} + {i} * 2^{q} + 1", 2 * q);
+            }
+        }
+
+        // println!("{:?}", prime);
+    }
 }
