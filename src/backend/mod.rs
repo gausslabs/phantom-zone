@@ -95,6 +95,7 @@ pub trait GetModulus {
 pub trait VectorOps {
     type Element;
 
+    /// Sets out as `out[i] = a[i] * b`
     fn elwise_scalar_mul(&self, out: &mut [Self::Element], a: &[Self::Element], b: &Self::Element);
     fn elwise_mul(&self, out: &mut [Self::Element], a: &[Self::Element], b: &[Self::Element]);
 
