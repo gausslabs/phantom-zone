@@ -9,7 +9,7 @@ use rand_distr::{uniform::SampleUniform, Distribution};
 use crate::{backend::Modulus, utils::WithLocal};
 
 thread_local! {
-    pub(crate) static DEFAULT_RNG: RefCell<DefaultSecureRng> = RefCell::new(DefaultSecureRng::new_seeded([0u8;32]));
+    pub(crate) static DEFAULT_RNG: RefCell<DefaultSecureRng> = RefCell::new(DefaultSecureRng::new());
 }
 
 pub trait NewWithSeed {

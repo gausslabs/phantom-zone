@@ -950,17 +950,15 @@ where
                     );
                     let mut ais = M::zeros(ui_to_s_ksk_decomposition_count.0, ring_size);
 
-                    println!("START {}...", share.user_index);
                     ais.iter_rows_mut().for_each(|r_ai| {
                         RandomFillUniformInModulus::random_fill(
                             &mut ksk_prng,
                             rlwe_q,
                             r_ai.as_mut(),
                         );
-                        println!("{:?}", r_ai.as_ref());
+
                         nttop.forward(r_ai.as_mut())
                     });
-                    println!("...END {}", share.user_index);
                     ais
                 })
                 .collect_vec();
@@ -3068,7 +3066,7 @@ mod tests {
             ModulusPowerOf2<CiphertextModulus<u64>>,
             ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
         >::new(NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS);
-        let mp_seed = NonInteractiveMultiPartyCrs { seed: [0u8; 32] };
+        let mp_seed = NonInteractiveMultiPartyCrs { seed: [1u8; 32] };
 
         let ring_size = evaluator.parameters().rlwe_n().0;
         let rlwe_q = evaluator.parameters().rlwe_q();
@@ -3137,7 +3135,7 @@ mod tests {
             // RLWE'(-sm)
             gadget_vec_a.iter().enumerate().for_each(|(index, beta)| {
                 // RLWE(\beta -sm)
-                dbg!(beta);
+
                 // \beta * -sX^[lwe_s[i]]
                 let mut beta_neg_sm = neg_sm.clone();
                 rlwe_modop.elwise_scalar_mul_mut(&mut beta_neg_sm, beta);
