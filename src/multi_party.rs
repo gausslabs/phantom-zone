@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use itertools::izip;
 
 use crate::{
@@ -143,7 +145,7 @@ pub(crate) fn non_interactive_ksk_gen<
 ) -> M
 where
     <M as Matrix>::R: RowMut + TryConvertFrom1<[S], ModOp::M> + RowEntity,
-    M::MatElement: Copy,
+    M::MatElement: Copy + Debug,
 {
     assert_eq!(s.len(), u.len());
 
@@ -159,9 +161,12 @@ where
 
     let mut scratch_space = M::R::zeros(ring_size);
 
+    println!("START KSK...");
     izip!(ksk.iter_rows_mut(), gadget_vec.iter()).for_each(|(e_ksk, beta)| {
         // sample a_i
         RandomFillUniformInModulus::random_fill(p_rng, q, e_ksk.as_mut());
+
+        println!("{:?}", e_ksk.as_ref());
 
         // a_i * s + e + beta u
         nttop.forward(e_ksk.as_mut());
@@ -176,6 +181,7 @@ where
         // a_i * s + e + \beta * u
         modop.elwise_add_mut(e_ksk.as_mut(), scratch_space.as_ref());
     });
+    println!("...END");
 
     ksk
 }
@@ -197,7 +203,7 @@ pub(crate) fn non_interactive_ksk_zero_encryptions_for_other_party_i<
 ) -> M
 where
     <M as Matrix>::R: RowMut + TryConvertFrom1<[S], ModOp::M> + RowEntity,
-    M::MatElement: Copy,
+    M::MatElement: Copy + Debug,
 {
     let q = modop.modulus();
     let d = gadget_vec.len();
@@ -211,9 +217,11 @@ where
 
     let mut scratch_space = M::R::zeros(ring_size);
 
+    println!("START KSK 0 ENC...");
     izip!(zero_encs.iter_rows_mut()).for_each(|(e_zero)| {
         // sample a_i
         RandomFillUniformInModulus::random_fill(p_rng, q, e_zero.as_mut());
+        println!("{:?}", e_zero.as_ref());
 
         // a_i * s + e
         nttop.forward(e_zero.as_mut());
@@ -223,5 +231,7 @@ where
         RandomFillGaussianInModulus::random_fill(rng, q, scratch_space.as_mut());
         modop.elwise_add_mut(e_zero.as_mut(), scratch_space.as_ref());
     });
+    println!("...END");
+
     zero_encs
 }

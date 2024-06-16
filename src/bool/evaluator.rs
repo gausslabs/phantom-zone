@@ -112,7 +112,7 @@ impl<S: Default + Copy> NonInteractiveMultiPartyCrs<S> {
 
         // puncture user_i times
         let mut out = S::default();
-        for _ in 0..user_i {
+        for _ in 0..user_i + 1 {
             RandomFill::<S>::random_fill(&mut p_rng, &mut out);
         }
 
@@ -892,7 +892,7 @@ where
         key_shares: &[NonInteractiveMultiPartyServerKeyShare<M>],
     ) -> Vec<M>
     where
-        M: Clone,
+        M: Clone + Debug,
     {
         let rlwe_modop = &self.pbs_info().rlwe_modop;
         let nttop = &self.pbs_info().rlwe_nttop;
@@ -907,6 +907,9 @@ where
             .iter()
             .map(|share| {
                 let mut useri_ui_to_s_ksk = share.ui_to_s_ksk.clone();
+                assert!(
+                    useri_ui_to_s_ksk.dimension() == (ui_to_s_ksk_decomposition_count.0, ring_size)
+                );
                 key_shares
                     .iter()
                     .filter(|x| x.user_index != share.user_index)
@@ -946,14 +949,18 @@ where
                         cr_seed.ui_to_s_ks_seed_for_user_i::<DefaultSecureRng>(share.user_index),
                     );
                     let mut ais = M::zeros(ui_to_s_ksk_decomposition_count.0, ring_size);
+
+                    println!("START {}...", share.user_index);
                     ais.iter_rows_mut().for_each(|r_ai| {
                         RandomFillUniformInModulus::random_fill(
                             &mut ksk_prng,
                             rlwe_q,
                             r_ai.as_mut(),
                         );
+                        println!("{:?}", r_ai.as_ref());
                         nttop.forward(r_ai.as_mut())
                     });
+                    println!("...END {}", share.user_index);
                     ais
                 })
                 .collect_vec();
@@ -987,6 +994,9 @@ where
                                     ui_to_s_ksk_decomposer.decomposition_count(),
                                     ring_size,
                                 );
+
+                                // set temp_space to all zeros
+                                tmp_space.as_mut().fill(M::MatElement::zero());
 
                                 // a_i*s + E
                                 key_shares.iter().for_each(|s| {
@@ -1343,6 +1353,7 @@ where
                 let mut p_rng = DefaultSecureRng::new_seeded(
                     cr_seed.ui_to_s_ks_seed_for_user_i::<DefaultSecureRng>(self_index),
                 );
+
                 non_interactive_ksk_gen::<M, _, _, _, _, _>(
                     client_key.sk_rlwe().values(),
                     client_key.sk_u_rlwe().values(),
@@ -3108,6 +3119,7 @@ mod tests {
         let mut neg_s_poly_eval = s_poly.clone();
         rlwe_modop.elwise_neg_mut(&mut neg_s_poly_eval);
         nttop.forward(neg_s_poly_eval.as_mut());
+
         rgsw_cts.iter().enumerate().for_each(|(s_index, ct)| {
             // X^{lwe_s[i]}
             let mut m = vec![0u64; ring_size];
@@ -3125,7 +3137,7 @@ mod tests {
             // RLWE'(-sm)
             gadget_vec_a.iter().enumerate().for_each(|(index, beta)| {
                 // RLWE(\beta -sm)
-
+                dbg!(beta);
                 // \beta * -sX^[lwe_s[i]]
                 let mut beta_neg_sm = neg_sm.clone();
                 rlwe_modop.elwise_scalar_mul_mut(&mut beta_neg_sm, beta);
@@ -3138,6 +3150,7 @@ mod tests {
                 // decrypt
                 let mut m_out = vec![0u64; ring_size];
                 decrypt_rlwe(&rlwe, &ideal_rlwe, &mut m_out, nttop, rlwe_modop);
+                // println!("{:?}", &beta_neg_sm);
 
                 let mut diff = m_out;
                 rlwe_modop.elwise_sub_mut(&mut diff, &beta_neg_sm);
