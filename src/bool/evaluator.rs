@@ -12,6 +12,7 @@ use std::{
 
 use itertools::{izip, partition, Itertools};
 use num_traits::{FromPrimitive, Num, One, Pow, PrimInt, ToPrimitive, WrappingSub, Zero};
+use rand::Rng;
 use rand_distr::uniform::SampleUniform;
 
 use crate::{
@@ -20,7 +21,7 @@ use crate::{
     },
     decomposer::{Decomposer, DefaultDecomposer, NumInfo, RlweDecomposer},
     lwe::{decrypt_lwe, encrypt_lwe, lwe_key_switch, lwe_ksk_keygen, measure_noise_lwe, LweSecret},
-    multi_party::public_key_share,
+    multi_party::{non_interactive_ksk_gen, public_key_share},
     ntt::{self, Ntt, NttBackendU64, NttInit},
     pbs::{pbs, sample_extract, PbsInfo, PbsKey, WithShoupRepr},
     random::{
@@ -44,7 +45,7 @@ use super::{
     keys::ClientKey,
     parameters::{BoolParameters, CiphertextModulus},
     CommonReferenceSeededCollectivePublicKeyShare, CommonReferenceSeededMultiPartyServerKeyShare,
-    SeededMultiPartyServerKey, SeededServerKey, ServerKeyEvaluationDomain,
+    NonInteractiveClientKey, SeededMultiPartyServerKey, SeededServerKey, ServerKeyEvaluationDomain,
     ShoupServerKeyEvaluationDomain,
 };
 
@@ -711,6 +712,23 @@ where
                 self.pbs_info.parameters.clone(),
             )
         })
+    }
+
+    pub(super) fn non_interactive_multi_party_key_share(
+        self_ui_to_ksk_seed: [u8; 32],
+        others_ui_to_ksk_seed: &[[u8; 32]],
+        client_key: &NonInteractiveClientKey,
+    ) {
+        // // ui_to_s_ksk
+        // non_interactive_ksk_gen(
+        //     client_key.sk_rlwe().values(),
+        //     client_key.sk_u_rlwe().values(),
+        //     gadget_vec,
+        //     p_rng,
+        //     rng,
+        //     nttop,
+        //     modop,
+        // )
     }
 
     pub(super) fn multi_party_public_key_share(

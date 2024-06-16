@@ -2,6 +2,91 @@ use num_traits::{ConstZero, FromPrimitive, PrimInt};
 
 use crate::{backend::Modulus, decomposer::Decomposer};
 
+trait DoubleDecomposerParams {
+    type Base;
+    type Count;
+
+    fn new(base: Self::Base, count_a: Self::Count, count_b: Self::Count) -> Self;
+    fn decomposition_base(&self) -> Self::Base;
+    fn decomposition_count_a(&self) -> Self::Count;
+    fn decomposition_count_b(&self) -> Self::Count;
+}
+
+trait SingleDecomposerParams {
+    type Base;
+    type Count;
+
+    fn new(base: Self::Base, count: Self::Count) -> Self;
+    fn decomposition_base(&self) -> Self::Base;
+    fn decomposition_count(&self) -> Self::Count;
+}
+
+impl DoubleDecomposerParams
+    for (
+        DecompostionLogBase,
+        (DecompositionCount, DecompositionCount),
+    )
+{
+    type Base = DecompostionLogBase;
+    type Count = DecompositionCount;
+
+    fn new(
+        base: DecompostionLogBase,
+        count_a: DecompositionCount,
+        count_b: DecompositionCount,
+    ) -> Self {
+        (base, (count_a, count_b))
+    }
+
+    fn decomposition_base(&self) -> Self::Base {
+        self.0
+    }
+
+    fn decomposition_count_a(&self) -> Self::Count {
+        self.1 .0
+    }
+
+    fn decomposition_count_b(&self) -> Self::Count {
+        self.1 .1
+    }
+}
+
+impl SingleDecomposerParams for (DecompostionLogBase, DecompositionCount) {
+    type Base = DecompostionLogBase;
+    type Count = DecompositionCount;
+
+    fn new(base: DecompostionLogBase, count: DecompositionCount) -> Self {
+        (base, count)
+    }
+
+    fn decomposition_base(&self) -> Self::Base {
+        self.0
+    }
+
+    fn decomposition_count(&self) -> Self::Count {
+        self.1
+    }
+}
+
+// impl DecomposerParams for (DecompostionLogBase, (DecompositionCount)) {
+//     type Base = DecompostionLogBase;
+//     type Count = DecompositionCount;
+
+//     fn decomposition_base(&self) -> Self::Base {
+//         self.0
+//     }
+
+//     fn decomposition_count(&self) -> Self::Count {
+//         self.1
+//     }
+// }
+
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) enum ParameterVariant {
+    SingleParty,
+    MultiParty,
+    NonInteractiveMultiParty,
+}
 #[derive(Clone, PartialEq)]
 pub struct BoolParameters<El> {
     rlwe_q: CiphertextModulus<El>,
@@ -9,18 +94,21 @@ pub struct BoolParameters<El> {
     br_q: usize,
     rlwe_n: PolynomialSize,
     lwe_n: LweDimension,
-    lwe_decomposer_base: DecompostionLogBase,
-    lwe_decomposer_count: DecompositionCount,
-    rlrg_decomposer_base: DecompostionLogBase,
+    lwe_decomposer_params: (DecompostionLogBase, DecompositionCount),
     /// RLWE x RGSW decomposition count for (part A, part B)
-    rlrg_decomposer_count: (DecompositionCount, DecompositionCount),
-    rgrg_decomposer_base: DecompostionLogBase,
+    rlrg_decomposer_params: (
+        DecompostionLogBase,
+        (DecompositionCount, DecompositionCount),
+    ),
     /// RGSW x RGSW decomposition count for (part A, part B)
-    rgrg_decomposer_count: (DecompositionCount, DecompositionCount),
-    auto_decomposer_base: DecompostionLogBase,
-    auto_decomposer_count: DecompositionCount,
+    rgrg_decomposer_params: Option<(
+        DecompostionLogBase,
+        (DecompositionCount, DecompositionCount),
+    )>,
+    auto_decomposer_params: (DecompostionLogBase, DecompositionCount),
     g: usize,
     w: usize,
+    variant: ParameterVariant,
 }
 
 impl<El> BoolParameters<El> {
@@ -53,53 +141,57 @@ impl<El> BoolParameters<El> {
     }
 
     pub(crate) fn rlwe_rgsw_decomposition_base(&self) -> DecompostionLogBase {
-        self.rlrg_decomposer_base
+        self.rlrg_decomposer_params.0
     }
 
     pub(crate) fn rlwe_rgsw_decomposition_count(&self) -> (DecompositionCount, DecompositionCount) {
-        self.rlrg_decomposer_count
-    }
-
-    pub(crate) fn rgsw_rgsw_decomposition_base(&self) -> DecompostionLogBase {
-        self.rgrg_decomposer_base
+        self.rlrg_decomposer_params.1
     }
 
     pub(crate) fn rgsw_rgsw_decomposition_count(&self) -> (DecompositionCount, DecompositionCount) {
-        self.rgrg_decomposer_count
+        let params = self.rgrg_decomposer_params.expect(&format!(
+            "Parameter variant {:?} does not support RGSW x RGSW",
+            self.variant
+        ));
+        params.1
     }
 
     pub(crate) fn auto_decomposition_base(&self) -> DecompostionLogBase {
-        self.auto_decomposer_base
+        self.auto_decomposer_params.decomposition_base()
     }
 
     pub(crate) fn auto_decomposition_count(&self) -> DecompositionCount {
-        self.auto_decomposer_count
+        self.auto_decomposer_params.decomposition_count()
     }
 
     pub(crate) fn lwe_decomposition_base(&self) -> DecompostionLogBase {
-        self.lwe_decomposer_base
+        self.lwe_decomposer_params.decomposition_base()
     }
 
     pub(crate) fn lwe_decomposition_count(&self) -> DecompositionCount {
-        self.lwe_decomposer_count
+        self.lwe_decomposer_params.decomposition_count()
     }
 
     pub(crate) fn rgsw_rgsw_decomposer<D: Decomposer<Element = El>>(&self) -> (D, D)
     where
         El: Copy,
     {
+        let params = self.rgrg_decomposer_params.expect(&format!(
+            "Parameter variant {:?} does not support RGSW x RGSW",
+            self.variant
+        ));
         (
             // A
             D::new(
                 self.rlwe_q.0,
-                self.rgrg_decomposer_base.0,
-                self.rgrg_decomposer_count.0 .0,
+                params.decomposition_base().0,
+                params.decomposition_count_a().0,
             ),
             // B
             D::new(
                 self.rlwe_q.0,
-                self.rgrg_decomposer_base.0,
-                self.rgrg_decomposer_count.1 .0,
+                params.decomposition_base().0,
+                params.decomposition_count_b().0,
             ),
         )
     }
@@ -110,8 +202,8 @@ impl<El> BoolParameters<El> {
     {
         D::new(
             self.rlwe_q.0,
-            self.auto_decomposer_base.0,
-            self.auto_decomposer_count.0,
+            self.auto_decomposer_params.decomposition_base().0,
+            self.auto_decomposer_params.decomposition_count().0,
         )
     }
 
@@ -121,8 +213,8 @@ impl<El> BoolParameters<El> {
     {
         D::new(
             self.lwe_q.0,
-            self.lwe_decomposer_base.0,
-            self.lwe_decomposer_count.0,
+            self.lwe_decomposer_params.decomposition_base().0,
+            self.lwe_decomposer_params.decomposition_count().0,
         )
     }
 
@@ -134,14 +226,14 @@ impl<El> BoolParameters<El> {
             // A
             D::new(
                 self.rlwe_q.0,
-                self.rlrg_decomposer_base.0,
-                self.rlrg_decomposer_count.0 .0,
+                self.rlrg_decomposer_params.decomposition_base().0,
+                self.rlrg_decomposer_params.decomposition_count_a().0,
             ),
             // B
             D::new(
                 self.rlwe_q.0,
-                self.rlrg_decomposer_base.0,
-                self.rlrg_decomposer_count.1 .0,
+                self.rlrg_decomposer_params.decomposition_base().0,
+                self.rlrg_decomposer_params.decomposition_count_b().0,
             ),
         )
     }
@@ -298,16 +390,16 @@ pub(crate) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     br_q: 1 << 10,
     rlwe_n: PolynomialSize(1 << 10),
     lwe_n: LweDimension(500),
-    lwe_decomposer_base: DecompostionLogBase(4),
-    lwe_decomposer_count: DecompositionCount(4),
-    rlrg_decomposer_base: DecompostionLogBase(7),
-    rlrg_decomposer_count: (DecompositionCount(4), DecompositionCount(4)),
-    rgrg_decomposer_base: DecompostionLogBase(7),
-    rgrg_decomposer_count: (DecompositionCount(4), DecompositionCount(4)),
-    auto_decomposer_base: DecompostionLogBase(7),
-    auto_decomposer_count: DecompositionCount(4),
+    lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(4)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(7),
+        (DecompositionCount(4), DecompositionCount(4)),
+    ),
+    rgrg_decomposer_params: None,
+    auto_decomposer_params: (DecompostionLogBase(7), DecompositionCount(4)),
     g: 5,
     w: 5,
+    variant: ParameterVariant::SingleParty,
 };
 
 pub(crate) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
@@ -316,16 +408,19 @@ pub(crate) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     br_q: 1 << 11,
     rlwe_n: PolynomialSize(1 << 11),
     lwe_n: LweDimension(500),
-    lwe_decomposer_base: DecompostionLogBase(4),
-    lwe_decomposer_count: DecompositionCount(5),
-    rlrg_decomposer_base: DecompostionLogBase(12),
-    rlrg_decomposer_count: (DecompositionCount(5), DecompositionCount(5)),
-    rgrg_decomposer_base: DecompostionLogBase(12),
-    rgrg_decomposer_count: (DecompositionCount(5), DecompositionCount(5)),
-    auto_decomposer_base: DecompostionLogBase(12),
-    auto_decomposer_count: DecompositionCount(5),
+    lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(5)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(12),
+        (DecompositionCount(5), DecompositionCount(5)),
+    ),
+    rgrg_decomposer_params: Some((
+        DecompostionLogBase(12),
+        (DecompositionCount(5), DecompositionCount(5)),
+    )),
+    auto_decomposer_params: (DecompostionLogBase(12), DecompositionCount(5)),
     g: 5,
     w: 10,
+    variant: ParameterVariant::MultiParty,
 };
 
 pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
@@ -334,16 +429,19 @@ pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u6
     br_q: 1 << 11,
     rlwe_n: PolynomialSize(1 << 11),
     lwe_n: LweDimension(600),
-    lwe_decomposer_base: DecompostionLogBase(4),
-    lwe_decomposer_count: DecompositionCount(5),
-    rlrg_decomposer_base: DecompostionLogBase(11),
-    rlrg_decomposer_count: (DecompositionCount(2), DecompositionCount(1)),
-    rgrg_decomposer_base: DecompostionLogBase(11),
-    rgrg_decomposer_count: (DecompositionCount(5), DecompositionCount(4)),
-    auto_decomposer_base: DecompostionLogBase(11),
-    auto_decomposer_count: DecompositionCount(2),
+    lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(5)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(11),
+        (DecompositionCount(2), DecompositionCount(1)),
+    ),
+    rgrg_decomposer_params: Some((
+        DecompostionLogBase(11),
+        (DecompositionCount(5), DecompositionCount(4)),
+    )),
+    auto_decomposer_params: (DecompostionLogBase(11), DecompositionCount(2)),
     g: 5,
     w: 10,
+    variant: ParameterVariant::MultiParty,
 };
 
 #[cfg(test)]

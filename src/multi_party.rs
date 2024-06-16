@@ -57,7 +57,7 @@ fn non_interactive_rgsw_ct<
     ModOp: VectorOps<Element = M::MatElement> + GetModulus<Element = M::MatElement>,
 >(
     s: &[S],
-    ephemeral_u: &[S],
+    u: &[S],
     m: &[M::MatElement],
     gadget_vec: &[M::MatElement],
     p_rng: &mut PRng,
@@ -69,14 +69,14 @@ where
     <M as Matrix>::R: RowMut + TryConvertFrom1<[S], ModOp::M> + RowEntity,
     M::MatElement: Copy,
 {
-    assert_eq!(s.len(), ephemeral_u.len());
+    assert_eq!(s.len(), u.len());
     assert_eq!(s.len(), m.len());
     let q = modop.modulus();
     let d = gadget_vec.len();
     let ring_size = s.len();
 
     let mut s_poly_eval = M::R::try_convert_from(s, q);
-    let mut u_poly_eval = M::R::try_convert_from(ephemeral_u, q);
+    let mut u_poly_eval = M::R::try_convert_from(u, q);
     nttop.forward(s_poly_eval.as_mut());
     nttop.forward(u_poly_eval.as_mut());
 
@@ -125,7 +125,7 @@ where
     (enc_beta_m, zero_encryptions)
 }
 
-fn non_interactive_ksk_gen<
+pub(crate) fn non_interactive_ksk_gen<
     M: MatrixMut + MatrixEntity,
     S,
     PRng: RandomFillUniformInModulus<[M::MatElement], ModOp::M>,
@@ -134,7 +134,7 @@ fn non_interactive_ksk_gen<
     ModOp: VectorOps<Element = M::MatElement> + GetModulus<Element = M::MatElement>,
 >(
     s: &[S],
-    ephemeral_u: &[S],
+    u: &[S],
     gadget_vec: &[M::MatElement],
     p_rng: &mut PRng,
     rng: &mut Rng,
@@ -144,7 +144,7 @@ fn non_interactive_ksk_gen<
     <M as Matrix>::R: RowMut + TryConvertFrom1<[S], ModOp::M> + RowEntity,
     M::MatElement: Copy,
 {
-    assert_eq!(s.len(), ephemeral_u.len());
+    assert_eq!(s.len(), u.len());
 
     let q = modop.modulus();
     let d = gadget_vec.len();
@@ -152,24 +152,16 @@ fn non_interactive_ksk_gen<
 
     let mut s_poly_eval = M::R::try_convert_from(s, q);
     nttop.forward(s_poly_eval.as_mut());
-    let u_poly = M::R::try_convert_from(ephemeral_u, q);
+    let u_poly = M::R::try_convert_from(u, q);
 
     // a_i * s + \beta u + e
-    // a_i * s + e
     let mut ksk = M::zeros(d, ring_size);
-    let mut zero_encs = M::zeros(d, ring_size);
 
     let mut scratch_space = M::R::zeros(ring_size);
 
-    izip!(
-        ksk.iter_rows_mut(),
-        zero_encs.iter_rows_mut(),
-        gadget_vec.iter()
-    )
-    .for_each(|(e_ksk, e_zero, beta)| {
+    izip!(ksk.iter_rows_mut(), gadget_vec.iter()).for_each(|(e_ksk, beta)| {
         // sample a_i
         RandomFillUniformInModulus::random_fill(p_rng, q, e_ksk.as_mut());
-        e_zero.as_mut().copy_from_slice(e_ksk.as_ref());
 
         // a_i * s + e + beta u
         nttop.forward(e_ksk.as_mut());
@@ -183,13 +175,51 @@ fn non_interactive_ksk_gen<
         modop.elwise_scalar_mul(scratch_space.as_mut(), u_poly.as_ref(), beta);
         // a_i * s + e + \beta * u
         modop.elwise_add_mut(e_ksk.as_mut(), scratch_space.as_ref());
+    });
+}
+
+pub(crate) fn non_interactive_ksk_zero_encryptions_for_other_party_i<
+    M: MatrixMut + MatrixEntity,
+    S,
+    PRng: RandomFillUniformInModulus<[M::MatElement], ModOp::M>,
+    Rng: RandomFillGaussianInModulus<[M::MatElement], ModOp::M>,
+    NttOp: Ntt<Element = M::MatElement>,
+    ModOp: VectorOps<Element = M::MatElement> + GetModulus<Element = M::MatElement>,
+>(
+    s: &[S],
+    gadget_vec: &[M::MatElement],
+    p_rng: &mut PRng,
+    rng: &mut Rng,
+    nttop: &NttOp,
+    modop: &ModOp,
+) -> M
+where
+    <M as Matrix>::R: RowMut + TryConvertFrom1<[S], ModOp::M> + RowEntity,
+    M::MatElement: Copy,
+{
+    let q = modop.modulus();
+    let d = gadget_vec.len();
+    let ring_size = s.len();
+
+    let mut s_poly_eval = M::R::try_convert_from(s, q);
+    nttop.forward(s_poly_eval.as_mut());
+
+    // a_i * s + e
+    let mut zero_encs = M::zeros(d, ring_size);
+
+    let mut scratch_space = M::R::zeros(ring_size);
+
+    izip!(zero_encs.iter_rows_mut()).for_each(|(e_zero)| {
+        // sample a_i
+        RandomFillUniformInModulus::random_fill(p_rng, q, e_zero.as_mut());
 
         // a_i * s + e
         nttop.forward(e_zero.as_mut());
         modop.elwise_mul_mut(e_zero.as_mut(), s_poly_eval.as_ref());
         nttop.backward(e_zero.as_mut());
-                // sample error e
+        // sample error e
         RandomFillGaussianInModulus::random_fill(rng, q, scratch_space.as_mut());
-
+        modop.elwise_add_mut(e_zero.as_mut(), scratch_space.as_ref());
     });
+    zero_encs
 }

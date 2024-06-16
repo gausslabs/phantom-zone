@@ -19,6 +19,14 @@ pub struct ClientKey {
     sk_lwe: LweSecret,
 }
 
+/// Client key with RLWE and LWE secrets
+#[derive(Clone)]
+pub struct NonInteractiveClientKey {
+    sk_rlwe: RlweSecret,
+    sk_u_rlwe: RlweSecret,
+    sk_lwe: LweSecret,
+}
+
 mod impl_ck {
     use super::*;
 
@@ -36,6 +44,44 @@ mod impl_ck {
 
         pub(in super::super) fn sk_rlwe(&self) -> &RlweSecret {
             &self.sk_rlwe
+        }
+
+        pub(in super::super) fn sk_lwe(&self) -> &LweSecret {
+            &self.sk_lwe
+        }
+    }
+
+    // Client key
+    impl NonInteractiveClientKey {
+        pub(in super::super) fn random() -> Self {
+            let sk_rlwe = RlweSecret::random(0, 0);
+            let sk_u_rlwe = RlweSecret::random(0, 0);
+            let sk_lwe = LweSecret::random(0, 0);
+            Self {
+                sk_rlwe,
+                sk_u_rlwe,
+                sk_lwe,
+            }
+        }
+
+        pub(in super::super) fn new(
+            sk_rlwe: RlweSecret,
+            sk_u_rlwe: RlweSecret,
+            sk_lwe: LweSecret,
+        ) -> Self {
+            Self {
+                sk_rlwe,
+                sk_u_rlwe,
+                sk_lwe,
+            }
+        }
+
+        pub(in super::super) fn sk_rlwe(&self) -> &RlweSecret {
+            &self.sk_rlwe
+        }
+
+        pub(in super::super) fn sk_u_rlwe(&self) -> &RlweSecret {
+            &self.sk_u_rlwe
         }
 
         pub(in super::super) fn sk_lwe(&self) -> &LweSecret {
