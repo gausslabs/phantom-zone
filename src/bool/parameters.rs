@@ -2,7 +2,7 @@ use num_traits::{ConstZero, FromPrimitive, PrimInt};
 
 use crate::{backend::Modulus, decomposer::Decomposer};
 
-trait DoubleDecomposerParams {
+pub(super) trait DoubleDecomposerParams {
     type Base;
     type Count;
 
@@ -100,12 +100,14 @@ pub struct BoolParameters<El> {
         DecompostionLogBase,
         (DecompositionCount, DecompositionCount),
     ),
+    auto_decomposer_params: (DecompostionLogBase, DecompositionCount),
     /// RGSW x RGSW decomposition count for (part A, part B)
     rgrg_decomposer_params: Option<(
         DecompostionLogBase,
         (DecompositionCount, DecompositionCount),
     )>,
-    auto_decomposer_params: (DecompostionLogBase, DecompositionCount),
+    non_interactive_ui_to_s_key_switch_decomposer:
+        Option<(DecompostionLogBase, DecompositionCount)>,
     g: usize,
     w: usize,
     variant: ParameterVariant,
@@ -140,6 +142,27 @@ impl<El> BoolParameters<El> {
         self.w
     }
 
+    pub(crate) fn rlwe_by_rgsw_decomposition_params(
+        &self,
+    ) -> (
+        DecompostionLogBase,
+        (DecompositionCount, DecompositionCount),
+    ) {
+        self.rlrg_decomposer_params
+    }
+
+    pub(crate) fn rgsw_by_rgsw_decomposition_params(
+        &self,
+    ) -> (
+        DecompostionLogBase,
+        (DecompositionCount, DecompositionCount),
+    ) {
+        self.rgrg_decomposer_params.expect(&format!(
+            "Parameter variant {:?} does not support RGSWxRGSW",
+            self.variant
+        ))
+    }
+
     pub(crate) fn rlwe_rgsw_decomposition_base(&self) -> DecompostionLogBase {
         self.rlrg_decomposer_params.0
     }
@@ -170,6 +193,18 @@ impl<El> BoolParameters<El> {
 
     pub(crate) fn lwe_decomposition_count(&self) -> DecompositionCount {
         self.lwe_decomposer_params.decomposition_count()
+    }
+
+    pub(crate) fn non_interactive_ui_to_s_key_switch_decomposition_count(
+        &self,
+    ) -> DecompositionCount {
+        let params = self
+            .non_interactive_ui_to_s_key_switch_decomposer
+            .expect(&format!(
+                "Parameter variant {:?} does not support non-interactive",
+                self.variant
+            ));
+        params.decomposition_count()
     }
 
     pub(crate) fn rgsw_rgsw_decomposer<D: Decomposer<Element = El>>(&self) -> (D, D)
@@ -235,6 +270,25 @@ impl<El> BoolParameters<El> {
                 self.rlrg_decomposer_params.decomposition_base().0,
                 self.rlrg_decomposer_params.decomposition_count_b().0,
             ),
+        )
+    }
+
+    pub(crate) fn non_interactive_ui_to_s_key_switch_decomposer<D: Decomposer<Element = El>>(
+        &self,
+    ) -> D
+    where
+        El: Copy,
+    {
+        let params = self
+            .non_interactive_ui_to_s_key_switch_decomposer
+            .expect(&format!(
+                "Parameter variant {:?} does not support non-interactive",
+                self.variant
+            ));
+        D::new(
+            self.rlwe_q.0,
+            params.decomposition_base().0,
+            params.decomposition_count().0,
         )
     }
 
@@ -397,6 +451,7 @@ pub(crate) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     ),
     rgrg_decomposer_params: None,
     auto_decomposer_params: (DecompostionLogBase(7), DecompositionCount(4)),
+    non_interactive_ui_to_s_key_switch_decomposer: None,
     g: 5,
     w: 5,
     variant: ParameterVariant::SingleParty,
@@ -418,6 +473,7 @@ pub(crate) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
         (DecompositionCount(5), DecompositionCount(5)),
     )),
     auto_decomposer_params: (DecompostionLogBase(12), DecompositionCount(5)),
+    non_interactive_ui_to_s_key_switch_decomposer: None,
     g: 5,
     w: 10,
     variant: ParameterVariant::MultiParty,
@@ -439,19 +495,44 @@ pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u6
         (DecompositionCount(5), DecompositionCount(4)),
     )),
     auto_decomposer_params: (DecompostionLogBase(11), DecompositionCount(2)),
+    non_interactive_ui_to_s_key_switch_decomposer: None,
     g: 5,
     w: 10,
     variant: ParameterVariant::MultiParty,
 };
 
+pub(crate) const NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_q: CiphertextModulus::new_non_native(36028797018820609),
+    lwe_q: CiphertextModulus::new_non_native(1 << 20),
+    br_q: 1 << 11,
+    rlwe_n: PolynomialSize(1 << 11),
+    lwe_n: LweDimension(10),
+    lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(5)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(11),
+        (DecompositionCount(2), DecompositionCount(1)),
+    ),
+    rgrg_decomposer_params: Some((
+        DecompostionLogBase(11),
+        (DecompositionCount(5), DecompositionCount(4)),
+    )),
+    auto_decomposer_params: (DecompostionLogBase(11), DecompositionCount(2)),
+    non_interactive_ui_to_s_key_switch_decomposer: Some((
+        DecompostionLogBase(1),
+        DecompositionCount(55),
+    )),
+    g: 5,
+    w: 10,
+    variant: ParameterVariant::NonInteractiveMultiParty,
+};
 #[cfg(test)]
 mod tests {
     use crate::utils::generate_prime;
 
     #[test]
     fn find_prime() {
-        let bits = 55;
-        let ring_size = 1 << 15;
+        let bits = 60;
+        let ring_size = 1 << 11;
         let prime = generate_prime(bits, ring_size * 2, 1 << bits).unwrap();
         dbg!(prime);
     }

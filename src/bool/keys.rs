@@ -32,12 +32,6 @@ mod impl_ck {
 
     // Client key
     impl ClientKey {
-        pub(in super::super) fn random() -> Self {
-            let sk_rlwe = RlweSecret::random(0, 0);
-            let sk_lwe = LweSecret::random(0, 0);
-            Self { sk_rlwe, sk_lwe }
-        }
-
         pub(in super::super) fn new(sk_rlwe: RlweSecret, sk_lwe: LweSecret) -> Self {
             Self { sk_rlwe, sk_lwe }
         }
@@ -53,17 +47,6 @@ mod impl_ck {
 
     // Client key
     impl NonInteractiveClientKey {
-        pub(in super::super) fn random() -> Self {
-            let sk_rlwe = RlweSecret::random(0, 0);
-            let sk_u_rlwe = RlweSecret::random(0, 0);
-            let sk_lwe = LweSecret::random(0, 0);
-            Self {
-                sk_rlwe,
-                sk_u_rlwe,
-                sk_lwe,
-            }
-        }
-
         pub(in super::super) fn new(
             sk_rlwe: RlweSecret,
             sk_u_rlwe: RlweSecret,

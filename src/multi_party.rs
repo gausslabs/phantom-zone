@@ -48,7 +48,7 @@ pub(crate) fn public_key_share<
     modop.elwise_add_mut(share_out.as_mut(), s.as_ref()); // s*e + e
 }
 
-fn non_interactive_rgsw_ct<
+pub(crate) fn non_interactive_rgsw_ct<
     M: MatrixMut + MatrixEntity,
     S,
     PRng: RandomFillUniformInModulus<[M::MatElement], ModOp::M>,
@@ -140,7 +140,8 @@ pub(crate) fn non_interactive_ksk_gen<
     rng: &mut Rng,
     nttop: &NttOp,
     modop: &ModOp,
-) where
+) -> M
+where
     <M as Matrix>::R: RowMut + TryConvertFrom1<[S], ModOp::M> + RowEntity,
     M::MatElement: Copy,
 {
@@ -153,7 +154,6 @@ pub(crate) fn non_interactive_ksk_gen<
     let mut s_poly_eval = M::R::try_convert_from(s, q);
     nttop.forward(s_poly_eval.as_mut());
     let u_poly = M::R::try_convert_from(u, q);
-
     // a_i * s + \beta u + e
     let mut ksk = M::zeros(d, ring_size);
 
@@ -176,6 +176,8 @@ pub(crate) fn non_interactive_ksk_gen<
         // a_i * s + e + \beta * u
         modop.elwise_add_mut(e_ksk.as_mut(), scratch_space.as_ref());
     });
+
+    ksk
 }
 
 pub(crate) fn non_interactive_ksk_zero_encryptions_for_other_party_i<
