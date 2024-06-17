@@ -740,6 +740,12 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
 
     use super::*;
 
+    impl<M, P, R, N> NonInteractiveServerKeyEvaluationDomain<M, P, R, N> {
+        pub(in super::super) fn rgsw_cts(&self) -> &[M] {
+            &self.rgsw_cts
+        }
+    }
+
     impl<M, Rng, N>
         From<
             SeededNonInteractiveMultiPartyServerKey<
@@ -836,6 +842,10 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
                 )
             });
             // copy over part bs
+            assert!(
+                value.lwe_ksk.as_ref().len()
+                    == value.parameters.lwe_decomposition_count().0 * ring_size
+            );
             izip!(value.lwe_ksk.as_ref().iter(), lwe_ksk.iter_rows_mut()).for_each(
                 |(b_el, lwe_ct)| {
                     lwe_ct.as_mut()[0] = *b_el;
@@ -865,7 +875,7 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
 
                     let incoming_ksk_partb_ref =
                         &value.ui_to_s_ksks[value.ui_to_s_ksks_key_order[user_index]];
-                    assert!(ksk_ct.dimension() == (d_uitos, ring_size));
+                    assert!(incoming_ksk_partb_ref.dimension() == (d_uitos, ring_size));
                     izip!(
                         ksk_ct.iter_rows_mut().skip(d_uitos),
                         incoming_ksk_partb_ref.iter_rows()
