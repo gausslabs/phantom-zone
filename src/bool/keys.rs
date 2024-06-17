@@ -12,6 +12,25 @@ use crate::{
 
 use super::{parameters, BoolEvaluator, BoolParameters, CiphertextModulus};
 
+trait SinglePartyClientKey {
+    type Element;
+    fn sk_rlwe(&self) -> &[Self::Element];
+    fn sk_lwe(&self) -> &[Self::Element];
+}
+
+trait InteractiveMultiPartyClientKey {
+    type Element;
+    fn sk_rlwe(&self) -> &[Self::Element];
+    fn sk_lwe(&self) -> &[Self::Element];
+}
+
+trait NonInteractiveMultiPartyClientKey {
+    type Element;
+    fn sk_rlwe(&self) -> &[Self::Element];
+    fn sk_u_rlwe(&self) -> &[Self::Element];
+    fn sk_lwe(&self) -> &[Self::Element];
+}
+
 /// Client key with RLWE and LWE secrets
 #[derive(Clone)]
 pub struct ClientKey {
@@ -21,7 +40,7 @@ pub struct ClientKey {
 
 /// Client key with RLWE and LWE secrets
 #[derive(Clone)]
-pub struct NonInteractiveClientKey {
+pub struct ThrowMeAwayKey {
     sk_rlwe: RlweSecret,
     sk_u_rlwe: RlweSecret,
     sk_lwe: LweSecret,
@@ -46,7 +65,7 @@ mod impl_ck {
     }
 
     // Client key
-    impl NonInteractiveClientKey {
+    impl ThrowMeAwayKey {
         pub(in super::super) fn new(
             sk_rlwe: RlweSecret,
             sk_u_rlwe: RlweSecret,
@@ -369,7 +388,7 @@ impl<M: Matrix, S, P> SeededMultiPartyServerKey<M, S, P> {
 }
 
 /// Seeded single party server key
-pub struct SeededServerKey<M: Matrix, P, S> {
+pub struct SeededSinglePartyServerKey<M: Matrix, P, S> {
     /// Rgsw cts of LWE secret elements
     pub(crate) rgsw_cts: Vec<M>,
     /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
@@ -382,7 +401,7 @@ pub struct SeededServerKey<M: Matrix, P, S> {
     /// Main seed
     pub(crate) seed: S,
 }
-impl<M: Matrix, S> SeededServerKey<M, BoolParameters<M::MatElement>, S> {
+impl<M: Matrix, S> SeededSinglePartyServerKey<M, BoolParameters<M::MatElement>, S> {
     pub(super) fn from_raw(
         auto_keys: HashMap<usize, M>,
         rgsw_cts: Vec<M>,
@@ -410,7 +429,7 @@ impl<M: Matrix, S> SeededServerKey<M, BoolParameters<M::MatElement>, S> {
                 == (parameters.lwe_decomposition_count().0 * parameters.rlwe_n().0)
         );
 
-        SeededServerKey {
+        SeededSinglePartyServerKey {
             rgsw_cts,
             auto_keys,
             lwe_ksk,
@@ -438,6 +457,7 @@ pub(super) mod impl_server_key_eval_domain {
 
     use crate::{
         backend::Modulus,
+        bool::{NonInteractiveMultiPartyCrs, SeededNonInteractiveMultiPartyServerKey},
         ntt::{Ntt, NttInit},
         pbs::PbsKey,
     };
@@ -455,14 +475,16 @@ pub(super) mod impl_server_key_eval_domain {
             R: RandomFillUniformInModulus<[M::MatElement], CiphertextModulus<M::MatElement>>
                 + NewWithSeed,
             N: NttInit<CiphertextModulus<M::MatElement>> + Ntt<Element = M::MatElement>,
-        > From<&SeededServerKey<M, BoolParameters<M::MatElement>, R::Seed>>
+        > From<&SeededSinglePartyServerKey<M, BoolParameters<M::MatElement>, R::Seed>>
         for ServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, R, N>
     where
         <M as Matrix>::R: RowMut,
         M::MatElement: Copy,
         R::Seed: Clone,
     {
-        fn from(value: &SeededServerKey<M, BoolParameters<M::MatElement>, R::Seed>) -> Self {
+        fn from(
+            value: &SeededSinglePartyServerKey<M, BoolParameters<M::MatElement>, R::Seed>,
+        ) -> Self {
             let mut main_prng = R::new_with_seed(value.seed.clone());
             let parameters = &value.parameters;
             let g = parameters.g() as isize;
@@ -697,7 +719,218 @@ pub(super) mod impl_server_key_eval_domain {
     }
 }
 
-/// Server key in evaluation domain
+pub(crate) struct NonInteractiveServerKeyEvaluationDomain<M, P, R, N> {
+    /// RGSW ciphertexts ideal lwe secret key elements under ideal rlwe secret
+    rgsw_cts: Vec<M>,
+    /// Automorphism keys under ideal rlwe secret
+    auto_keys: HashMap<usize, M>,
+    /// LWE key switching key from Q -> Q_{ks}
+    lwe_ksk: M,
+    /// Key switching key from user j to ideal secret key s. User j's ksk is at
+    /// j'th element
+    ui_to_s_ksks: Vec<M>,
+    parameters: P,
+    _phanton: PhantomData<(R, N)>,
+}
+
+pub(super) mod impl_non_interactive_server_key_eval_domain {
+    use itertools::{izip, Itertools};
+
+    use crate::{bool::NonInteractiveMultiPartyCrs, random::RandomFill, Ntt, NttInit};
+
+    use super::*;
+
+    impl<M, Rng, N>
+        From<
+            SeededNonInteractiveMultiPartyServerKey<
+                M,
+                NonInteractiveMultiPartyCrs<Rng::Seed>,
+                BoolParameters<M::MatElement>,
+            >,
+        > for NonInteractiveServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, Rng, N>
+    where
+        M: MatrixMut + MatrixEntity + Clone,
+        Rng: NewWithSeed
+            + RandomFillUniformInModulus<[M::MatElement], CiphertextModulus<M::MatElement>>
+            + RandomFill<<Rng as NewWithSeed>::Seed>,
+        N: Ntt<Element = M::MatElement> + NttInit<CiphertextModulus<M::MatElement>>,
+        M::R: RowMut,
+        M::MatElement: Copy,
+        Rng::Seed: Clone + Copy + Default,
+    {
+        fn from(
+            value: SeededNonInteractiveMultiPartyServerKey<
+                M,
+                NonInteractiveMultiPartyCrs<Rng::Seed>,
+                BoolParameters<M::MatElement>,
+            >,
+        ) -> Self {
+            let rlwe_nttop = N::new(value.parameters.rlwe_q(), value.parameters.rlwe_n().0);
+            let ring_size = value.parameters.rlwe_n().0;
+
+            // RGSW cts
+            // copy over rgsw cts and send to evaluation domain
+            let mut rgsw_cts = value.rgsw_cts.clone();
+            rgsw_cts.iter_mut().for_each(|c| {
+                c.iter_rows_mut()
+                    .for_each(|ri| rlwe_nttop.forward(ri.as_mut()))
+            });
+
+            // Auto keys
+            // populate pseudo random part of auto keys. Then send auto keys to
+            // evaluation domain
+            let mut auto_keys = HashMap::new();
+            let auto_seed = value.cr_seed.auto_keys_cts_seed::<Rng>();
+            let mut auto_prng = Rng::new_with_seed(auto_seed);
+            let auto_element_dlogs = value.parameters.auto_element_dlogs();
+            let d_auto = value.parameters.auto_decomposition_count().0;
+            auto_element_dlogs.iter().for_each(|el| {
+                let auto_part_b = value
+                    .auto_keys
+                    .get(el)
+                    .expect(&format!("Auto key for element g^{el} not found"));
+
+                assert!(auto_part_b.dimension() == (d_auto, ring_size));
+
+                let mut auto_ct = M::zeros(d_auto, ring_size);
+
+                // sample part A
+                auto_ct.iter_rows_mut().take(d_auto).for_each(|ri| {
+                    RandomFillUniformInModulus::random_fill(
+                        &mut auto_prng,
+                        value.parameters.rlwe_q(),
+                        ri.as_mut(),
+                    )
+                });
+
+                // Copy over part B
+                izip!(
+                    auto_ct.iter_rows_mut().skip(d_auto),
+                    auto_part_b.iter_rows()
+                )
+                .for_each(|(to_ri, from_ri)| to_ri.as_mut().copy_from_slice(from_ri.as_ref()));
+
+                // send to evaluation domain
+                auto_ct
+                    .iter_rows_mut()
+                    .for_each(|r| rlwe_nttop.forward(r.as_mut()));
+
+                auto_keys.insert(*el, auto_ct);
+            });
+
+            // LWE ksk
+            // populate pseudo random part of lwe ciphertexts in ksk and copy over part b
+            // elements
+            let lwe_ksk_seed = value.cr_seed.lwe_ksk_cts_seed::<Rng>();
+            let mut lwe_ksk_prng = Rng::new_with_seed(lwe_ksk_seed);
+            let mut lwe_ksk = M::zeros(
+                value.parameters.lwe_decomposition_count().0 * ring_size,
+                value.parameters.lwe_n().0 + 1,
+            );
+            lwe_ksk.iter_rows_mut().for_each(|ri| {
+                // first element is resereved for part b. Only sample a_is in the rest
+                RandomFillUniformInModulus::random_fill(
+                    &mut lwe_ksk_prng,
+                    value.parameters.lwe_q(),
+                    &mut ri.as_mut()[1..],
+                )
+            });
+            // copy over part bs
+            izip!(value.lwe_ksk.as_ref().iter(), lwe_ksk.iter_rows_mut()).for_each(
+                |(b_el, lwe_ct)| {
+                    lwe_ct.as_mut()[0] = *b_el;
+                },
+            );
+
+            // u_i to s ksk
+            let d_uitos = value
+                .parameters
+                .non_interactive_ui_to_s_key_switch_decomposition_count()
+                .0;
+            let total_users = *value.ui_to_s_ksks_key_order.iter().max().unwrap();
+            let ui_to_s_ksks = (0..total_users)
+                .map(|user_index| {
+                    let user_i_seed = value.cr_seed.ui_to_s_ks_seed_for_user_i::<Rng>(user_index);
+                    let mut prng = Rng::new_with_seed(user_i_seed);
+
+                    let mut ksk_ct = M::zeros(d_uitos * 2, ring_size);
+
+                    ksk_ct.iter_rows_mut().take(d_uitos).for_each(|r| {
+                        RandomFillUniformInModulus::random_fill(
+                            &mut prng,
+                            value.parameters.rlwe_q(),
+                            r.as_mut(),
+                        );
+                    });
+
+                    let incoming_ksk_partb_ref =
+                        &value.ui_to_s_ksks[value.ui_to_s_ksks_key_order[user_index]];
+                    assert!(ksk_ct.dimension() == (d_uitos, ring_size));
+                    izip!(
+                        ksk_ct.iter_rows_mut().skip(d_uitos),
+                        incoming_ksk_partb_ref.iter_rows()
+                    )
+                    .for_each(|(to_ri, from_ri)| {
+                        to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+                    });
+
+                    ksk_ct
+                        .iter_rows_mut()
+                        .for_each(|r| rlwe_nttop.forward(r.as_mut()));
+                    ksk_ct
+                })
+                .collect_vec();
+
+            NonInteractiveServerKeyEvaluationDomain {
+                rgsw_cts,
+                auto_keys,
+                lwe_ksk,
+                ui_to_s_ksks,
+                parameters: value.parameters.clone(),
+                _phanton: PhantomData,
+            }
+        }
+    }
+}
+
+pub struct SeededNonInteractiveMultiPartyServerKey<M: Matrix, S, P> {
+    /// u_i to s key switching keys in random order
+    ui_to_s_ksks: Vec<M>,
+    /// Defines order for u_i to s key switchin keys by storing the index of
+    /// user j's ksk in `ui_to_s_ksks` at index `j`. Find user j's u_i to s ksk
+    /// at `ui_to_s_ksks[ui_to_s_ksks_key_order[j]]`
+    ui_to_s_ksks_key_order: Vec<usize>,
+    /// RGSW ciphertets
+    rgsw_cts: Vec<M>,
+    auto_keys: HashMap<usize, M>,
+    lwe_ksk: M::R,
+    cr_seed: S,
+    parameters: P,
+}
+
+impl<M: Matrix, S, P> SeededNonInteractiveMultiPartyServerKey<M, S, P> {
+    pub(super) fn new(
+        ui_to_s_ksks: Vec<M>,
+        ui_to_s_ksks_key_order: Vec<usize>,
+        rgsw_cts: Vec<M>,
+        auto_keys: HashMap<usize, M>,
+        lwe_ksk: M::R,
+        cr_seed: S,
+        parameters: P,
+    ) -> Self {
+        Self {
+            ui_to_s_ksks,
+            ui_to_s_ksks_key_order,
+            rgsw_cts,
+            auto_keys,
+            lwe_ksk,
+            cr_seed,
+            parameters,
+        }
+    }
+}
+
+/// Server key in evaluation domain with Shoup representations
 pub(crate) struct ShoupServerKeyEvaluationDomain<M> {
     /// Rgsw cts of LWE secret elements
     rgsw_cts: Vec<NormalAndShoup<M>>,

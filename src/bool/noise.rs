@@ -4,9 +4,9 @@ mod test {
     use crate::{
         backend::{ArithmeticOps, ModularOpsU64, Modulus, ModulusPowerOf2},
         bool::{
-            set_parameter_set, BoolEncoding, BoolEvaluator, BooleanGates, CiphertextModulus,
-            ClientKey, PublicKey, ServerKeyEvaluationDomain, ShoupServerKeyEvaluationDomain,
-            MP_BOOL_PARAMS, SMALL_MP_BOOL_PARAMS,
+            BoolEncoding, BoolEvaluator, BooleanGates, CiphertextModulus, ClientKey, PublicKey,
+            ServerKeyEvaluationDomain, ShoupServerKeyEvaluationDomain, MP_BOOL_PARAMS,
+            SMALL_MP_BOOL_PARAMS,
         },
         lwe::{decrypt_lwe, LweSecret},
         ntt::NttBackendU64,
