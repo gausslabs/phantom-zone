@@ -10,112 +10,130 @@ use crate::{
     Decryptor, Encryptor, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor, RowEntity, RowMut,
 };
 
-use super::{parameters, BoolEvaluator, BoolParameters, CiphertextModulus};
+use super::{
+    evaluator::BoolEvaluator,
+    parameters::{BoolParameters, CiphertextModulus},
+};
 
-trait SinglePartyClientKey {
+pub(crate) trait SinglePartyClientKey {
     type Element;
-    fn sk_rlwe(&self) -> &[Self::Element];
-    fn sk_lwe(&self) -> &[Self::Element];
+    fn sk_rlwe(&self) -> Vec<Self::Element>;
+    fn sk_lwe(&self) -> Vec<Self::Element>;
 }
 
-trait InteractiveMultiPartyClientKey {
+pub(crate) trait InteractiveMultiPartyClientKey {
     type Element;
-    fn sk_rlwe(&self) -> &[Self::Element];
-    fn sk_lwe(&self) -> &[Self::Element];
+    fn sk_rlwe(&self) -> Vec<Self::Element>;
+    fn sk_lwe(&self) -> Vec<Self::Element>;
 }
 
-trait NonInteractiveMultiPartyClientKey {
+pub(crate) trait NonInteractiveMultiPartyClientKey {
     type Element;
-    fn sk_rlwe(&self) -> &[Self::Element];
-    fn sk_u_rlwe(&self) -> &[Self::Element];
-    fn sk_lwe(&self) -> &[Self::Element];
+    fn sk_rlwe(&self) -> Vec<Self::Element>;
+    fn sk_u_rlwe(&self) -> Vec<Self::Element>;
+    fn sk_lwe(&self) -> Vec<Self::Element>;
 }
 
-/// Client key with RLWE and LWE secrets
+/// Client key
+///
+/// Key is used for all parameter varians - Single party, interactive
+/// multi-party, and non-interactive multi-party. The only stored the main seed
+/// and seeds of the Rlwe/Lwe secrets are derived at puncturing the seed desired
+/// number of times.
+///
+/// ### Punctures required:
+///
+///     Puncture 1 -> Seed of RLWE secret used as main RLWE secret for
+///                   single-party, interactive/non-interactive multi-party
+///
+///     Puncture 2 -> Seed of LWE secret used main LWE secret for single-party,
+///                   interactive/non-interactive multi-party
+///
+///     Puncture 3 -> Seed of RLWE secret used as `u` in
+///                   interactive/non-interactive multi-party.
 #[derive(Clone)]
-pub struct ClientKey {
-    sk_rlwe: RlweSecret,
-    sk_lwe: LweSecret,
-}
-
-/// Client key with RLWE and LWE secrets
-#[derive(Clone)]
-pub struct ThrowMeAwayKey {
-    sk_rlwe: RlweSecret,
-    sk_u_rlwe: RlweSecret,
-    sk_lwe: LweSecret,
+pub struct ClientKey<S, E> {
+    seed: S,
+    parameters: BoolParameters<E>,
 }
 
 mod impl_ck {
+    use crate::{
+        random::DefaultSecureRng,
+        utils::{fill_random_ternary_secret_with_hamming_weight, puncture_p_rng},
+    };
+
     use super::*;
 
-    // Client key
-    impl ClientKey {
-        pub(in super::super) fn new(sk_rlwe: RlweSecret, sk_lwe: LweSecret) -> Self {
-            Self { sk_rlwe, sk_lwe }
-        }
-
-        pub(in super::super) fn sk_rlwe(&self) -> &RlweSecret {
-            &self.sk_rlwe
-        }
-
-        pub(in super::super) fn sk_lwe(&self) -> &LweSecret {
-            &self.sk_lwe
+    impl<E> ClientKey<[u8; 32], E> {
+        pub(in super::super) fn new(parameters: BoolParameters<E>) -> ClientKey<[u8; 32], E> {
+            let mut rng = DefaultSecureRng::new();
+            let mut seed = [0u8; 32];
+            rng.fill_bytes(&mut seed);
+            Self { seed, parameters }
         }
     }
 
-    // Client key
-    impl ThrowMeAwayKey {
-        pub(in super::super) fn new(
-            sk_rlwe: RlweSecret,
-            sk_u_rlwe: RlweSecret,
-            sk_lwe: LweSecret,
-        ) -> Self {
-            Self {
-                sk_rlwe,
-                sk_u_rlwe,
-                sk_lwe,
-            }
-        }
+    impl<E> SinglePartyClientKey for ClientKey<[u8; 32], E> {
+        type Element = i32;
+        fn sk_lwe(&self) -> Vec<Self::Element> {
+            let mut p_rng = DefaultSecureRng::new_seeded(self.seed);
+            let lwe_seed = puncture_p_rng::<[u8; 32], DefaultSecureRng>(&mut p_rng, 2);
 
-        pub(in super::super) fn sk_rlwe(&self) -> &RlweSecret {
-            &self.sk_rlwe
+            let mut lwe_prng = DefaultSecureRng::new_seeded(lwe_seed);
+            let mut out = vec![0i32; self.parameters.lwe_n().0];
+            fill_random_ternary_secret_with_hamming_weight(
+                &mut out,
+                self.parameters.lwe_n().0 >> 1,
+                &mut lwe_prng,
+            );
+            out
         }
+        fn sk_rlwe(&self) -> Vec<Self::Element> {
+            let mut p_rng = DefaultSecureRng::new_seeded(self.seed);
+            let rlwe_seed = puncture_p_rng::<[u8; 32], DefaultSecureRng>(&mut p_rng, 1);
 
-        pub(in super::super) fn sk_u_rlwe(&self) -> &RlweSecret {
-            &self.sk_u_rlwe
-        }
-
-        pub(in super::super) fn sk_lwe(&self) -> &LweSecret {
-            &self.sk_lwe
-        }
-    }
-
-    impl Encryptor<bool, Vec<u64>> for ClientKey {
-        fn encrypt(&self, m: &bool) -> Vec<u64> {
-            BoolEvaluator::with_local(|e| e.sk_encrypt(*m, self))
+            let mut rlwe_prng = DefaultSecureRng::new_seeded(rlwe_seed);
+            let mut out = vec![0i32; self.parameters.rlwe_n().0];
+            fill_random_ternary_secret_with_hamming_weight(
+                &mut out,
+                self.parameters.rlwe_n().0 >> 1,
+                &mut rlwe_prng,
+            );
+            out
         }
     }
 
-    impl Decryptor<bool, Vec<u64>> for ClientKey {
-        fn decrypt(&self, c: &Vec<u64>) -> bool {
-            BoolEvaluator::with_local(|e| e.sk_decrypt(c, self))
+    impl<E> InteractiveMultiPartyClientKey for ClientKey<[u8; 32], E> {
+        type Element = i32;
+        fn sk_lwe(&self) -> Vec<Self::Element> {
+            <Self as SinglePartyClientKey>::sk_lwe(&self)
+        }
+        fn sk_rlwe(&self) -> Vec<Self::Element> {
+            <Self as SinglePartyClientKey>::sk_rlwe(&self)
         }
     }
 
-    impl MultiPartyDecryptor<bool, Vec<u64>> for ClientKey {
-        type DecryptionShare = u64;
-
-        fn gen_decryption_share(&self, c: &Vec<u64>) -> Self::DecryptionShare {
-            BoolEvaluator::with_local(|e| e.multi_party_decryption_share(c, &self))
+    impl<E> NonInteractiveMultiPartyClientKey for ClientKey<[u8; 32], E> {
+        type Element = i32;
+        fn sk_lwe(&self) -> Vec<Self::Element> {
+            <Self as SinglePartyClientKey>::sk_lwe(&self)
         }
+        fn sk_rlwe(&self) -> Vec<Self::Element> {
+            <Self as SinglePartyClientKey>::sk_rlwe(&self)
+        }
+        fn sk_u_rlwe(&self) -> Vec<Self::Element> {
+            let mut p_rng = DefaultSecureRng::new_seeded(self.seed);
+            let rlwe_seed = puncture_p_rng::<[u8; 32], DefaultSecureRng>(&mut p_rng, 3);
 
-        fn aggregate_decryption_shares(
-            &self,
-            c: &Vec<u64>,
-            shares: &[Self::DecryptionShare],
-        ) -> bool {
-            BoolEvaluator::with_local(|e| e.multi_party_decrypt(shares, c))
+            let mut rlwe_prng = DefaultSecureRng::new_seeded(rlwe_seed);
+            let mut out = vec![0i32; self.parameters.rlwe_n().0];
+            fill_random_ternary_secret_with_hamming_weight(
+                &mut out,
+                self.parameters.rlwe_n().0 >> 1,
+                &mut rlwe_prng,
+            );
+            out
         }
     }
 }
@@ -132,18 +150,6 @@ pub(super) mod impl_pk {
     impl<M, R, Mo> PublicKey<M, R, Mo> {
         pub(in super::super) fn key(&self) -> &M {
             &self.key
-        }
-    }
-
-    impl<Rng, ModOp> Encryptor<bool, Vec<u64>> for PublicKey<Vec<Vec<u64>>, Rng, ModOp> {
-        fn encrypt(&self, m: &bool) -> Vec<u64> {
-            BoolEvaluator::with_local(|e| e.pk_encrypt(&self.key, *m))
-        }
-    }
-
-    impl<Rng, ModOp> Encryptor<[bool], Vec<Vec<u64>>> for PublicKey<Vec<Vec<u64>>, Rng, ModOp> {
-        fn encrypt(&self, m: &[bool]) -> Vec<Vec<u64>> {
-            BoolEvaluator::with_local(|e| e.pk_encrypt_batched(&self.key, m))
         }
     }
 
@@ -456,8 +462,6 @@ pub(super) mod impl_server_key_eval_domain {
     use itertools::{izip, Itertools};
 
     use crate::{
-        backend::Modulus,
-        bool::{NonInteractiveMultiPartyCrs, SeededNonInteractiveMultiPartyServerKey},
         ntt::{Ntt, NttInit},
         pbs::PbsKey,
     };
@@ -736,7 +740,7 @@ pub(crate) struct NonInteractiveServerKeyEvaluationDomain<M, P, R, N> {
 pub(super) mod impl_non_interactive_server_key_eval_domain {
     use itertools::{izip, Itertools};
 
-    use crate::{bool::NonInteractiveMultiPartyCrs, random::RandomFill, Ntt, NttInit};
+    use crate::{bool::evaluator::NonInteractiveMultiPartyCrs, random::RandomFill, Ntt, NttInit};
 
     use super::*;
 

@@ -1,7 +1,7 @@
 use itertools::Itertools;
 
 use crate::{
-    bool::keys::{ClientKey, PublicKey},
+    bool::{ClientKey, PublicKey},
     Decryptor, Encryptor, MultiPartyDecryptor,
 };
 
@@ -97,10 +97,7 @@ mod frontend {
         eight_bit_mul,
     };
     use crate::{
-        bool::{
-            evaluator::{self, BoolEvaluator, BooleanGates},
-            keys::{ServerKeyEvaluationDomain, ShoupServerKeyEvaluationDomain},
-        },
+        bool::evaluator::{BoolEvaluator, BooleanGates},
         utils::{Global, WithLocal},
     };
 

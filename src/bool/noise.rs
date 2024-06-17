@@ -2,19 +2,17 @@ mod test {
     use itertools::{izip, Itertools};
 
     use crate::{
-        backend::{ArithmeticOps, ModularOpsU64, Modulus, ModulusPowerOf2},
+        backend::{ModularOpsU64, ModulusPowerOf2},
         bool::{
-            BoolEncoding, BoolEvaluator, BooleanGates, CiphertextModulus, ClientKey, PublicKey,
-            ServerKeyEvaluationDomain, ShoupServerKeyEvaluationDomain, MP_BOOL_PARAMS,
-            SMALL_MP_BOOL_PARAMS,
+            evaluator::{BoolEncoding, BoolEvaluator, BooleanGates},
+            keys::{
+                InteractiveMultiPartyClientKey, PublicKey, ServerKeyEvaluationDomain,
+                ShoupServerKeyEvaluationDomain,
+            },
+            parameters::{CiphertextModulus, SMALL_MP_BOOL_PARAMS},
         },
-        lwe::{decrypt_lwe, LweSecret},
         ntt::NttBackendU64,
-        pbs::PbsInfo,
         random::DefaultSecureRng,
-        rgsw::RlweSecret,
-        utils::Stats,
-        Ntt, Secret,
     };
 
     #[test]
@@ -42,29 +40,26 @@ mod test {
             .collect_vec();
 
         // construct ideal rlwe sk for meauring noise
-        let ideal_client_key = {
-            let mut ideal_rlwe_sk = vec![0i32; evaluator.parameters().rlwe_n().0];
-            cks.iter().for_each(|k| {
-                izip!(ideal_rlwe_sk.iter_mut(), k.sk_rlwe().values()).for_each(|(ideal_i, s_i)| {
-                    *ideal_i = *ideal_i + s_i;
-                });
-            });
-            let mut ideal_lwe_sk = vec![0i32; evaluator.parameters().lwe_n().0];
-            cks.iter().for_each(|k| {
-                izip!(ideal_lwe_sk.iter_mut(), k.sk_lwe().values()).for_each(|(ideal_i, s_i)| {
-                    *ideal_i = *ideal_i + s_i;
-                });
-            });
-
-            ClientKey::new(
-                RlweSecret {
-                    values: ideal_rlwe_sk,
-                },
-                LweSecret {
-                    values: ideal_lwe_sk,
-                },
+        let mut ideal_rlwe_sk = vec![0i32; evaluator.parameters().rlwe_n().0];
+        cks.iter().for_each(|k| {
+            izip!(
+                ideal_rlwe_sk.iter_mut(),
+                InteractiveMultiPartyClientKey::sk_rlwe(k)
             )
-        };
+            .for_each(|(ideal_i, s_i)| {
+                *ideal_i = *ideal_i + s_i;
+            });
+        });
+        let mut ideal_lwe_sk = vec![0i32; evaluator.parameters().lwe_n().0];
+        cks.iter().for_each(|k| {
+            izip!(
+                ideal_lwe_sk.iter_mut(),
+                InteractiveMultiPartyClientKey::sk_lwe(k)
+            )
+            .for_each(|(ideal_i, s_i)| {
+                *ideal_i = *ideal_i + s_i;
+            });
+        });
 
         // round 1
         let pk_shares = cks

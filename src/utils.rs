@@ -190,6 +190,17 @@ pub fn negacyclic_mul<T: PrimInt, F: Fn(&T, &T) -> T>(
     return r;
 }
 
+pub(crate) fn puncture_p_rng<S: Default + Copy, R: RandomFill<S>>(
+    p_rng: &mut R,
+    times: usize,
+) -> S {
+    let mut out = S::default();
+    for _ in 0..times {
+        RandomFill::<S>::random_fill(p_rng, &mut out);
+    }
+    return out;
+}
+
 pub trait TryConvertFrom1<T: ?Sized, P> {
     fn try_convert_from(value: &T, parameters: &P) -> Self;
 }
