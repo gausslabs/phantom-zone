@@ -54,7 +54,7 @@ use super::{
     ThrowMeAwayKey,
 };
 
-pub struct NonInteractiveMultiPartyServerKeyShare<M: Matrix, S> {
+pub struct SeededNonInteractiveMultiPartyServerKeyShare<M: Matrix, S> {
     /// (ak*si + e + \beta ui, ak*si + e)
     ni_rgsw_cts: (Vec<M>, Vec<M>),
     ui_to_s_ksk: M,
@@ -67,7 +67,7 @@ pub struct NonInteractiveMultiPartyServerKeyShare<M: Matrix, S> {
     cr_seed: S,
 }
 
-impl<M: Matrix, S> NonInteractiveMultiPartyServerKeyShare<M, S> {
+impl<M: Matrix, S> SeededNonInteractiveMultiPartyServerKeyShare<M, S> {
     fn ui_to_s_ksk_zero_encs_for_user_i(&self, user_i: usize) -> &M {
         assert!(user_i != self.user_index);
         if user_i < self.user_index {
@@ -916,7 +916,7 @@ where
         &self,
         cr_seed: &NonInteractiveMultiPartyCrs<[u8; 32]>,
         total_users: usize,
-        key_shares: &[NonInteractiveMultiPartyServerKeyShare<
+        key_shares: &[SeededNonInteractiveMultiPartyServerKeyShare<
             M,
             NonInteractiveMultiPartyCrs<[u8; 32]>,
         >],
@@ -1439,7 +1439,8 @@ where
         self_index: usize,
         total_users: usize,
         client_key: &ThrowMeAwayKey,
-    ) -> NonInteractiveMultiPartyServerKeyShare<M, NonInteractiveMultiPartyCrs<[u8; 32]>> {
+    ) -> SeededNonInteractiveMultiPartyServerKeyShare<M, NonInteractiveMultiPartyCrs<[u8; 32]>>
+    {
         // TODO:  check whether parameters support `total_users`
         let nttop = self.pbs_info().nttop_rlweq();
         let rlwe_modop = self.pbs_info().modop_rlweq();
@@ -1556,7 +1557,7 @@ where
             )
         };
 
-        NonInteractiveMultiPartyServerKeyShare {
+        SeededNonInteractiveMultiPartyServerKeyShare {
             ni_rgsw_cts,
             ui_to_s_ksk,
             others_ksk_zero_encs: zero_encs_for_others,

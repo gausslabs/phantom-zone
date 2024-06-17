@@ -930,6 +930,80 @@ impl<M: Matrix, S, P> SeededNonInteractiveMultiPartyServerKey<M, S, P> {
     }
 }
 
+pub(crate) struct ShoupNonInteractiveServerKeyEvaluationDomain<M> {
+    /// RGSW ciphertexts ideal lwe secret key elements under ideal rlwe secret
+    rgsw_cts: Vec<NormalAndShoup<M>>,
+    /// Automorphism keys under ideal rlwe secret
+    auto_keys: HashMap<usize, NormalAndShoup<M>>,
+    /// LWE key switching key from Q -> Q_{ks}
+    lwe_ksk: M,
+    /// Key switching key from user j to ideal secret key s. User j's ksk is at
+    /// j'th element
+    ui_to_s_ksks: Vec<NormalAndShoup<M>>,
+}
+
+mod impl_shoup_non_interactive_server_key_eval_domain {
+    use itertools::Itertools;
+    use num_traits::{FromPrimitive, PrimInt, ToPrimitive};
+
+    use super::*;
+    use crate::{backend::Modulus, pbs::PbsKey};
+
+    impl<M: Matrix + ToShoup<Modulus = M::MatElement>, R, N>
+        From<NonInteractiveServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, R, N>>
+        for ShoupNonInteractiveServerKeyEvaluationDomain<M>
+    where
+        M::MatElement: FromPrimitive + ToPrimitive + PrimInt,
+    {
+        fn from(
+            value: NonInteractiveServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, R, N>,
+        ) -> Self {
+            let rlwe_q = value.parameters.rlwe_q().q().unwrap();
+
+            let rgsw_cts = value
+                .rgsw_cts
+                .into_iter()
+                .map(|m| NormalAndShoup::new_with_modulus(m, rlwe_q))
+                .collect_vec();
+
+            let mut auto_keys = HashMap::new();
+            value.auto_keys.into_iter().for_each(|(k, v)| {
+                auto_keys.insert(k, NormalAndShoup::new_with_modulus(v, rlwe_q));
+            });
+
+            let ui_to_s_ksks = value
+                .ui_to_s_ksks
+                .into_iter()
+                .map(|m| NormalAndShoup::new_with_modulus(m, rlwe_q))
+                .collect_vec();
+
+            Self {
+                rgsw_cts,
+                auto_keys,
+                lwe_ksk: value.lwe_ksk,
+                ui_to_s_ksks,
+            }
+        }
+    }
+
+    impl<M: Matrix> PbsKey for ShoupNonInteractiveServerKeyEvaluationDomain<M> {
+        type AutoKey = NormalAndShoup<M>;
+        type LweKskKey = M;
+        type RgswCt = NormalAndShoup<M>;
+
+        fn galois_key_for_auto(&self, k: usize) -> &Self::AutoKey {
+            self.auto_keys.get(&k).unwrap()
+        }
+        fn rgsw_ct_lwe_si(&self, si: usize) -> &Self::RgswCt {
+            &self.rgsw_cts[si]
+        }
+
+        fn lwe_ksk(&self) -> &Self::LweKskKey {
+            &self.lwe_ksk
+        }
+    }
+}
+
 /// Server key in evaluation domain with Shoup representations
 pub(crate) struct ShoupServerKeyEvaluationDomain<M> {
     /// Rgsw cts of LWE secret elements
@@ -939,29 +1013,6 @@ pub(crate) struct ShoupServerKeyEvaluationDomain<M> {
     galois_keys: HashMap<usize, NormalAndShoup<M>>,
     /// LWE ksk to key switching LWE ciphertext from RLWE secret to LWE secret
     lwe_ksk: M,
-}
-
-/// Stores normal and shoup representation of Matrix elements (Normal, Shoup)
-pub(crate) struct NormalAndShoup<M>(M, M);
-
-impl<M: ToShoup> NormalAndShoup<M> {
-    fn new_with_modulus(value: M, modulus: <M as ToShoup>::Modulus) -> Self {
-        let value_shoup = M::to_shoup(&value, modulus);
-        NormalAndShoup(value, value_shoup)
-    }
-}
-
-impl<M> AsRef<M> for NormalAndShoup<M> {
-    fn as_ref(&self) -> &M {
-        &self.0
-    }
-}
-
-impl<M> WithShoupRepr for NormalAndShoup<M> {
-    type M = M;
-    fn shoup_repr(&self) -> &Self::M {
-        &self.1
-    }
 }
 
 mod shoup_server_key_eval_domain {
@@ -1016,5 +1067,28 @@ mod shoup_server_key_eval_domain {
         fn lwe_ksk(&self) -> &Self::LweKskKey {
             &self.lwe_ksk
         }
+    }
+}
+
+/// Stores normal and shoup representation of Matrix elements (Normal, Shoup)
+pub(crate) struct NormalAndShoup<M>(M, M);
+
+impl<M: ToShoup> NormalAndShoup<M> {
+    fn new_with_modulus(value: M, modulus: <M as ToShoup>::Modulus) -> Self {
+        let value_shoup = M::to_shoup(&value, modulus);
+        NormalAndShoup(value, value_shoup)
+    }
+}
+
+impl<M> AsRef<M> for NormalAndShoup<M> {
+    fn as_ref(&self) -> &M {
+        &self.0
+    }
+}
+
+impl<M> WithShoupRepr for NormalAndShoup<M> {
+    type M = M;
+    fn shoup_repr(&self) -> &Self::M {
+        &self.1
     }
 }
