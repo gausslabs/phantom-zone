@@ -392,7 +392,7 @@ mod tests {
 
     pub(crate) fn ideal_sk_rlwe(cks: &[ClientKey]) -> Vec<i32> {
         let mut ideal_rlwe_sk = cks[0].sk_rlwe();
-        cks.iter().for_each(|k| {
+        cks.iter().skip(1).for_each(|k| {
             let sk_rlwe = k.sk_rlwe();
             izip!(ideal_rlwe_sk.iter_mut(), sk_rlwe.iter()).for_each(|(a, b)| {
                 *a = *a + b;
