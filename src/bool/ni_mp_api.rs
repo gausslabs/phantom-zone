@@ -407,7 +407,7 @@ mod tests {
         Modop: ArithmeticOps<Element = R::Element>
             + GetModulus<M = CiphertextModulus<R::Element>, Element = R::Element>,
     >(
-        lwe_ct: R,
+        lwe_ct: &R,
         m_expected: R::Element,
         sk: &[S],
         modop: &Modop,
@@ -416,7 +416,7 @@ mod tests {
         R: TryConvertFrom1<[S], CiphertextModulus<R::Element>>,
         R::Element: Zero + FromPrimitive + PrimInt,
     {
-        let noisy_m = decrypt_lwe(&lwe_ct, &sk, modop);
+        let noisy_m = decrypt_lwe(lwe_ct, &sk, modop);
         let noise = modop.sub(&m_expected, &noisy_m);
         modop
             .modulus()
@@ -479,21 +479,13 @@ mod tests {
             let m_expected = (m0 ^ m1);
 
             {
-                let noisy_m = decrypt_lwe(&ct_out, &ideal_sk_rlwe, &rlwe_modop);
-                let noise = rlwe_modop.sub(&parameters.rlwe_q().encode(m_expected), &noisy_m);
-                println!(
-                    "Noise: {}",
-                    parameters
-                        .rlwe_q()
-                        .map_element_to_i64(&noise)
-                        .abs()
-                        .to_f64()
-                        .unwrap()
-                        .log2()
+                let noise = measure_noise_lwe(
+                    &ct_out,
+                    parameters.rlwe_q().encode(m_expected),
+                    &ideal_sk_rlwe,
+                    &rlwe_modop,
                 );
-                // let noise = measure_noise_lwe(ct_out,
-                // parameters.rlwe_q().encode(m_expected), &ideal_sk_rlwe,
-                // &rlwe_modop); println!("Noise: {noise}");
+                println!("Noise: {noise}");
             }
 
             assert!(m_out == m_expected, "Expected {m_expected} but got {m_out}");
