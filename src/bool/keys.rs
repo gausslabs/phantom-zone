@@ -752,7 +752,7 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
 
     impl<M, Rng, N>
         From<
-            SeededNonInteractiveMultiPartyServerKey<
+            &SeededNonInteractiveMultiPartyServerKey<
                 M,
                 NonInteractiveMultiPartyCrs<Rng::Seed>,
                 BoolParameters<M::MatElement>,
@@ -769,7 +769,7 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
         Rng::Seed: Clone + Copy + Default,
     {
         fn from(
-            value: SeededNonInteractiveMultiPartyServerKey<
+            value: &SeededNonInteractiveMultiPartyServerKey<
                 M,
                 NonInteractiveMultiPartyCrs<Rng::Seed>,
                 BoolParameters<M::MatElement>,
@@ -802,7 +802,7 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
 
                 assert!(auto_part_b.dimension() == (d_auto, ring_size));
 
-                let mut auto_ct = M::zeros(d_auto, ring_size);
+                let mut auto_ct = M::zeros(d_auto * 2, ring_size);
 
                 // sample part A
                 auto_ct.iter_rows_mut().take(d_auto).for_each(|ri| {
@@ -862,7 +862,7 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
                 .non_interactive_ui_to_s_key_switch_decomposition_count()
                 .0;
             let total_users = *value.ui_to_s_ksks_key_order.iter().max().unwrap();
-            let ui_to_s_ksks = (0..total_users)
+            let ui_to_s_ksks = (0..total_users + 1)
                 .map(|user_index| {
                     let user_i_seed = value.cr_seed.ui_to_s_ks_seed_for_user_i::<Rng>(user_index);
                     let mut prng = Rng::new_with_seed(user_i_seed);
@@ -963,6 +963,12 @@ mod impl_shoup_non_interactive_server_key_eval_domain {
     use super::*;
     use crate::{backend::Modulus, pbs::PbsKey};
 
+    impl<M> ShoupNonInteractiveServerKeyEvaluationDomain<M> {
+        pub(in super::super) fn ui_to_s_ksk(&self, user_id: usize) -> &NormalAndShoup<M> {
+            &self.ui_to_s_ksks[user_id]
+        }
+    }
+
     impl<M: Matrix + ToShoup<Modulus = M::MatElement>, R, N>
         From<NonInteractiveServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, R, N>>
         for ShoupNonInteractiveServerKeyEvaluationDomain<M>
@@ -974,22 +980,54 @@ mod impl_shoup_non_interactive_server_key_eval_domain {
         ) -> Self {
             let rlwe_q = value.parameters.rlwe_q().q().unwrap();
 
+            let rgsw_dim = (
+                value.parameters.rlwe_rgsw_decomposition_count().0 .0 * 2
+                    + value.parameters.rlwe_rgsw_decomposition_count().1 .0 * 2,
+                value.parameters.rlwe_n().0,
+            );
             let rgsw_cts = value
                 .rgsw_cts
                 .into_iter()
-                .map(|m| NormalAndShoup::new_with_modulus(m, rlwe_q))
+                .map(|m| {
+                    assert!(m.dimension() == rgsw_dim);
+                    NormalAndShoup::new_with_modulus(m, rlwe_q)
+                })
                 .collect_vec();
 
+            let auto_dim = (
+                value.parameters.auto_decomposition_count().0 * 2,
+                value.parameters.rlwe_n().0,
+            );
             let mut auto_keys = HashMap::new();
             value.auto_keys.into_iter().for_each(|(k, v)| {
+                assert!(v.dimension() == auto_dim);
                 auto_keys.insert(k, NormalAndShoup::new_with_modulus(v, rlwe_q));
             });
 
+            let ui_ks_dim = (
+                value
+                    .parameters
+                    .non_interactive_ui_to_s_key_switch_decomposition_count()
+                    .0
+                    * 2,
+                value.parameters.rlwe_n().0,
+            );
             let ui_to_s_ksks = value
                 .ui_to_s_ksks
                 .into_iter()
-                .map(|m| NormalAndShoup::new_with_modulus(m, rlwe_q))
+                .map(|m| {
+                    assert!(m.dimension() == ui_ks_dim);
+                    NormalAndShoup::new_with_modulus(m, rlwe_q)
+                })
                 .collect_vec();
+
+            assert!(
+                value.lwe_ksk.dimension()
+                    == (
+                        value.parameters.rlwe_n().0 * value.parameters.lwe_decomposition_count().0,
+                        value.parameters.lwe_n().0 + 1
+                    )
+            );
 
             Self {
                 rgsw_cts,
@@ -1006,7 +1044,8 @@ mod impl_shoup_non_interactive_server_key_eval_domain {
         type RgswCt = NormalAndShoup<M>;
 
         fn galois_key_for_auto(&self, k: usize) -> &Self::AutoKey {
-            self.auto_keys.get(&k).unwrap()
+            let d = self.auto_keys.get(&k).unwrap();
+            d
         }
         fn rgsw_ct_lwe_si(&self, si: usize) -> &Self::RgswCt {
             &self.rgsw_cts[si]
@@ -1080,6 +1119,74 @@ mod shoup_server_key_eval_domain {
 
         fn lwe_ksk(&self) -> &Self::LweKskKey {
             &self.lwe_ksk
+        }
+    }
+}
+
+pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix, S> {
+    /// (ak*si + e + \beta ui, ak*si + e)
+    ni_rgsw_cts: (Vec<M>, Vec<M>),
+    ui_to_s_ksk: M,
+    others_ksk_zero_encs: Vec<M>,
+
+    auto_keys_share: HashMap<usize, M>,
+    lwe_ksk_share: M::R,
+
+    user_index: usize,
+    cr_seed: S,
+}
+
+mod impl_common_ref_non_interactive_multi_party_server_share {
+    use super::*;
+
+    impl<M: Matrix, S> CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M, S> {
+        pub(in super::super) fn new(
+            ni_rgsw_cts: (Vec<M>, Vec<M>),
+            ui_to_s_ksk: M,
+            others_ksk_zero_encs: Vec<M>,
+            auto_keys_share: HashMap<usize, M>,
+            lwe_ksk_share: M::R,
+            user_index: usize,
+            cr_seed: S,
+        ) -> Self {
+            Self {
+                ni_rgsw_cts,
+                ui_to_s_ksk,
+                others_ksk_zero_encs,
+                auto_keys_share,
+                lwe_ksk_share,
+                user_index,
+                cr_seed,
+            }
+        }
+
+        pub(in super::super) fn ni_rgsw_cts(&self) -> &(Vec<M>, Vec<M>) {
+            &self.ni_rgsw_cts
+        }
+
+        pub(in super::super) fn ui_to_s_ksk(&self) -> &M {
+            &self.ui_to_s_ksk
+        }
+
+        pub(in super::super) fn user_index(&self) -> usize {
+            self.user_index
+        }
+
+        pub(in super::super) fn auto_keys_share(&self) -> &HashMap<usize, M> {
+            &self.auto_keys_share
+        }
+
+        pub(in super::super) fn lwe_ksk_share(&self) -> &M::R {
+            &self.lwe_ksk_share
+        }
+
+        pub(in super::super) fn ui_to_s_ksk_zero_encs_for_user_i(&self, user_i: usize) -> &M {
+            assert!(user_i != self.user_index);
+            if user_i < self.user_index {
+                &self.others_ksk_zero_encs[user_i]
+            } else {
+                &self.others_ksk_zero_encs[user_i - 1]
+            }
         }
     }
 }

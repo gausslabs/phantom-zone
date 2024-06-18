@@ -17,8 +17,9 @@ use crate::{
         DefaultSecureRng, NewWithSeed, RandomElementInModulus, RandomFill,
         RandomFillGaussianInModulus, RandomFillUniformInModulus,
     },
+    rgsw::decompose_r,
     utils::{fill_random_ternary_secret_with_hamming_weight, TryConvertFrom1, WithLocal},
-    Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
+    Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret, ShoupMatrixFMA,
 };
 
 pub(crate) fn generate_auto_map(ring_size: usize, k: isize) -> (Vec<usize>, Vec<bool>) {

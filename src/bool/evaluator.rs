@@ -20,6 +20,7 @@ use crate::{
     backend::{
         ArithmeticOps, GetModulus, ModInit, ModularOpsU64, Modulus, ShoupMatrixFMA, VectorOps,
     },
+    bool::parameters::ParameterVariant,
     decomposer::{Decomposer, DefaultDecomposer, NumInfo, RlweDecomposer},
     lwe::{decrypt_lwe, encrypt_lwe, lwe_key_switch, lwe_ksk_keygen, measure_noise_lwe, LweSecret},
     multi_party::{
@@ -48,40 +49,18 @@ use crate::{
 use super::{
     keys::{
         ClientKey, CommonReferenceSeededCollectivePublicKeyShare,
-        CommonReferenceSeededMultiPartyServerKeyShare, InteractiveMultiPartyClientKey,
-        NonInteractiveMultiPartyClientKey, SeededMultiPartyServerKey,
-        SeededNonInteractiveMultiPartyServerKey, SeededSinglePartyServerKey,
-        ServerKeyEvaluationDomain, ShoupServerKeyEvaluationDomain, SinglePartyClientKey,
+        CommonReferenceSeededMultiPartyServerKeyShare,
+        CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare,
+        InteractiveMultiPartyClientKey, NonInteractiveMultiPartyClientKey,
+        SeededMultiPartyServerKey, SeededNonInteractiveMultiPartyServerKey,
+        SeededSinglePartyServerKey, ServerKeyEvaluationDomain, ShoupServerKeyEvaluationDomain,
+        SinglePartyClientKey,
     },
     parameters::{
         BoolParameters, CiphertextModulus, DecompositionCount, DecompostionLogBase,
         DoubleDecomposerParams,
     },
 };
-
-pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix, S> {
-    /// (ak*si + e + \beta ui, ak*si + e)
-    ni_rgsw_cts: (Vec<M>, Vec<M>),
-    ui_to_s_ksk: M,
-    others_ksk_zero_encs: Vec<M>,
-
-    auto_keys_share: HashMap<usize, M>,
-    lwe_ksk_share: M::R,
-
-    user_index: usize,
-    cr_seed: S,
-}
-
-impl<M: Matrix, S> CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M, S> {
-    fn ui_to_s_ksk_zero_encs_for_user_i(&self, user_i: usize) -> &M {
-        assert!(user_i != self.user_index);
-        if user_i < self.user_index {
-            &self.others_ksk_zero_encs[user_i]
-        } else {
-            &self.others_ksk_zero_encs[user_i - 1]
-        }
-    }
-}
 
 pub struct MultiPartyCrs<S> {
     pub(super) seed: S,
@@ -405,18 +384,24 @@ where
     nor_test_vec: M::R,
     xor_test_vec: M::R,
     xnor_test_vec: M::R,
+    /// Non-interactive u_i -> s key switch decomposer
+    ni_ui_to_s_ks_decomposer: Option<DefaultDecomposer<M::MatElement>>,
     _phantom: PhantomData<SKey>,
 }
 
 impl<M: Matrix, NttOp, RlweModOp, LweModOp, Skey>
     BoolEvaluator<M, NttOp, RlweModOp, LweModOp, Skey>
 {
-    pub(super) fn parameters(&self) -> &BoolParameters<M::MatElement> {
+    pub(crate) fn parameters(&self) -> &BoolParameters<M::MatElement> {
         &self.pbs_info.parameters
     }
 
     pub(super) fn pbs_info(&self) -> &BoolPbsInfo<M, NttOp, RlweModOp, LweModOp> {
         &self.pbs_info
+    }
+
+    pub(super) fn ni_ui_to_s_ks_decomposer(&self) -> &Option<DefaultDecomposer<M::MatElement>> {
+        &self.ni_ui_to_s_ks_decomposer
     }
 }
 
@@ -628,6 +613,15 @@ where
 
         let scratch_memory = ScratchMemory::new(&parameters);
 
+        let ni_ui_to_s_ks_decomposer = if parameters.variant()
+            == &ParameterVariant::NonInteractiveMultiParty
+        {
+            Some(parameters
+                .non_interactive_ui_to_s_key_switch_decomposer::<DefaultDecomposer<M::MatElement>>())
+        } else {
+            None
+        };
+
         let pbs_info = BoolPbsInfo {
             auto_decomposer: parameters.auto_decomposer(),
             lwe_decomposer: parameters.lwe_decomposer(),
@@ -651,6 +645,7 @@ where
             nor_test_vec,
             xnor_test_vec,
             xor_test_vec,
+            ni_ui_to_s_ks_decomposer,
             _phantom: PhantomData,
         }
     }
@@ -665,6 +660,8 @@ where
         &self,
         client_key: &K,
     ) -> SeededSinglePartyServerKey<M, BoolParameters<M::MatElement>, [u8; 32]> {
+        assert_eq!(self.parameters().variant(), &ParameterVariant::SingleParty);
+
         DefaultSecureRng::with_local_mut(|rng| {
             let mut main_seed = [0u8; 32];
             rng.fill_bytes(&mut main_seed);
@@ -773,6 +770,8 @@ where
         client_key: &K,
     ) -> CommonReferenceSeededMultiPartyServerKeyShare<M, BoolParameters<M::MatElement>, [u8; 32]>
     {
+        assert_eq!(self.parameters().variant(), &ParameterVariant::MultiParty);
+
         DefaultSecureRng::with_local_mut(|rng| {
             let mut main_prng = DefaultSecureRng::new_seeded(cr_seed);
 
@@ -908,9 +907,14 @@ where
     where
         M: Clone + Debug,
     {
+        assert_eq!(
+            self.parameters().variant(),
+            &ParameterVariant::NonInteractiveMultiParty
+        );
+
         // sanity checks
         let key_order = {
-            let existing_key_order = key_shares.iter().map(|s| s.user_index).collect_vec();
+            let existing_key_order = key_shares.iter().map(|s| s.user_index()).collect_vec();
 
             // record the order s.t. key_order[i] stores the position of i^th
             // users key share in existing order
@@ -940,15 +944,15 @@ where
         let mut ui_to_s_ksks = key_shares
             .iter()
             .map(|share| {
-                let mut useri_ui_to_s_ksk = share.ui_to_s_ksk.clone();
+                let mut useri_ui_to_s_ksk = share.ui_to_s_ksk().clone();
                 assert!(
                     useri_ui_to_s_ksk.dimension() == (ui_to_s_ksk_decomposition_count.0, ring_size)
                 );
                 key_shares
                     .iter()
-                    .filter(|x| x.user_index != share.user_index)
+                    .filter(|x| x.user_index() != share.user_index())
                     .for_each(|(other_share)| {
-                        let op2 = other_share.ui_to_s_ksk_zero_encs_for_user_i(share.user_index);
+                        let op2 = other_share.ui_to_s_ksk_zero_encs_for_user_i(share.user_index());
                         assert!(op2.dimension() == (ui_to_s_ksk_decomposition_count.0, ring_size));
                         izip!(useri_ui_to_s_ksk.iter_rows_mut(), op2.iter_rows()).for_each(
                             |(add_to, add_from)| {
@@ -982,7 +986,7 @@ where
                     .map(|share| {
                         let mut ksk_prng = DefaultSecureRng::new_seeded(
                             cr_seed
-                                .ui_to_s_ks_seed_for_user_i::<DefaultSecureRng>(share.user_index),
+                                .ui_to_s_ks_seed_for_user_i::<DefaultSecureRng>(share.user_index()),
                         );
                         let mut ais = M::zeros(ui_to_s_ksk_decomposition_count.0, ring_size);
 
@@ -1036,7 +1040,7 @@ where
                                     key_shares.iter().for_each(|s| {
                                         rlwe_modop.elwise_add_mut(
                                             tmp_space.as_mut(),
-                                            s.ni_rgsw_cts.1[lwe_index].get_row_slice(d_index),
+                                            s.ni_rgsw_cts().1[lwe_index].get_row_slice(d_index),
                                         );
                                     });
 
@@ -1130,7 +1134,7 @@ where
                     |(share, user_uitos_ksk_partb_eval, user_uitos_ksk_parta_eval)| {
                         // RGSW_s(X^{s[i]})
                         let rgsw_cts_user_i_eval = izip!(
-                            share.ni_rgsw_cts.0.iter(),
+                            share.ni_rgsw_cts().0.iter(),
                             decomp_ni_rgsw_neg_ais.iter(),
                             decomp_ni_rgsws_part_1_acc.iter()
                         )
@@ -1370,7 +1374,8 @@ where
                 let mut key = M::zeros(self.parameters().auto_decomposition_count().0, ring_size);
 
                 key_shares.iter().for_each(|s| {
-                    let auto_key_share_i = s.auto_keys_share.get(&i).expect("Auto key {i} missing");
+                    let auto_key_share_i =
+                        s.auto_keys_share().get(&i).expect("Auto key {i} missing");
                     assert!(
                         auto_key_share_i.dimension()
                             == (self.parameters().auto_decomposition_count().0, ring_size)
@@ -1393,10 +1398,10 @@ where
                 M::R::zeros(self.parameters().lwe_decomposition_count().0 * ring_size);
             key_shares.iter().for_each(|s| {
                 assert!(
-                    s.lwe_ksk_share.as_ref().len()
+                    s.lwe_ksk_share().as_ref().len()
                         == self.parameters().lwe_decomposition_count().0 * ring_size
                 );
-                lwe_modop.elwise_add_mut(lwe_ksk.as_mut(), s.lwe_ksk_share.as_ref());
+                lwe_modop.elwise_add_mut(lwe_ksk.as_mut(), s.lwe_ksk_share().as_ref());
             });
             lwe_ksk
         };
@@ -1425,6 +1430,11 @@ where
         M,
         NonInteractiveMultiPartyCrs<[u8; 32]>,
     > {
+        assert_eq!(
+            self.parameters().variant(),
+            &ParameterVariant::NonInteractiveMultiParty
+        );
+
         // TODO:  check whether parameters support `total_users`
         let nttop = self.pbs_info().nttop_rlweq();
         let rlwe_modop = self.pbs_info().modop_rlweq();
@@ -1539,15 +1549,15 @@ where
             self._common_rountine_multi_party_lwe_ksk_share_gen(lwe_ksk_seed, &sk_rlwe, &sk_lwe)
         };
 
-        CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare {
+        CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare::new(
             ni_rgsw_cts,
             ui_to_s_ksk,
-            others_ksk_zero_encs: zero_encs_for_others,
-            user_index: self_index,
+            zero_encs_for_others,
             auto_keys_share,
             lwe_ksk_share,
-            cr_seed: cr_seed.clone(),
-        }
+            self_index,
+            cr_seed.clone(),
+        )
     }
 
     fn _common_rountine_multi_party_auto_keys_share_gen(
@@ -1826,6 +1836,7 @@ where
         S: PartialEq + Clone,
         M: Clone,
     {
+        assert_eq!(self.parameters().variant(), &ParameterVariant::MultiParty);
         assert!(shares.len() > 0);
         let parameters = shares[0].parameters().clone();
         let cr_seed = shares[0].cr_seed();
@@ -3174,7 +3185,7 @@ mod tests {
         );
         let server_key_evaluation_domain =
             NonInteractiveServerKeyEvaluationDomain::<_, _, DefaultSecureRng, NttBackendU64>::from(
-                seeded_server_key,
+                &seeded_server_key,
             );
 
         let mut ideal_rlwe = vec![0; ring_size];

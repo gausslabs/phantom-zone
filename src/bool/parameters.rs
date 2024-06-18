@@ -303,6 +303,10 @@ impl<El> BoolParameters<El> {
         });
         els
     }
+
+    pub(crate) fn variant(&self) -> &ParameterVariant {
+        &self.variant
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -506,7 +510,7 @@ pub(crate) const NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = Boo
     lwe_q: CiphertextModulus::new_non_native(1 << 20),
     br_q: 1 << 11,
     rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(10),
+    lwe_n: LweDimension(600),
     lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(5)),
     rlrg_decomposer_params: (
         DecompostionLogBase(11),

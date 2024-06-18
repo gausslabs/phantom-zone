@@ -6,9 +6,9 @@ fn plain_circuit(a: u8, b: u8, c: u8) -> u8 {
     (a + b) * c
 }
 
-fn fhe_circuit(fhe_a: &FheUint8, fhe_b: &FheUint8, fhe_c: &FheUint8) -> FheUint8 {
-    &(fhe_a + fhe_b) * fhe_c
-}
+// fn fhe_circuit(fhe_a: &FheUint8, fhe_b: &FheUint8, fhe_c: &FheUint8) ->
+// FheUint8 {     &(fhe_a + fhe_b) * fhe_c
+// }
 
 fn main() {
     set_parameter_set(ParameterSelector::MultiPartyLessThanOrEqualTo16);
@@ -50,22 +50,25 @@ fn main() {
     let fhe_b = public_key.encrypt(&b);
     let fhe_c = public_key.encrypt(&c);
 
+    let fhe_batched = public_key.encrypt(vec![12, 3u8].as_slice());
+
     // fhe evaluation
-    let now = std::time::Instant::now();
-    let fhe_out = fhe_circuit(&fhe_a, &fhe_b, &fhe_c);
-    println!("Circuit time: {:?}", now.elapsed());
+    // let now = std::time::Instant::now();
+    // let fhe_out = fhe_circuit(&fhe_a, &fhe_b, &fhe_c);
+    // println!("Circuit time: {:?}", now.elapsed());
 
-    // plain evaluation
-    let out = plain_circuit(a, b, c);
+    // // plain evaluation
+    // let out = plain_circuit(a, b, c);
 
-    // generate decryption shares to decrypt ciphertext fhe_out
-    let decryption_shares = client_keys
-        .iter()
-        .map(|k| k.gen_decryption_share(&fhe_out))
-        .collect_vec();
+    // // generate decryption shares to decrypt ciphertext fhe_out
+    // let decryption_shares = client_keys
+    //     .iter()
+    //     .map(|k| k.gen_decryption_share(&fhe_out))
+    //     .collect_vec();
 
-    // decrypt fhe_out using decryption shares
-    let got_out = client_keys[0].aggregate_decryption_shares(&fhe_out, &decryption_shares);
+    // // decrypt fhe_out using decryption shares
+    // let got_out = client_keys[0].aggregate_decryption_shares(&fhe_out,
+    // &decryption_shares);
 
-    assert_eq!(got_out, out);
+    // assert_eq!(got_out, out);
 }

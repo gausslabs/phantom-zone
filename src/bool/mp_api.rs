@@ -7,26 +7,31 @@ use crate::{
     utils::{Global, WithLocal},
 };
 
-use super::{evaluator::*, keys::*, parameters::*};
+use super::{evaluator::MultiPartyCrs, keys::*, parameters::*, ClientKey, ParameterSelector};
+
+pub type BoolEvaluator = super::evaluator::BoolEvaluator<
+    Vec<Vec<u64>>,
+    NttBackendU64,
+    ModularOpsU64<CiphertextModulus<u64>>,
+    ModulusPowerOf2<CiphertextModulus<u64>>,
+    ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
+>;
 
 thread_local! {
-    static BOOL_EVALUATOR: RefCell<Option<BoolEvaluator<Vec<Vec<u64>>, NttBackendU64, ModularOpsU64<CiphertextModulus<u64>>,  ModulusPowerOf2<CiphertextModulus<u64>>, ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>>>> = RefCell::new(None);
+    static BOOL_EVALUATOR: RefCell<Option<BoolEvaluator>> = RefCell::new(None);
 
 }
 static BOOL_SERVER_KEY: OnceLock<ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>> = OnceLock::new();
 
 static MULTI_PARTY_CRS: OnceLock<MultiPartyCrs<[u8; 32]>> = OnceLock::new();
 
-pub type ClientKey = super::keys::ClientKey<[u8; 32], u64>;
-
-pub enum ParameterSelector {
-    MultiPartyLessThanOrEqualTo16,
-}
-
 pub fn set_parameter_set(select: ParameterSelector) {
     match select {
         ParameterSelector::MultiPartyLessThanOrEqualTo16 => {
             BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(SMALL_MP_BOOL_PARAMS)));
+        }
+        _ => {
+            panic!("Paramerters not supported")
         }
     }
 }
@@ -134,15 +139,7 @@ impl Global for MultiPartyCrs<[u8; 32]> {
 }
 
 // BOOL EVALUATOR //
-impl WithLocal
-    for BoolEvaluator<
-        Vec<Vec<u64>>,
-        NttBackendU64,
-        ModularOpsU64<CiphertextModulus<u64>>,
-        ModulusPowerOf2<CiphertextModulus<u64>>,
-        ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
-    >
-{
+impl WithLocal for BoolEvaluator {
     fn with_local<F, R>(func: F) -> R
     where
         F: Fn(&Self) -> R,
@@ -174,74 +171,61 @@ impl Global for RuntimeServerKey {
 
 mod impl_enc_dec {
     use crate::{
+        bool::evaluator::BoolEncoding,
         pbs::{sample_extract, PbsInfo},
         rgsw::public_key_encrypt_rlwe,
-        Decryptor, Encryptor, Matrix, MatrixEntity, MultiPartyDecryptor, RowEntity,
+        Encryptor, Matrix, MatrixEntity, MultiPartyDecryptor, RowEntity,
     };
-    use num_traits::Zero;
+    use itertools::Itertools;
+    use num_traits::{ToPrimitive, Zero};
 
     use super::*;
 
     type Mat = Vec<Vec<u64>>;
 
-    impl<E> Encryptor<bool, Vec<u64>> for super::super::keys::ClientKey<[u8; 32], E> {
-        fn encrypt(&self, m: &bool) -> Vec<u64> {
-            BoolEvaluator::with_local(|e| e.sk_encrypt(*m, self))
-        }
-    }
-
-    impl<E> Decryptor<bool, Vec<u64>> for super::super::keys::ClientKey<[u8; 32], E> {
-        fn decrypt(&self, c: &Vec<u64>) -> bool {
-            BoolEvaluator::with_local(|e| e.sk_decrypt(c, self))
-        }
-    }
-
-    impl<E> MultiPartyDecryptor<bool, <Mat as Matrix>::R>
-        for super::super::keys::ClientKey<[u8; 32], E>
-    {
-        type DecryptionShare = <Mat as Matrix>::MatElement;
-
-        fn gen_decryption_share(&self, c: &<Mat as Matrix>::R) -> Self::DecryptionShare {
-            BoolEvaluator::with_local(|e| e.multi_party_decryption_share(c, self))
-        }
-
-        fn aggregate_decryption_shares(
-            &self,
-            c: &<Mat as Matrix>::R,
-            shares: &[Self::DecryptionShare],
-        ) -> bool {
-            BoolEvaluator::with_local(|e| e.multi_party_decrypt(shares, c))
-        }
-    }
-
-    impl<Rng, ModOp> Encryptor<[bool], Mat> for PublicKey<Mat, Rng, ModOp> {
-        fn encrypt(&self, m: &[bool]) -> Mat {
+    impl<Rng, ModOp> Encryptor<[bool], Vec<Mat>> for PublicKey<Mat, Rng, ModOp> {
+        fn encrypt(&self, m: &[bool]) -> Vec<Mat> {
             BoolEvaluator::with_local(|e| {
                 DefaultSecureRng::with_local_mut(|rng| {
                     let parameters = e.parameters();
-                    let mut rlwe_out = <Mat as MatrixEntity>::zeros(2, parameters.rlwe_n().0);
-                    assert!(m.len() <= parameters.rlwe_n().0);
+                    let ring_size = parameters.rlwe_n().0;
 
-                    let mut message =
-                        vec![<Mat as Matrix>::MatElement::zero(); parameters.rlwe_n().0];
-                    m.iter().enumerate().for_each(|(i, v)| {
-                        if *v {
-                            message[i] = parameters.rlwe_q().true_el()
-                        } else {
-                            message[i] = parameters.rlwe_q().false_el()
-                        }
-                    });
+                    let rlwe_count = ((m.len() as f64 / ring_size as f64).ceil())
+                        .to_usize()
+                        .unwrap();
 
-                    // e.pk_encrypt_batched(self.key(), m)
-                    public_key_encrypt_rlwe::<_, _, _, _, i32, _>(
-                        &mut rlwe_out,
-                        self.key(),
-                        &message,
-                        e.pbs_info().modop_rlweq(),
-                        e.pbs_info().nttop_rlweq(),
-                        rng,
-                    );
-                    rlwe_out
+                    // encrypt `m` into ceil(len(m)/N) RLWE ciphertexts
+                    let rlwes = (0..rlwe_count)
+                        .map(|index| {
+                            let mut message = vec![<Mat as Matrix>::MatElement::zero(); ring_size];
+                            m[(index * ring_size)..std::cmp::min(m.len(), (index + 1) * ring_size)]
+                                .iter()
+                                .enumerate()
+                                .for_each(|(i, v)| {
+                                    if *v {
+                                        message[i] = parameters.rlwe_q().true_el()
+                                    } else {
+                                        message[i] = parameters.rlwe_q().false_el()
+                                    }
+                                });
+
+                            // encrypt message
+                            let mut rlwe_out =
+                                <Mat as MatrixEntity>::zeros(2, parameters.rlwe_n().0);
+
+                            public_key_encrypt_rlwe::<_, _, _, _, i32, _>(
+                                &mut rlwe_out,
+                                self.key(),
+                                &message,
+                                e.pbs_info().modop_rlweq(),
+                                e.pbs_info().nttop_rlweq(),
+                                rng,
+                            );
+
+                            rlwe_out
+                        })
+                        .collect_vec();
+                    rlwes
                 })
             })
         }
@@ -250,10 +234,10 @@ mod impl_enc_dec {
     impl<Rng, ModOp> Encryptor<bool, <Mat as Matrix>::R> for PublicKey<Mat, Rng, ModOp> {
         fn encrypt(&self, m: &bool) -> <Mat as Matrix>::R {
             let m = vec![*m];
-            let rlwe = self.encrypt(m.as_slice());
+            let rlwe = &self.encrypt(m.as_slice())[0];
             BoolEvaluator::with_local(|e| {
                 let mut lwe = <Mat as Matrix>::R::zeros(e.parameters().rlwe_n().0 + 1);
-                sample_extract(&mut lwe, &rlwe, e.pbs_info().modop_rlweq(), 0);
+                sample_extract(&mut lwe, rlwe, e.pbs_info().modop_rlweq(), 0);
                 lwe
             })
         }

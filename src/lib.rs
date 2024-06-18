@@ -19,13 +19,12 @@ mod utils;
 pub use backend::{
     ArithmeticLazyOps, ArithmeticOps, ModInit, ModularOpsU64, ShoupMatrixFMA, VectorOps,
 };
-pub use bool::{
-    aggregate_public_key_shares, aggregate_server_key_shares, gen_client_key, gen_mp_keys_phase1,
-    gen_mp_keys_phase2, set_mp_seed, set_parameter_set, ParameterSelector,
-};
+// pub use bool::{
+//     aggregate_public_key_shares, aggregate_server_key_shares, gen_client_key,
+// gen_mp_keys_phase1,     gen_mp_keys_phase2, set_mp_seed, set_parameter_set,
+// ParameterSelector, };
 pub use decomposer::{Decomposer, DecomposerIter, DefaultDecomposer};
 pub use ntt::{Ntt, NttBackendU64, NttInit};
-pub use shortint::FheUint8;
 
 pub trait Matrix: AsRef<[Self::R]> {
     type MatElement;
@@ -179,4 +178,8 @@ pub trait MultiPartyDecryptor<M, C> {
 
     fn gen_decryption_share(&self, c: &C) -> Self::DecryptionShare;
     fn aggregate_decryption_shares(&self, c: &C, shares: &[Self::DecryptionShare]) -> M;
+}
+
+pub trait KeySwitchWithId<C> {
+    fn key_switch(&self, user_id: usize) -> C;
 }

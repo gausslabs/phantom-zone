@@ -392,6 +392,7 @@ pub(crate) fn sample_extract<M: Matrix + MatrixMut, ModOp: ArithmeticOps<Element
     M::MatElement: Copy,
 {
     let ring_size = rlwe_in.dimension().1;
+    assert!(ring_size + 1 == lwe_out.as_ref().len());
 
     // index..=0
     let to = &mut lwe_out.as_mut()[1..];

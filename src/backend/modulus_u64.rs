@@ -231,7 +231,12 @@ impl<T> VectorOps for ModularOpsU64<T> {
 impl<R: RowMut<Element = u64>, T> ShoupMatrixFMA<R> for ModularOpsU64<T> {
     fn shoup_matrix_fma(&self, out: &mut [R::Element], a: &[R], a_shoup: &[R], b: &[R]) {
         assert!(a.len() == a_shoup.len());
-        assert!(a.len() == b.len());
+        assert!(
+            a.len() == b.len(),
+            "Unequal length {}!={}",
+            a.len(),
+            b.len()
+        );
 
         let q = self.q;
         let q_twice = self.q << 1;

@@ -1061,8 +1061,8 @@ pub(crate) mod tests {
         let ring_size = 1 << 11;
         let q = generate_prime(logq, ring_size, 1u64 << logq).unwrap();
         let p = 1u64 << logp;
-        let d_rgsw = 5;
-        let logb = 12;
+        let d_rgsw = 12;
+        let logb = 5;
 
         let s = RlweSecret::random((ring_size >> 1) as usize, ring_size as usize);
 

@@ -647,3 +647,67 @@ pub(crate) fn rgsw_by_rgsw_inplace<
         .iter_rows_mut()
         .for_each(|ri| ntt_op.backward(ri.as_mut()));
 }
+
+pub(crate) fn key_switch<
+    M: MatrixMut + MatrixEntity,
+    ModOp: GetModulus<Element = M::MatElement> + ShoupMatrixFMA<M::R> + VectorOps<Element = M::MatElement>,
+    NttOp: Ntt<Element = M::MatElement>,
+    D: Decomposer<Element = M::MatElement>,
+>(
+    rlwe_in: &M,
+    ksk: &M,
+    ksk_shoup: &M,
+    decomposer: &D,
+    ntt_op: &NttOp,
+    mod_op: &ModOp,
+) -> M
+where
+    <M as Matrix>::R: RowMut + RowEntity,
+    M::MatElement: Copy,
+{
+    let ring_size = rlwe_in.dimension().1;
+    assert!(rlwe_in.dimension().0 == 2);
+    assert!(ksk.dimension() == (decomposer.decomposition_count() * 2, ring_size));
+
+    let mut rlwe_out = M::zeros(2, ring_size);
+
+    let mut tmp = M::zeros(decomposer.decomposition_count(), ring_size);
+    let mut tmp_row = M::R::zeros(ring_size);
+
+    // key switch RLWE part -A
+    // negative A
+    tmp_row.as_mut().copy_from_slice(rlwe_in.get_row_slice(0));
+    mod_op.elwise_neg_mut(tmp_row.as_mut());
+    // decompose -A and send to evaluation domain
+    decompose_r(tmp_row.as_ref(), tmp.as_mut(), decomposer);
+    tmp.iter_rows_mut()
+        .for_each(|r| ntt_op.forward_lazy(r.as_mut()));
+
+    // RLWE_s(-A u) = B' + B, A' = (decomp(-A) * Ksk(u -> s)) + (B, 0)
+    let (ksk_part_a, ksk_part_b) = ksk.split_at_row(decomposer.decomposition_count());
+    let (ksk_part_a_shoup, ksk_part_b_shoup) =
+        ksk_shoup.split_at_row(decomposer.decomposition_count());
+    // Part A'
+    mod_op.shoup_matrix_fma(
+        rlwe_out.get_row_mut(0),
+        &ksk_part_a,
+        &ksk_part_a_shoup,
+        tmp.as_ref(),
+    );
+    // Part B'
+    mod_op.shoup_matrix_fma(
+        rlwe_out.get_row_mut(1),
+        &ksk_part_b,
+        &ksk_part_b_shoup,
+        tmp.as_ref(),
+    );
+    // back to coefficient domain
+    rlwe_out
+        .iter_rows_mut()
+        .for_each(|r| ntt_op.backward(r.as_mut()));
+
+    // B' + B
+    mod_op.elwise_add_mut(rlwe_out.get_row_mut(1), rlwe_in.get_row_slice(1));
+
+    rlwe_out
+}
