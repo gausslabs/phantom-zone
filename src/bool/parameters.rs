@@ -531,7 +531,19 @@ pub(crate) const NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = Boo
 };
 #[cfg(test)]
 mod tests {
-    use crate::utils::generate_prime;
+
+    impl BoolParameters<u64> {
+        pub(crate) fn default_rlwe_modop(&self) -> ModularOpsU64<CiphertextModulus<u64>> {
+            ModularOpsU64::new(self.rlwe_q)
+        }
+        pub(crate) fn default_rlwe_nttop(&self) -> NttBackendU64 {
+            NttBackendU64::new(&self.rlwe_q, self.rlwe_n.0)
+        }
+    }
+
+    use crate::{utils::generate_prime, ModInit, ModularOpsU64, Ntt, NttBackendU64, NttInit};
+
+    use super::{BoolParameters, CiphertextModulus};
 
     #[test]
     fn find_prime() {

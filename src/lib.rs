@@ -183,3 +183,7 @@ pub trait MultiPartyDecryptor<M, C> {
 pub trait KeySwitchWithId<C> {
     fn key_switch(&self, user_id: usize) -> C;
 }
+
+pub(crate) trait Encoder<F, T> {
+    fn encode(&self, v: F) -> T;
+}

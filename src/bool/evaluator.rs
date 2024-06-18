@@ -42,8 +42,8 @@ use crate::{
         fill_random_ternary_secret_with_hamming_weight, generate_prime, mod_exponent,
         puncture_p_rng, Global, TryConvertFrom1, WithLocal,
     },
-    Decryptor, Encryptor, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor, Row, RowEntity,
-    RowMut, Secret,
+    Decryptor, Encoder, Encryptor, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor, Row,
+    RowEntity, RowMut, Secret,
 };
 
 use super::{
@@ -288,6 +288,19 @@ where
             return true;
         } else {
             panic!("Incorrect bool decryption. Got m={m} but expected m to be 0 or 1")
+        }
+    }
+}
+
+impl<B> Encoder<bool, B::Element> for B
+where
+    B: BoolEncoding,
+{
+    fn encode(&self, v: bool) -> B::Element {
+        if v {
+            self.true_el()
+        } else {
+            self.false_el()
         }
     }
 }
