@@ -348,24 +348,6 @@ mod impl_enc_dec {
             BatchedFheBools { data }
         }
     }
-
-    impl<E> MultiPartyDecryptor<bool, <Mat as Matrix>::R>
-        for super::super::keys::ClientKey<[u8; 32], E>
-    {
-        type DecryptionShare = <Mat as Matrix>::MatElement;
-
-        fn gen_decryption_share(&self, c: &<Mat as Matrix>::R) -> Self::DecryptionShare {
-            BoolEvaluator::with_local(|e| e.multi_party_decryption_share(c, self))
-        }
-
-        fn aggregate_decryption_shares(
-            &self,
-            c: &<Mat as Matrix>::R,
-            shares: &[Self::DecryptionShare],
-        ) -> bool {
-            BoolEvaluator::with_local(|e| e.multi_party_decrypt(shares, c))
-        }
-    }
 }
 
 #[cfg(test)]

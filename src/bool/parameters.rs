@@ -442,25 +442,6 @@ where
     }
 }
 
-pub(crate) const SP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_q: CiphertextModulus::new_non_native(268369921u64),
-    lwe_q: CiphertextModulus::new_non_native(1 << 16),
-    br_q: 1 << 10,
-    rlwe_n: PolynomialSize(1 << 10),
-    lwe_n: LweDimension(500),
-    lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(4)),
-    rlrg_decomposer_params: (
-        DecompostionLogBase(7),
-        (DecompositionCount(4), DecompositionCount(4)),
-    ),
-    rgrg_decomposer_params: None,
-    auto_decomposer_params: (DecompostionLogBase(7), DecompositionCount(4)),
-    non_interactive_ui_to_s_key_switch_decomposer: None,
-    g: 5,
-    w: 5,
-    variant: ParameterVariant::SingleParty,
-};
-
 pub(crate) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_q: CiphertextModulus::new_non_native(1152921504606830593),
     lwe_q: CiphertextModulus::new_non_native(1 << 20),
@@ -529,6 +510,27 @@ pub(crate) const NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = Boo
     w: 10,
     variant: ParameterVariant::NonInteractiveMultiParty,
 };
+
+#[cfg(test)]
+pub(crate) const SP_TEST_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_q: CiphertextModulus::new_non_native(268369921u64),
+    lwe_q: CiphertextModulus::new_non_native(1 << 16),
+    br_q: 1 << 9,
+    rlwe_n: PolynomialSize(1 << 9),
+    lwe_n: LweDimension(100),
+    lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(4)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(7),
+        (DecompositionCount(4), DecompositionCount(4)),
+    ),
+    rgrg_decomposer_params: None,
+    auto_decomposer_params: (DecompostionLogBase(7), DecompositionCount(4)),
+    non_interactive_ui_to_s_key_switch_decomposer: None,
+    g: 5,
+    w: 5,
+    variant: ParameterVariant::SingleParty,
+};
+
 #[cfg(test)]
 mod tests {
 
