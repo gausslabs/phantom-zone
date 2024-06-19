@@ -23,8 +23,10 @@ pub use backend::{
 //     aggregate_public_key_shares, aggregate_server_key_shares, gen_client_key,
 // gen_mp_keys_phase1,     gen_mp_keys_phase2, set_mp_seed, set_parameter_set,
 // ParameterSelector, };
+pub use bool::*;
 pub use decomposer::{Decomposer, DecomposerIter, DefaultDecomposer};
 pub use ntt::{Ntt, NttBackendU64, NttInit};
+pub use shortint::FheUint8;
 
 pub trait Matrix: AsRef<[Self::R]> {
     type MatElement;
@@ -184,6 +186,10 @@ pub trait KeySwitchWithId<C> {
     fn key_switch(&self, user_id: usize) -> C;
 }
 
-pub(crate) trait Encoder<F, T> {
+pub trait SampleExtractor<R> {
+    fn extract(&self, index: usize) -> R;
+}
+
+trait Encoder<F, T> {
     fn encode(&self, v: F) -> T;
 }

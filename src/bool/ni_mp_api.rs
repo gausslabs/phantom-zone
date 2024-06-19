@@ -19,7 +19,7 @@ use super::{
     ClientKey, ParameterSelector,
 };
 
-pub type BoolEvaluator = super::evaluator::BoolEvaluator<
+pub(crate) type BoolEvaluator = super::evaluator::BoolEvaluator<
     Vec<Vec<u64>>,
     NttBackendU64,
     ModularOpsU64<CiphertextModulus<u64>>,

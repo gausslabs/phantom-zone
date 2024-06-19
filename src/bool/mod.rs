@@ -1,16 +1,21 @@
 pub(crate) mod evaluator;
 mod keys;
-mod mp_api;
-mod ni_mp_api;
 mod noise;
 pub(crate) mod parameters;
 
 pub(crate) use keys::PublicKey;
 
+#[cfg(feature = "interactive_mp")]
+#[cfg(not(feature = "non_interactive_mp"))]
+mod mp_api;
+#[cfg(feature = "non_interactive_mp")]
+mod ni_mp_api;
+
 #[cfg(feature = "non_interactive_mp")]
 pub use ni_mp_api::*;
 
 #[cfg(feature = "interactive_mp")]
+#[cfg(not(feature = "non_interactive_mp"))]
 pub use mp_api::*;
 
 pub type ClientKey = keys::ClientKey<[u8; 32], u64>;
@@ -22,7 +27,11 @@ pub enum ParameterSelector {
 
 mod common_mp_enc_dec {
     use super::BoolEvaluator;
-    use crate::{utils::WithLocal, Matrix, MultiPartyDecryptor};
+    use crate::{
+        pbs::{sample_extract, PbsInfo},
+        utils::WithLocal,
+        Matrix, MultiPartyDecryptor, RowEntity, SampleExtractor,
+    };
 
     type Mat = Vec<Vec<u64>>;
 
@@ -39,6 +48,22 @@ mod common_mp_enc_dec {
             shares: &[Self::DecryptionShare],
         ) -> bool {
             BoolEvaluator::with_local(|e| e.multi_party_decrypt(shares, c))
+        }
+    }
+
+    impl SampleExtractor<<Mat as Matrix>::R> for Mat {
+        fn extract(&self, index: usize) -> <Mat as Matrix>::R {
+            // input is RLWE ciphertext
+            assert!(self.dimension().0 == 2);
+
+            let ring_size = self.dimension().1;
+            assert!(index < ring_size);
+
+            BoolEvaluator::with_local(|e| {
+                let mut lwe_out = <Mat as Matrix>::R::zeros(ring_size + 1);
+                sample_extract(&mut lwe_out, self, e.pbs_info().modop_rlweq(), index);
+                lwe_out
+            })
         }
     }
 }

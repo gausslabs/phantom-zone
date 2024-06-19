@@ -26,3 +26,12 @@ harness = false
 [[bench]]
 name = "modulus"
 harness = false
+
+[[example]]
+name = "interactive_fheuint8"
+path = "./examples/interactive_fheuint8.rs"
+
+[[example]]
+name = "non_interactive_fheuint8"
+path = "./examples/non_interactive_fheuint8.rs"
+required-features = ["non_interactive_mp"]

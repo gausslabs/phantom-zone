@@ -9,7 +9,7 @@ use crate::{
 
 use super::{evaluator::MultiPartyCrs, keys::*, parameters::*, ClientKey, ParameterSelector};
 
-pub type BoolEvaluator = super::evaluator::BoolEvaluator<
+pub(crate) type BoolEvaluator = super::evaluator::BoolEvaluator<
     Vec<Vec<u64>>,
     NttBackendU64,
     ModularOpsU64<CiphertextModulus<u64>>,
@@ -304,8 +304,13 @@ mod tests {
     }
 
     mod sp_api {
+        use num_traits::ToPrimitive;
+        use rand::Rng;
+
         use crate::{
-            backend::ModulusPowerOf2, utils::WithLocal, Decryptor, ModularOpsU64, NttBackendU64,
+            backend::ModulusPowerOf2, evaluator::BoolEncoding, pbs::PbsInfo,
+            rgsw::secret_key_encrypt_rlwe, utils::WithLocal, Decryptor, ModularOpsU64,
+            NttBackendU64, SampleExtractor,
         };
 
         use super::*;
@@ -357,6 +362,86 @@ mod tests {
             fn decrypt(&self, c: &Vec<u64>) -> bool {
                 BoolEvaluator::with_local(|e| e.sk_decrypt(c, self))
             }
+        }
+        impl<K> Encryptor<[bool], (Vec<Vec<u64>>, [u8; 32])> for K
+        where
+            K: SinglePartyClientKey<Element = i32>,
+        {
+            fn encrypt(&self, m: &[bool]) -> (Vec<Vec<u64>>, [u8; 32]) {
+                BoolEvaluator::with_local(|e| {
+                    DefaultSecureRng::with_local_mut(|rng| {
+                        let parameters = e.parameters();
+                        let ring_size = parameters.rlwe_n().0;
+
+                        let rlwe_count = ((m.len() as f64 / ring_size as f64).ceil())
+                            .to_usize()
+                            .unwrap();
+
+                        let mut seed = <DefaultSecureRng as NewWithSeed>::Seed::default();
+                        rng.fill_bytes(&mut seed);
+                        let mut prng = DefaultSecureRng::new_seeded(seed);
+
+                        let sk_u = self.sk_rlwe();
+
+                        // encrypt `m` into ceil(len(m)/N) RLWE ciphertexts
+                        let rlwes = (0..rlwe_count)
+                            .map(|index| {
+                                let mut message = vec![0; ring_size];
+                                m[(index * ring_size)
+                                    ..std::cmp::min(m.len(), (index + 1) * ring_size)]
+                                    .iter()
+                                    .enumerate()
+                                    .for_each(|(i, v)| {
+                                        if *v {
+                                            message[i] = parameters.rlwe_q().true_el()
+                                        } else {
+                                            message[i] = parameters.rlwe_q().false_el()
+                                        }
+                                    });
+
+                                // encrypt message
+                                let mut rlwe_out = vec![0u64; parameters.rlwe_n().0];
+
+                                secret_key_encrypt_rlwe(
+                                    &message,
+                                    &mut rlwe_out,
+                                    &sk_u,
+                                    e.pbs_info().modop_rlweq(),
+                                    e.pbs_info().nttop_rlweq(),
+                                    &mut prng,
+                                    rng,
+                                );
+
+                                rlwe_out
+                            })
+                            .collect_vec();
+
+                        (rlwes, seed)
+                    })
+                })
+            }
+        }
+
+        #[test]
+        fn batch_extract_works() {
+            set_single_party_parameter_sets(SP_TEST_BOOL_PARAMS);
+
+            let (ck, sk) = gen_keys();
+            sk.set_server_key();
+
+            let batch_size = (SP_TEST_BOOL_PARAMS.rlwe_n().0 * 3 + 123);
+            let m = (0..batch_size)
+                .map(|_| thread_rng().gen::<u8>())
+                .collect_vec();
+
+            let seeded_ct = ck.encrypt(m.as_slice());
+            let ct = seeded_ct.unseed::<Vec<Vec<u64>>>();
+
+            let m_back = (0..batch_size)
+                .map(|i| ck.decrypt(&ct.extract(i)))
+                .collect_vec();
+
+            assert_eq!(m, m_back);
         }
 
         #[test]

@@ -5,9 +5,13 @@ use crate::{
     random::{DefaultSecureRng, RandomFillUniformInModulus},
     utils::{TryConvertFrom1, WithLocal},
     Decryptor, Encryptor, KeySwitchWithId, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor,
-    RowMut,
+    RowMut, SampleExtractor,
 };
 
+/// Fhe UInt8 type
+///
+/// - Stores encryptions of bits in little endian (i.e least signficant bit
+///   stored at 0th index and most signficant bit stores at 7th index)
 #[derive(Clone)]
 pub struct FheUint8<C> {
     pub(super) data: Vec<C>,
@@ -25,6 +29,28 @@ impl<C> FheUint8<C> {
 
 pub struct BatchedFheUint8<C> {
     data: Vec<C>,
+}
+
+impl<C, R> SampleExtractor<FheUint8<R>> for BatchedFheUint8<C>
+where
+    C: SampleExtractor<R>,
+{
+    fn extract(&self, index: usize) -> FheUint8<R> {
+        BoolEvaluator::with_local(|e| {
+            let ring_size = e.parameters().rlwe_n().0;
+
+            let start_index = index * 8;
+            let end_index = (index + 1) * 8;
+            let data = (start_index..end_index)
+                .map(|i| {
+                    let rlwe_index = i / ring_size;
+                    let coeff_index = i % ring_size;
+                    self.data[rlwe_index].extract(coeff_index)
+                })
+                .collect_vec();
+            FheUint8 { data }
+        })
+    }
 }
 
 impl<M: MatrixEntity + MatrixMut<MatElement = u64>> From<&SeededBatchedFheUint8<M::R, [u8; 32]>>
@@ -85,7 +111,6 @@ where
             .flat_map(|v| (0..8).into_iter().map(|i| (((*v) >> i) & 1) == 1))
             .collect_vec();
         let (cts, seed) = K::encrypt(&self, &m);
-        dbg!(cts.len());
         SeededBatchedFheUint8 { data: cts, seed }
     }
 }
