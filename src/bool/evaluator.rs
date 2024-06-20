@@ -12,7 +12,9 @@ use std::{
 };
 
 use itertools::{izip, partition, Itertools};
-use num_traits::{FromPrimitive, Num, One, Pow, PrimInt, ToPrimitive, WrappingSub, Zero};
+use num_traits::{
+    FromPrimitive, Num, One, Pow, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero,
+};
 use rand::Rng;
 use rand_distr::uniform::SampleUniform;
 
@@ -324,7 +326,8 @@ pub(super) struct BoolPbsInfo<M: Matrix, Ntt, RlweModOp, LweModOp> {
 
 impl<M: Matrix, NttOp, RlweModOp, LweModOp> PbsInfo for BoolPbsInfo<M, NttOp, RlweModOp, LweModOp>
 where
-    M::MatElement: PrimInt + WrappingSub + NumInfo + FromPrimitive + From<bool> + Display,
+    M::MatElement:
+        PrimInt + WrappingSub + NumInfo + FromPrimitive + From<bool> + Display + WrappingAdd,
     RlweModOp: ArithmeticOps<Element = M::MatElement> + ShoupMatrixFMA<M::R>,
     LweModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     NttOp: Ntt<Element = M::MatElement>,
@@ -515,6 +518,7 @@ where
         + NumInfo
         + FromPrimitive
         + WrappingSub
+        + WrappingAdd
         + SampleUniform
         + From<bool>,
     NttOp: Ntt<Element = M::MatElement>,
@@ -1990,8 +1994,16 @@ impl<M, NttOp, RlweModOp, LweModOp, Skey> BooleanGates
 where
     M: MatrixMut + MatrixEntity,
     M::R: RowMut + RowEntity + Clone,
-    M::MatElement:
-        PrimInt + FromPrimitive + One + Copy + Zero + Display + WrappingSub + NumInfo + From<bool>,
+    M::MatElement: PrimInt
+        + FromPrimitive
+        + One
+        + Copy
+        + Zero
+        + Display
+        + WrappingSub
+        + NumInfo
+        + From<bool>
+        + WrappingAdd,
     RlweModOp: VectorOps<Element = M::MatElement>
         + ArithmeticOps<Element = M::MatElement>
         + ShoupMatrixFMA<M::R>,

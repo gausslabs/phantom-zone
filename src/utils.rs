@@ -243,6 +243,7 @@ pub(crate) mod tests {
 
     use super::fill_random_ternary_secret_with_hamming_weight;
 
+    #[derive(Clone)]
     pub(crate) struct Stats<T> {
         pub(crate) samples: Vec<T>,
     }
