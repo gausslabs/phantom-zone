@@ -4,10 +4,10 @@ use itertools::izip;
 
 use crate::{
     backend::{GetModulus, VectorOps},
-    ntt::{self, Ntt},
-    random::{NewWithSeed, RandomFillGaussianInModulus, RandomFillUniformInModulus},
+    ntt::Ntt,
+    random::{RandomFillGaussianInModulus, RandomFillUniformInModulus},
     utils::TryConvertFrom1,
-    Decomposer, Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut,
+    Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut,
 };
 
 pub(crate) fn public_key_share<
@@ -213,7 +213,7 @@ where
 
     let mut scratch_space = M::R::zeros(ring_size);
 
-    izip!(zero_encs.iter_rows_mut()).for_each(|(e_zero)| {
+    izip!(zero_encs.iter_rows_mut()).for_each(|e_zero| {
         // sample a_i
         RandomFillUniformInModulus::random_fill(p_rng, q, e_zero.as_mut());
 

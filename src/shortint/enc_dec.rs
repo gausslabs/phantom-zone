@@ -3,7 +3,7 @@ use itertools::Itertools;
 use crate::{
     bool::BoolEvaluator,
     random::{DefaultSecureRng, RandomFillUniformInModulus},
-    utils::{TryConvertFrom1, WithLocal},
+    utils::WithLocal,
     Decryptor, Encryptor, KeySwitchWithId, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor,
     RowMut, SampleExtractor,
 };

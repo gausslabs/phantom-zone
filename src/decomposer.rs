@@ -275,7 +275,7 @@ mod tests {
     use crate::{
         backend::{ModInit, ModularOpsU64},
         decomposer::round_value,
-        utils::{generate_prime, Stats, TryConvertFrom1},
+        utils::{generate_prime, tests::Stats, TryConvertFrom1},
     };
 
     use super::{Decomposer, DefaultDecomposer};
@@ -288,7 +288,7 @@ mod tests {
         let ring_size = 1 << 11;
 
         let mut rng = thread_rng();
-        let mut stats = Stats { samples: vec![] };
+        let mut stats = Stats::new();
 
         for i in [true] {
             let q = if i {

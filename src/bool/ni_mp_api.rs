@@ -167,11 +167,10 @@ mod impl_enc_dec {
     use crate::{
         bool::{evaluator::BoolEncoding, keys::NonInteractiveMultiPartyClientKey},
         pbs::{sample_extract, PbsInfo, WithShoupRepr},
-        random::{DefaultSecureRng, NewWithSeed, RandomFillUniformInModulus},
+        random::{NewWithSeed, RandomFillUniformInModulus},
         rgsw::{key_switch, secret_key_encrypt_rlwe},
-        utils::{TryConvertFrom1, WithLocal},
-        Encryptor, KeySwitchWithId, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor,
-        RowEntity, RowMut,
+        utils::TryConvertFrom1,
+        Encryptor, KeySwitchWithId, Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
     };
     use itertools::Itertools;
     use num_traits::{ToPrimitive, Zero};
@@ -359,13 +358,10 @@ mod tests {
 
     use crate::{
         backend::{GetModulus, Modulus},
-        bool::{
-            evaluator::{BoolEncoding, BooleanGates},
-            keys::SinglePartyClientKey,
-        },
+        bool::{evaluator::BooleanGates, keys::SinglePartyClientKey},
         lwe::decrypt_lwe,
         rgsw::decrypt_rlwe,
-        utils::{Stats, TryConvertFrom1},
+        utils::{tests::Stats, TryConvertFrom1},
         ArithmeticOps, Encoder, Encryptor, KeySwitchWithId, ModInit, MultiPartyDecryptor, NttInit,
         Row, VectorOps,
     };
@@ -448,9 +444,11 @@ mod tests {
             ct.extract(0)
         };
 
-        for _ in 0..100 {
+        for _ in 0..1000 {
+            // let now = std::time::Instant::now();
             let ct_out =
                 BoolEvaluator::with_local_mut(|e| e.xor(&ct0, &ct1, RuntimeServerKey::global()));
+            // println!("Time: {:?}", now.elapsed());
 
             let decryption_shares = cks
                 .iter()
@@ -458,7 +456,7 @@ mod tests {
                 .collect_vec();
             let m_out = cks[0].aggregate_decryption_shares(&ct_out, &decryption_shares);
 
-            let m_expected = (m0 ^ m1);
+            let m_expected = m0 ^ m1;
 
             {
                 let noise = measure_noise_lwe(

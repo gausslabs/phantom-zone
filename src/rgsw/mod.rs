@@ -512,13 +512,13 @@ pub(crate) mod tests {
     use crate::{
         backend::{GetModulus, ModInit, ModularOpsU64, Modulus, VectorOps},
         decomposer::{Decomposer, DefaultDecomposer, RlweDecomposer},
-        ntt::{self, Ntt, NttBackendU64, NttInit},
-        random::{DefaultSecureRng, NewWithSeed, RandomFillUniformInModulus},
+        ntt::{Ntt, NttBackendU64, NttInit},
+        random::{DefaultSecureRng, RandomFillUniformInModulus},
         rgsw::{
             galois_auto_shoup, rlwe_by_rgsw_shoup, ShoupAutoKeyEvaluationDomain,
             ShoupRgswCiphertextEvaluationDomain,
         },
-        utils::{generate_prime, negacyclic_mul, Stats, TryConvertFrom1},
+        utils::{generate_prime, negacyclic_mul, tests::Stats, TryConvertFrom1},
         Matrix, Secret,
     };
 

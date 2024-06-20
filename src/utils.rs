@@ -86,7 +86,7 @@ pub fn fill_random_ternary_secret_with_hamming_weight<
     let mut secret_indices = (0..size).into_iter().map(|i| i).collect_vec();
     let mut bit_index = 0;
     let mut byte_index = 0;
-    for _ in 0..hamming_weight {
+    for i in 0..hamming_weight {
         let s_index = RandomElementInModulus::<usize, usize>::random(rng, &secret_indices.len());
 
         let curr_bit = (bytes[byte_index] >> bit_index) & 1;
@@ -97,7 +97,7 @@ pub fn fill_random_ternary_secret_with_hamming_weight<
         }
 
         secret_indices[s_index] = *secret_indices.last().unwrap();
-        secret_indices.truncate(secret_indices.len());
+        secret_indices.truncate(secret_indices.len() - 1);
 
         if bit_index == 7 {
             bit_index = 0;
@@ -232,79 +232,73 @@ impl<P: Modulus> TryConvertFrom1<[P::Element], P> for Vec<i64> {
     }
 }
 
-pub(crate) struct Stats<T> {
-    pub(crate) samples: Vec<T>,
-}
-
-impl<T: PrimInt + FromPrimitive + Debug> Stats<T>
-where
-    // T: for<'a> Sum<&'a T>,
-    T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
-{
-    pub(crate) fn new() -> Self {
-        Self { samples: vec![] }
-    }
-
-    pub(crate) fn mean(&self) -> f64 {
-        self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
-    }
-
-    pub(crate) fn std_dev(&self) -> f64 {
-        let mean = self.mean();
-
-        // diff
-        let diff_sq = self
-            .samples
-            .iter()
-            .map(|v| {
-                let t = v.to_f64().unwrap() - mean;
-                t * t
-            })
-            .into_iter()
-            .sum::<f64>();
-
-        (diff_sq / (self.samples.len() as f64)).sqrt()
-    }
-
-    pub(crate) fn add_more(&mut self, values: &[T]) {
-        self.samples.extend(values.iter());
-    }
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use std::fmt::Debug;
 
-    use super::is_probably_prime;
-    // let n = 1 << (11 + 1);
-    // let mut start = 1 << 55;
-    // while start < (1 << 56) {
-    //     if start % n == 1 {
-    //         break;
-    //     }
-    //     start += 1;
-    // }
+    use num_traits::{FromPrimitive, PrimInt};
+    use rand::thread_rng;
 
-    // let mut prime = None;
-    // while start < (1 << 56) {
-    //     if is_probably_prime(start) {
-    //         dbg!(start);
-    //         prime = Some(start);
-    //         break;
-    //     }
-    //     dbg!(start);
-    //     start += (n);
-    // }
-    #[test]
-    fn gg() {
-        let q = 30;
-        for i in 0..1000 {
-            let x = (1u64 << (q * 2)) + (i * (1 << q)) + 1;
-            let is_prime = is_probably_prime(x);
-            if is_prime {
-                println!("{x} = 2^{} + {i} * 2^{q} + 1", 2 * q);
-            }
+    use crate::random::DefaultSecureRng;
+
+    use super::fill_random_ternary_secret_with_hamming_weight;
+
+    pub(crate) struct Stats<T> {
+        pub(crate) samples: Vec<T>,
+    }
+
+    impl<T: PrimInt + FromPrimitive + Debug> Stats<T>
+    where
+        // T: for<'a> Sum<&'a T>,
+        T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
+    {
+        pub(crate) fn new() -> Self {
+            Self { samples: vec![] }
         }
 
-        // println!("{:?}", prime);
+        pub(crate) fn mean(&self) -> f64 {
+            self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
+        }
+
+        pub(crate) fn std_dev(&self) -> f64 {
+            let mean = self.mean();
+
+            // diff
+            let diff_sq = self
+                .samples
+                .iter()
+                .map(|v| {
+                    let t = v.to_f64().unwrap() - mean;
+                    t * t
+                })
+                .into_iter()
+                .sum::<f64>();
+
+            (diff_sq / (self.samples.len() as f64)).sqrt()
+        }
+
+        pub(crate) fn add_more(&mut self, values: &[T]) {
+            self.samples.extend(values.iter());
+        }
+    }
+
+    #[test]
+    fn ternary_secret_has_correct_hw() {
+        let mut rng = DefaultSecureRng::new();
+        for n in 4..15 {
+            let ring_size = 1 << n;
+            let mut out = vec![0i32; ring_size];
+            fill_random_ternary_secret_with_hamming_weight(&mut out, ring_size >> 1, &mut rng);
+
+            // check hamming weight of out equals ring_size/2
+            let mut non_zeros = 0;
+            out.iter().for_each(|i| {
+                if *i != 0 {
+                    non_zeros += 1;
+                }
+            });
+
+            assert_eq!(ring_size >> 1, non_zeros);
+        }
     }
 }

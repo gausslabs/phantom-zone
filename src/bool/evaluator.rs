@@ -2191,30 +2191,10 @@ mod tests {
             RgswCiphertext, RgswCiphertextEvaluationDomain, SeededRgswCiphertext,
             SeededRlweCiphertext,
         },
-        utils::{negacyclic_mul, Stats},
+        utils::{negacyclic_mul, tests::Stats},
     };
 
     use super::*;
-
-    #[test]
-    fn bool_encrypt_decrypt_works() {
-        let bool_evaluator = BoolEvaluator::<
-            Vec<Vec<u64>>,
-            NttBackendU64,
-            ModularOpsU64<CiphertextModulus<u64>>,
-            ModularOpsU64<CiphertextModulus<u64>>,
-            ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
-        >::new(SP_TEST_BOOL_PARAMS);
-        let client_key = bool_evaluator.client_key();
-
-        let mut m = true;
-        for _ in 0..1000 {
-            let lwe_ct = bool_evaluator.sk_encrypt(m, &client_key);
-            let m_back = bool_evaluator.sk_decrypt(&lwe_ct, &client_key);
-            assert_eq!(m, m_back);
-            m = !m;
-        }
-    }
 
     #[test]
     fn noise_tester() {

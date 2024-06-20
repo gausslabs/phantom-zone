@@ -205,16 +205,3 @@ mod frontend {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use itertools::Itertools;
-    use num_traits::Euclid;
-
-    use crate::{
-        bool::set_parameter_set, shortint::enc_dec::FheUint8, utils::WithLocal, Decryptor,
-        Encryptor, MultiPartyDecryptor,
-    };
-
-    use super::*;
-}

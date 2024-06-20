@@ -2,10 +2,10 @@ use itertools::izip;
 use num_traits::Zero;
 
 use crate::{
-    backend::{ArithmeticOps, GetModulus, Modulus, ShoupMatrixFMA, VectorOps},
+    backend::{ArithmeticOps, GetModulus, ShoupMatrixFMA, VectorOps},
     decomposer::{Decomposer, RlweDecomposer},
     ntt::Ntt,
-    Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
+    Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
 };
 
 use super::IsTrivial;
