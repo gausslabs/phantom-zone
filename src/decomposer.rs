@@ -11,6 +11,7 @@ use std::{
 use crate::backend::{ArithmeticOps, ModularOpsU64};
 
 fn gadget_vector<T: PrimInt>(logq: usize, logb: usize, d: usize) -> Vec<T> {
+    assert!(logq >= (logb * d));
     let ignored_bits = logq - (logb * d);
 
     (0..d)
@@ -114,7 +115,8 @@ impl<
             + WrappingAdd
             + NumInfo
             + From<bool>
-            + Display,
+            + Display
+            + Debug,
     > Decomposer for DefaultDecomposer<T>
 {
     type Element = T;
@@ -127,6 +129,11 @@ impl<
         } else {
             (T::BITS - q.leading_zeros()) as usize
         };
+
+        assert!(
+            logq >= (logb * d),
+            "Decomposer wants logq >= logb*d but got logq={logq}, logb={logb}, d={d}"
+        );
 
         let ignore_bits = logq - (logb * d);
 
@@ -144,20 +151,19 @@ impl<
 
     // TODO(Jay): Outline the caveat
     fn decompose_to_vec(&self, value: &T) -> Vec<T> {
-        let mut value = round_value(*value, self.ignore_bits);
-
         let q = self.q;
         let logb = self.logb;
         let b = T::one() << logb;
         let full_mask = b - T::one();
         let bby2 = b >> 1;
 
+        let mut value = *value;
         if value >= (q >> 1) {
             value = !(q - value) + T::one()
         }
-
+        value = round_value(value, self.ignore_bits);
         let mut out = Vec::with_capacity(self.d);
-        for _ in 0..self.d {
+        for _ in 0..(self.d) {
             let k_i = value & full_mask;
 
             value = (value - k_i) >> logb;
@@ -178,11 +184,11 @@ impl<
     }
 
     fn decompose_iter(&self, value: &T) -> DecomposerIter<T> {
-        let mut value = round_value(*value, self.ignore_bits);
-
+        let mut value = *value;
         if value >= (self.q >> 1) {
             value = !(self.q - value) + T::one()
         }
+        value = round_value(value, self.ignore_bits);
 
         DecomposerIter {
             value,
@@ -283,50 +289,49 @@ mod tests {
 
     #[test]
     fn decomposition_works() {
-        let logq = 55;
-        let logb = 12;
-        let d = 4;
         let ring_size = 1 << 11;
 
         let mut rng = thread_rng();
-        let mut stats = vec![Stats::new(); d];
 
-        for i in [true] {
-            let q = if i {
-                generate_prime(logq, 2 * ring_size, 1u64 << logq).unwrap()
-            } else {
-                1u64 << logq
-            };
-            let decomposer = DefaultDecomposer::new(q, logb, d);
-            dbg!(decomposer.ignore_bits);
-            let modq_op = ModularOpsU64::new(q);
-            for _ in 0..100000 {
-                let value = rng.gen_range(0..q);
-                let limbs = decomposer.decompose_to_vec(&value);
-                // let limbs_from_iter = decomposer.decompose_iter(&value).collect_vec();
-                // assert_eq!(limbs, limbs_from_iter);
-                let value_back = round_value(
-                    decomposer.recompose(&limbs, &modq_op),
-                    decomposer.ignore_bits,
-                );
-                let rounded_value = round_value(value, decomposer.ignore_bits);
-                // assert_eq!(
-                //     rounded_value, value_back,
-                //     "Expected {rounded_value} got {value_back} for q={q}"
-                // );
+        for logq in [37, 55] {
+            let logb = 11;
+            let d = 3;
+            let mut stats = vec![Stats::new(); d];
 
-                izip!(stats.iter_mut(), limbs.iter()).for_each(|(s, l)| {
-                    s.add_more(&vec![q.map_element_to_i64(l)]);
-                });
+            for i in [true] {
+                let q = if i {
+                    generate_prime(logq, 2 * ring_size, 1u64 << logq).unwrap()
+                } else {
+                    1u64 << logq
+                };
+                let decomposer = DefaultDecomposer::new(q, logb, d);
+                dbg!(decomposer.ignore_bits);
+                let modq_op = ModularOpsU64::new(q);
+                for _ in 0..1000000 {
+                    let value = rng.gen_range(0..q);
+                    let limbs = decomposer.decompose_to_vec(&value);
+                    let limbs_from_iter = decomposer.decompose_iter(&value).collect_vec();
+                    assert_eq!(limbs, limbs_from_iter);
+                    let value_back = round_value(
+                        decomposer.recompose(&limbs, &modq_op),
+                        decomposer.ignore_bits,
+                    );
+                    let rounded_value = round_value(value, decomposer.ignore_bits);
+                    assert!((rounded_value as i64 - value_back as i64).abs() <= 1,);
+
+                    izip!(stats.iter_mut(), limbs.iter()).for_each(|(s, l)| {
+                        s.add_more(&vec![q.map_element_to_i64(l)]);
+                    });
+                }
             }
-        }
 
-        stats.iter().enumerate().for_each(|(index, s)| {
-            println!(
-                "Limb {index} - Mean: {}, Std: {}",
-                s.mean(),
-                s.std_dev().abs().log2()
-            );
-        });
+            stats.iter().enumerate().for_each(|(index, s)| {
+                println!(
+                    "Limb {index} - Mean: {}, Std: {}",
+                    s.mean(),
+                    s.std_dev().abs().log2()
+                );
+            });
+        }
     }
 }

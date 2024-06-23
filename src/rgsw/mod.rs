@@ -1156,8 +1156,8 @@ pub(crate) mod tests {
         let logq = 55;
         let ring_size = 1 << 11;
         let q = generate_prime(logq, ring_size as u64, 1u64 << logq).unwrap();
-        let d = 12;
-        let logb = 4;
+        let d = 2;
+        let logb = 12;
         let decomposer = DefaultDecomposer::new(q, logb, d);
 
         let ntt_op = NttBackendU64::new(&q, ring_size as usize);
@@ -1169,16 +1169,42 @@ pub(crate) mod tests {
         for _ in 0..10 {
             let mut a = vec![0u64; ring_size];
             RandomFillUniformInModulus::random_fill(&mut rng, &q, a.as_mut());
-            let mut e = vec![1u64; ring_size];
-            // RandomFillGaussianInModulus::random_fill(&mut rng, &q, e.as_mut());
+            let mut m = vec![0u64; ring_size];
+            RandomFillGaussianInModulus::random_fill(&mut rng, &q, m.as_mut());
+
+            let mut sk = vec![0u64; ring_size];
+            RandomFillGaussianInModulus::random_fill(&mut rng, &q, sk.as_mut());
+            let mut sk_eval = sk.clone();
+            ntt_op.forward(sk_eval.as_mut_slice());
 
             let gadget_vector = decomposer.gadget_vector();
 
             // ksk (beta e)
-            let mut ksk = vec![vec![0u64; ring_size]; decomposer.decomposition_count()];
-            izip!(ksk.iter_rows_mut(), gadget_vector.iter()).for_each(|(row, beta)| {
-                row.as_mut_slice().copy_from_slice(e.as_ref());
-                mod_op.elwise_scalar_mul_mut(row.as_mut_slice(), beta);
+            let mut ksk_part_b = vec![vec![0u64; ring_size]; decomposer.decomposition_count()];
+            let mut ksk_part_a = vec![vec![0u64; ring_size]; decomposer.decomposition_count()];
+            izip!(
+                ksk_part_b.iter_rows_mut(),
+                ksk_part_a.iter_rows_mut(),
+                gadget_vector.iter()
+            )
+            .for_each(|(part_b, part_a, beta)| {
+                RandomFillUniformInModulus::random_fill(&mut rng, &q, part_a.as_mut());
+
+                // a * s
+                let mut tmp = part_a.to_vec();
+                ntt_op.forward(tmp.as_mut());
+                mod_op.elwise_mul_mut(tmp.as_mut(), sk_eval.as_ref());
+                ntt_op.backward(tmp.as_mut());
+
+                // a*s + e + beta m
+                RandomFillGaussianInModulus::random_fill(&mut rng, &q, part_b.as_mut());
+                // println!("E: {:?}", &part_b);
+                // a*s + e
+                mod_op.elwise_add_mut(part_b.as_mut_slice(), tmp.as_ref());
+                // a*s + e + beta m
+                let mut tmp = m.to_vec();
+                mod_op.elwise_scalar_mul_mut(tmp.as_mut_slice(), beta);
+                mod_op.elwise_add_mut(part_b.as_mut_slice(), tmp.as_ref());
             });
 
             // decompose a
@@ -1195,35 +1221,60 @@ pub(crate) mod tests {
 
             // println!("Last limb");
 
-            // decomp_a * ksk(beta e)
-            ksk.iter_mut()
+            // decomp_a * ksk(beta m)
+            ksk_part_b
+                .iter_mut()
+                .for_each(|r| ntt_op.forward(r.as_mut_slice()));
+            ksk_part_a
+                .iter_mut()
                 .for_each(|r| ntt_op.forward(r.as_mut_slice()));
             decomposed_a
                 .iter_mut()
                 .for_each(|r| ntt_op.forward(r.as_mut_slice()));
-            let mut out = vec![0u64; ring_size];
-            izip!(decomposed_a.iter(), ksk.iter()).for_each(|(a, b)| {
-                // out += a * b
-                let mut a_clone = a.clone();
-                mod_op.elwise_mul_mut(a_clone.as_mut_slice(), b.as_ref());
-                mod_op.elwise_add_mut(out.as_mut_slice(), a_clone.as_ref());
-            });
-            ntt_op.backward(out.as_mut_slice());
+            let mut out = vec![vec![0u64; ring_size]; 2];
+            izip!(decomposed_a.iter(), ksk_part_b.iter(), ksk_part_a.iter()).for_each(
+                |(d_a, part_b, part_a)| {
+                    // out_a += d_a * part_a
+                    let mut d_a_clone = d_a.clone();
+                    mod_op.elwise_mul_mut(d_a_clone.as_mut_slice(), part_a.as_ref());
+                    mod_op.elwise_add_mut(out[0].as_mut_slice(), d_a_clone.as_ref());
+
+                    // out_b += d_a * part_b
+                    let mut d_a_clone = d_a.clone();
+                    mod_op.elwise_mul_mut(d_a_clone.as_mut_slice(), part_b.as_ref());
+                    mod_op.elwise_add_mut(out[1].as_mut_slice(), d_a_clone.as_ref());
+                },
+            );
+            out.iter_mut()
+                .for_each(|r| ntt_op.backward(r.as_mut_slice()));
+
+            let out_back = {
+                // decrypt
+                // a*s
+                ntt_op.forward(out[0].as_mut());
+                mod_op.elwise_mul_mut(out[0].as_mut(), sk_eval.as_ref());
+                ntt_op.backward(out[0].as_mut());
+
+                // b - a*s
+                let tmp = (out[0]).clone();
+                mod_op.elwise_sub_mut(out[1].as_mut(), tmp.as_ref());
+                out.remove(1)
+            };
 
             let out_expected = {
                 let mut a_clone = a.clone();
-                let mut e_clone = e.clone();
+                let mut m_clone = m.clone();
 
                 ntt_op.forward(a_clone.as_mut_slice());
-                ntt_op.forward(e_clone.as_mut_slice());
+                ntt_op.forward(m_clone.as_mut_slice());
 
-                mod_op.elwise_mul_mut(a_clone.as_mut_slice(), e_clone.as_mut_slice());
+                mod_op.elwise_mul_mut(a_clone.as_mut_slice(), m_clone.as_mut_slice());
                 ntt_op.backward(a_clone.as_mut_slice());
                 a_clone
             };
 
             let mut diff = out_expected;
-            mod_op.elwise_sub_mut(diff.as_mut_slice(), out.as_ref());
+            mod_op.elwise_sub_mut(diff.as_mut_slice(), out_back.as_ref());
             stats.add_more(&Vec::<i64>::try_convert_from(diff.as_ref(), &q));
         }
 

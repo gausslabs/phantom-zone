@@ -326,8 +326,14 @@ pub(super) struct BoolPbsInfo<M: Matrix, Ntt, RlweModOp, LweModOp> {
 
 impl<M: Matrix, NttOp, RlweModOp, LweModOp> PbsInfo for BoolPbsInfo<M, NttOp, RlweModOp, LweModOp>
 where
-    M::MatElement:
-        PrimInt + WrappingSub + NumInfo + FromPrimitive + From<bool> + Display + WrappingAdd,
+    M::MatElement: PrimInt
+        + WrappingSub
+        + NumInfo
+        + FromPrimitive
+        + From<bool>
+        + Display
+        + WrappingAdd
+        + Debug,
     RlweModOp: ArithmeticOps<Element = M::MatElement> + ShoupMatrixFMA<M::R>,
     LweModOp: ArithmeticOps<Element = M::MatElement> + VectorOps<Element = M::MatElement>,
     NttOp: Ntt<Element = M::MatElement>,
@@ -2003,7 +2009,8 @@ where
         + WrappingSub
         + NumInfo
         + From<bool>
-        + WrappingAdd,
+        + WrappingAdd
+        + Debug,
     RlweModOp: VectorOps<Element = M::MatElement>
         + ArithmeticOps<Element = M::MatElement>
         + ShoupMatrixFMA<M::R>,
@@ -2195,7 +2202,9 @@ mod tests {
                 SP_TEST_BOOL_PARAMS,
             },
         },
+        evaluator,
         ntt::NttBackendU64,
+        parameters::OPTIMISED_SMALL_MP_BOOL_PARAMS,
         random::{RandomElementInModulus, DEFAULT_RNG},
         rgsw::{
             self, measure_noise, public_key_encrypt_rlwe, secret_key_encrypt_rlwe,
@@ -2216,11 +2225,11 @@ mod tests {
             ModularOpsU64<CiphertextModulus<u64>>,
             ModularOpsU64<CiphertextModulus<u64>>,
             ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
-        >::new(SMALL_MP_BOOL_PARAMS);
+        >::new(OPTIMISED_SMALL_MP_BOOL_PARAMS);
 
         // let (_, collective_pk, _, _, server_key_eval, ideal_client_key) =
         //     _multi_party_all_keygen(&bool_evaluator, 20);
-        let no_of_parties = 16;
+        let no_of_parties = 2;
         let lwe_q = bool_evaluator.pbs_info.parameters.lwe_q();
         let rlwe_q = bool_evaluator.pbs_info.parameters.rlwe_q();
         let lwe_n = bool_evaluator.pbs_info.parameters.lwe_n().0;
@@ -2269,7 +2278,7 @@ mod tests {
         });
 
         // check noise in freshly encrypted RLWE ciphertext (ie var_fresh)
-        if true {
+        if false {
             let mut rng = DefaultSecureRng::new();
             let mut check = Stats { samples: vec![] };
             for _ in 0..10 {
@@ -2343,7 +2352,7 @@ mod tests {
                 bool_evaluator.aggregate_multi_party_server_key_shares(&server_key_shares);
 
             // Check noise in RGSW ciphertexts of ideal LWE secret elements
-            if false {
+            if true {
                 let mut check = Stats { samples: vec![] };
                 izip!(ideal_lwe_sk.iter(), seeded_server_key.rgsw_cts().iter()).for_each(
                     |(s_i, rgsw_ct_i)| {
@@ -2361,6 +2370,10 @@ mod tests {
                             Vec::<u64>::try_convert_from(ideal_rlwe_sk.as_slice(), rlwe_q);
                         rlwe_modop.elwise_neg_mut(&mut neg_s_eval);
                         rlwe_nttop.forward(&mut neg_s_eval);
+                        // let tmp_decomp = bool_evaluator
+                        // .parameters()
+                        // .rgsw_rgsw_decomposer::<DefaultDecomposer<u64>>();
+                        // let tmp_gadget = tmp_decomp.a().gadget_vector()
                         for j in 0..rlwe_rgsw_decomposer.a().decomposition_count() {
                             // RLWE(B^{j} * -s[X]*X^{s_lwe[i]})
 
@@ -2616,7 +2629,7 @@ mod tests {
 
             // check noise in RLWE(X^k) after sending RLWE(X) -> RLWE(X^k)using collective
             // auto key
-            if true {
+            if false {
                 let mut check = Stats { samples: vec![] };
                 let br_q = bool_evaluator.pbs_info.br_q();
                 let g = bool_evaluator.pbs_info.g();
@@ -2692,7 +2705,7 @@ mod tests {
 
             // Check noise growth in ksk
             // TODO check in LWE key switching keys
-            if true {
+            if false {
                 // 1. encrypt LWE ciphertext
                 // 2. Key switching
                 // 3.

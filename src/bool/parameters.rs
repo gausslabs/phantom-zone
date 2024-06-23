@@ -486,6 +486,28 @@ pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u6
     variant: ParameterVariant::MultiParty,
 };
 
+pub(crate) const OPTIMISED_SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
+    lwe_q: CiphertextModulus::new_non_native(1 << 15),
+    br_q: 1 << 11,
+    rlwe_n: PolynomialSize(1 << 11),
+    lwe_n: LweDimension(500),
+    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(11)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(24),
+        (DecompositionCount(1), DecompositionCount(1)),
+    ),
+    rgrg_decomposer_params: Some((
+        DecompostionLogBase(12),
+        (DecompositionCount(3), DecompositionCount(3)),
+    )),
+    auto_decomposer_params: (DecompostionLogBase(20), DecompositionCount(1)),
+    non_interactive_ui_to_s_key_switch_decomposer: None,
+    g: 5,
+    w: 10,
+    variant: ParameterVariant::MultiParty,
+};
+
 pub(crate) const NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_q: CiphertextModulus::new_non_native(36028797018820609),
     lwe_q: CiphertextModulus::new_non_native(1 << 20),
