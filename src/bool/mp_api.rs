@@ -1,4 +1,4 @@
-use std::{cell::RefCell, sync::OnceLock};
+use std::{cell::RefCell, ops::Mul, sync::OnceLock};
 
 use crate::{
     backend::{ModularOpsU64, ModulusPowerOf2},
@@ -50,9 +50,8 @@ pub fn gen_client_key() -> ClientKey {
 pub fn gen_mp_keys_phase1(
     ck: &ClientKey,
 ) -> CommonReferenceSeededCollectivePublicKeyShare<Vec<u64>, [u8; 32], BoolParameters<u64>> {
-    let seed = MultiPartyCrs::global().public_key_share_seed::<DefaultSecureRng>();
     BoolEvaluator::with_local(|e| {
-        let pk_share = e.multi_party_public_key_share(seed, ck);
+        let pk_share = e.multi_party_public_key_share(MultiPartyCrs::global(), ck);
         pk_share
     })
 }
@@ -60,10 +59,14 @@ pub fn gen_mp_keys_phase1(
 pub fn gen_mp_keys_phase2<R, ModOp>(
     ck: &ClientKey,
     pk: &PublicKey<Vec<Vec<u64>>, R, ModOp>,
-) -> CommonReferenceSeededMultiPartyServerKeyShare<Vec<Vec<u64>>, BoolParameters<u64>, [u8; 32]> {
-    let seed = MultiPartyCrs::global().server_key_share_seed::<DefaultSecureRng>();
+) -> CommonReferenceSeededMultiPartyServerKeyShare<
+    Vec<Vec<u64>>,
+    BoolParameters<u64>,
+    MultiPartyCrs<[u8; 32]>,
+> {
     BoolEvaluator::with_local_mut(|e| {
-        let server_key_share = e.multi_party_server_key_share(seed, pk.key(), ck);
+        let server_key_share =
+            e.multi_party_server_key_share(MultiPartyCrs::global(), pk.key(), ck);
         server_key_share
     })
 }
@@ -82,16 +85,16 @@ pub fn aggregate_server_key_shares(
     shares: &[CommonReferenceSeededMultiPartyServerKeyShare<
         Vec<Vec<u64>>,
         BoolParameters<u64>,
-        [u8; 32],
+        MultiPartyCrs<[u8; 32]>,
     >],
-) -> SeededMultiPartyServerKey<Vec<Vec<u64>>, [u8; 32], BoolParameters<u64>> {
+) -> SeededMultiPartyServerKey<Vec<Vec<u64>>, MultiPartyCrs<[u8; 32]>, BoolParameters<u64>> {
     BoolEvaluator::with_local(|e| e.aggregate_multi_party_server_key_shares(shares))
 }
 
 impl
     SeededMultiPartyServerKey<
         Vec<Vec<u64>>,
-        <DefaultSecureRng as NewWithSeed>::Seed,
+        MultiPartyCrs<<DefaultSecureRng as NewWithSeed>::Seed>,
         BoolParameters<u64>,
     >
 {

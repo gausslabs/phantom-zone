@@ -64,6 +64,20 @@ use super::{
     },
 };
 
+/// Common reference seed used for Interactive multi-party,
+///
+/// Seeds for public key shares and differents parts of server key shares are
+/// derived from common reference seed with different puncture rountines.
+///
+/// ## Punctures
+///
+///     Initial Seed:
+///         Puncture 1 -> Public key share seed
+///         Puncture 2 -> Main server key share seed
+///             Puncture 1 -> RGSW cuphertexts seed
+///             Puncture 2 -> Auto keys cipertexts seed
+///             Puncture 3 -> LWE ksk seed
+#[derive(Clone, PartialEq)]
 pub struct MultiPartyCrs<S> {
     pub(super) seed: S,
 }
@@ -75,6 +89,34 @@ impl MultiPartyCrs<[u8; 32]> {
             rng.fill_bytes(&mut seed);
             Self { seed }
         })
+    }
+}
+impl<S: Default + Copy> MultiPartyCrs<S> {
+    /// Seed to generate public key share
+    fn public_key_share_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
+        let mut prng = Rng::new_with_seed(self.seed);
+        puncture_p_rng(&mut prng, 1)
+    }
+
+    /// Main server key share seed
+    fn key_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
+        let mut prng = Rng::new_with_seed(self.seed);
+        puncture_p_rng(&mut prng, 2)
+    }
+
+    pub(super) fn rgsw_cts_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
+        let mut key_prng = Rng::new_with_seed(self.key_seed::<Rng>());
+        puncture_p_rng(&mut key_prng, 1)
+    }
+
+    pub(super) fn auto_keys_cts_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
+        let mut key_prng = Rng::new_with_seed(self.key_seed::<Rng>());
+        puncture_p_rng(&mut key_prng, 2)
+    }
+
+    pub(super) fn lwe_ksk_cts_seed_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
+        let mut key_prng = Rng::new_with_seed(self.key_seed::<Rng>());
+        puncture_p_rng(&mut key_prng, 3)
     }
 }
 
@@ -99,20 +141,17 @@ impl<S: Default + Copy> NonInteractiveMultiPartyCrs<S> {
     }
 
     pub(crate) fn rgsw_cts_seed<R: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
-        let key_seed = self.key_seed::<R>();
-        let mut p_rng = R::new_with_seed(key_seed);
+        let mut p_rng = R::new_with_seed(self.key_seed::<R>());
         puncture_p_rng(&mut p_rng, 1)
     }
 
     pub(crate) fn auto_keys_cts_seed<R: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
-        let key_seed = self.key_seed::<R>();
-        let mut p_rng = R::new_with_seed(key_seed);
+        let mut p_rng = R::new_with_seed(self.key_seed::<R>());
         puncture_p_rng(&mut p_rng, 2)
     }
 
     pub(crate) fn lwe_ksk_cts_seed<R: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
-        let key_seed = self.key_seed::<R>();
-        let mut p_rng = R::new_with_seed(key_seed);
+        let mut p_rng = R::new_with_seed(self.key_seed::<R>());
         puncture_p_rng(&mut p_rng, 3)
     }
 
@@ -129,33 +168,6 @@ impl<S: Default + Copy> NonInteractiveMultiPartyCrs<S> {
         let mut p_rng = R::new_with_seed(ks_seed);
 
         puncture_p_rng(&mut p_rng, user_i + 1)
-    }
-}
-
-impl<S: Default + Copy> MultiPartyCrs<S> {
-    /// Seed to generate public key share using MultiPartyCrs as the main seed.
-    ///
-    /// Public key seed equals the 1st seed extracted from PRNG Seeded with
-    /// MiltiPartyCrs's seed.
-    pub(super) fn public_key_share_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
-        let mut prng = Rng::new_with_seed(self.seed);
-
-        let mut seed = S::default();
-        RandomFill::<S>::random_fill(&mut prng, &mut seed);
-        seed
-    }
-
-    /// Seed to generate server key share using MultiPartyCrs as the main seed.
-    ///
-    /// Server key seed equals the 2nd seed extracted from PRNG Seeded with
-    /// MiltiPartyCrs's seed.
-    pub(super) fn server_key_share_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
-        let mut prng = Rng::new_with_seed(self.seed);
-
-        let mut seed = S::default();
-        RandomFill::<S>::random_fill(&mut prng, &mut seed);
-        RandomFill::<S>::random_fill(&mut prng, &mut seed);
-        seed
     }
 }
 
@@ -788,61 +800,43 @@ where
 
     pub(super) fn multi_party_server_key_share<K: InteractiveMultiPartyClientKey<Element = i32>>(
         &self,
-        cr_seed: [u8; 32],
+        cr_seed: &MultiPartyCrs<[u8; 32]>,
         collective_pk: &M,
         client_key: &K,
-    ) -> CommonReferenceSeededMultiPartyServerKeyShare<M, BoolParameters<M::MatElement>, [u8; 32]>
-    {
+    ) -> CommonReferenceSeededMultiPartyServerKeyShare<
+        M,
+        BoolParameters<M::MatElement>,
+        MultiPartyCrs<[u8; 32]>,
+    > {
         assert_eq!(self.parameters().variant(), &ParameterVariant::MultiParty);
+        // let user_id = 0;
 
-        DefaultSecureRng::with_local_mut(|rng| {
-            let mut main_prng = DefaultSecureRng::new_seeded(cr_seed);
+        // let user_segment_start = 0;
+        // let user_segment_end = 1;
 
-            let sk_rlwe = client_key.sk_rlwe();
-            let sk_lwe = client_key.sk_lwe();
+        let sk_rlwe = client_key.sk_rlwe();
+        let sk_lwe = client_key.sk_lwe();
 
-            let g = self.pbs_info.parameters.g();
-            let ring_size = self.pbs_info.parameters.rlwe_n().0;
-            let rlwe_q = self.pbs_info.parameters.rlwe_q();
-            let lwe_q = self.pbs_info.parameters.lwe_q();
+        let g = self.pbs_info.parameters.g();
+        let ring_size = self.pbs_info.parameters.rlwe_n().0;
+        let rlwe_q = self.pbs_info.parameters.rlwe_q();
+        let lwe_q = self.pbs_info.parameters.lwe_q();
 
-            let rlweq_modop = &self.pbs_info.rlwe_modop;
-            let rlweq_nttop = &self.pbs_info.rlwe_nttop;
+        let rlweq_modop = &self.pbs_info.rlwe_modop;
+        let rlweq_nttop = &self.pbs_info.rlwe_nttop;
 
-            // sanity check
-            assert!(sk_rlwe.len() == ring_size);
-            assert!(sk_lwe.len() == self.pbs_info.parameters.lwe_n().0);
+        // sanity check
+        assert!(sk_rlwe.len() == ring_size);
+        assert!(sk_lwe.len() == self.pbs_info.parameters.lwe_n().0);
 
-            // auto keys
-            let mut auto_keys = HashMap::new();
-            let auto_gadget = self.pbs_info.auto_decomposer.gadget_vector();
-            let auto_element_dlogs = self.pbs_info.parameters.auto_element_dlogs();
-            let br_q = self.pbs_info.parameters.br_q();
-            for i in auto_element_dlogs.into_iter() {
-                let g_pow = if i == 0 {
-                    -(g as isize)
-                } else {
-                    (g.pow(i as u32) % br_q) as isize
-                };
+        // auto keys
+        let auto_keys = self._common_rountine_multi_party_auto_keys_share_gen(
+            cr_seed.auto_keys_cts_seed::<DefaultSecureRng>(),
+            &sk_rlwe,
+        );
 
-                let mut ksk_out = M::zeros(
-                    self.pbs_info.auto_decomposer.decomposition_count(),
-                    ring_size,
-                );
-                galois_key_gen(
-                    &mut ksk_out,
-                    &sk_rlwe,
-                    g_pow,
-                    &auto_gadget,
-                    rlweq_modop,
-                    rlweq_nttop,
-                    &mut main_prng,
-                    rng,
-                );
-                auto_keys.insert(i, ksk_out);
-            }
-
-            // rgsw ciphertexts of lwe secret elements
+        // rgsw ciphertexts of lwe secret elements
+        let rgsw_cts = DefaultSecureRng::with_local_mut(|rng| {
             let rgsw_rgsw_decomposer = self
                 .pbs_info
                 .parameters
@@ -888,30 +882,23 @@ where
                     out_rgsw
                 })
                 .collect_vec();
+            rgsw_cts
+        });
 
-            // LWE ksk
-            let mut lwe_ksk =
-                M::R::zeros(self.pbs_info.lwe_decomposer.decomposition_count() * ring_size);
-            let lwe_modop = &self.pbs_info.lwe_modop;
-            let d_lwe_gadget_vec = self.pbs_info.lwe_decomposer.gadget_vector();
-            lwe_ksk_keygen(
-                &sk_rlwe,
-                &sk_lwe,
-                &mut lwe_ksk,
-                &d_lwe_gadget_vec,
-                lwe_modop,
-                &mut main_prng,
-                rng,
-            );
+        // LWE Ksk
+        let lwe_ksk = self._common_rountine_multi_party_lwe_ksk_share_gen(
+            cr_seed.lwe_ksk_cts_seed_seed::<DefaultSecureRng>(),
+            &sk_rlwe,
+            &sk_lwe,
+        );
 
-            CommonReferenceSeededMultiPartyServerKeyShare::new(
-                rgsw_cts,
-                auto_keys,
-                lwe_ksk,
-                cr_seed,
-                self.pbs_info.parameters.clone(),
-            )
-        })
+        CommonReferenceSeededMultiPartyServerKeyShare::new(
+            rgsw_cts,
+            auto_keys,
+            lwe_ksk,
+            cr_seed.clone(),
+            self.pbs_info.parameters.clone(),
+        )
     }
 
     pub(super) fn aggregate_non_interactive_multi_party_key_share(
@@ -1657,7 +1644,7 @@ where
 
     pub(super) fn multi_party_public_key_share<K: InteractiveMultiPartyClientKey<Element = i32>>(
         &self,
-        cr_seed: [u8; 32],
+        cr_seed: &MultiPartyCrs<[u8; 32]>,
         client_key: &K,
     ) -> CommonReferenceSeededCollectivePublicKeyShare<
         <M as Matrix>::R,
@@ -1668,7 +1655,8 @@ where
             let mut share_out = M::R::zeros(self.pbs_info.parameters.rlwe_n().0);
             let modop = &self.pbs_info.rlwe_modop;
             let nttop = &self.pbs_info.rlwe_nttop;
-            let mut main_prng = DefaultSecureRng::new_seeded(cr_seed);
+            let pk_seed = cr_seed.public_key_share_seed::<DefaultSecureRng>();
+            let mut main_prng = DefaultSecureRng::new_seeded(pk_seed);
             public_key_share(
                 &mut share_out,
                 &client_key.sk_rlwe(),
@@ -1679,7 +1667,7 @@ where
             );
             CommonReferenceSeededCollectivePublicKeyShare::new(
                 share_out,
-                cr_seed,
+                pk_seed,
                 self.pbs_info.parameters.clone(),
             )
         })
@@ -1852,9 +1840,9 @@ where
         shares: &[CommonReferenceSeededMultiPartyServerKeyShare<
             M,
             BoolParameters<M::MatElement>,
-            S,
+            MultiPartyCrs<S>,
         >],
-    ) -> SeededMultiPartyServerKey<M, S, BoolParameters<M::MatElement>>
+    ) -> SeededMultiPartyServerKey<M, MultiPartyCrs<S>, BoolParameters<M::MatElement>>
     where
         S: PartialEq + Clone,
         M: Clone,
@@ -2256,6 +2244,8 @@ mod tests {
             .map(|_| bool_evaluator.client_key())
             .collect_vec();
 
+        let int_mp_seed = MultiPartyCrs::random();
+
         let mut ideal_rlwe_sk = vec![0i32; bool_evaluator.pbs_info.rlwe_n()];
         parties.iter().for_each(|k| {
             izip!(
@@ -2287,7 +2277,7 @@ mod tests {
                 rng.fill_bytes(&mut pk_cr_seed);
                 let public_key_share = parties
                     .iter()
-                    .map(|k| bool_evaluator.multi_party_public_key_share(pk_cr_seed, k))
+                    .map(|k| bool_evaluator.multi_party_public_key_share(&int_mp_seed, k))
                     .collect_vec();
                 let collective_pk = PublicKey::<
                     Vec<Vec<u64>>,
@@ -2331,7 +2321,7 @@ mod tests {
             rng.fill_bytes(&mut pk_cr_seed);
             let public_key_share = parties
                 .iter()
-                .map(|k| bool_evaluator.multi_party_public_key_share(pk_cr_seed, k))
+                .map(|k| bool_evaluator.multi_party_public_key_share(&int_mp_seed, k))
                 .collect_vec();
             let collective_pk = PublicKey::<
                 Vec<Vec<u64>>,
@@ -2344,7 +2334,11 @@ mod tests {
             let server_key_shares = parties
                 .iter()
                 .map(|k| {
-                    bool_evaluator.multi_party_server_key_share(pbs_cr_seed, collective_pk.key(), k)
+                    bool_evaluator.multi_party_server_key_share(
+                        &int_mp_seed,
+                        collective_pk.key(),
+                        k,
+                    )
                 })
                 .collect_vec();
 

@@ -11,6 +11,7 @@ mod test {
             },
             parameters::{CiphertextModulus, SMALL_MP_BOOL_PARAMS},
         },
+        evaluator::MultiPartyCrs,
         ntt::NttBackendU64,
         random::DefaultSecureRng,
     };
@@ -28,11 +29,7 @@ mod test {
 
         let parties = 2;
 
-        let mut rng = DefaultSecureRng::new();
-        let mut pk_cr_seed = [0u8; 32];
-        let mut bk_cr_seed = [0u8; 32];
-        rng.fill_bytes(&mut pk_cr_seed);
-        rng.fill_bytes(&mut bk_cr_seed);
+        let cr_seed = MultiPartyCrs::random();
 
         let cks = (0..parties)
             .into_iter()
@@ -64,7 +61,7 @@ mod test {
         // round 1
         let pk_shares = cks
             .iter()
-            .map(|c| evaluator.multi_party_public_key_share(pk_cr_seed, c))
+            .map(|c| evaluator.multi_party_public_key_share(&cr_seed, c))
             .collect_vec();
 
         // public key
@@ -75,7 +72,7 @@ mod test {
         // round 2
         let server_key_shares = cks
             .iter()
-            .map(|c| evaluator.multi_party_server_key_share(bk_cr_seed, &pk.key(), c))
+            .map(|c| evaluator.multi_party_server_key_share(&cr_seed, &pk.key(), c))
             .collect_vec();
 
         let server_key = evaluator.aggregate_multi_party_server_key_shares(&server_key_shares);

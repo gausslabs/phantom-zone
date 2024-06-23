@@ -145,6 +145,8 @@ pub struct PublicKey<M, Rng, ModOp> {
 }
 
 pub(super) mod impl_pk {
+    use crate::evaluator::MultiPartyCrs;
+
     use super::*;
 
     impl<M, R, Mo> PublicKey<M, R, Mo> {
@@ -462,8 +464,10 @@ pub(super) mod impl_server_key_eval_domain {
     use itertools::{izip, Itertools};
 
     use crate::{
+        evaluator::MultiPartyCrs,
         ntt::{Ntt, NttInit},
         pbs::PbsKey,
+        random::RandomFill,
     };
 
     use super::*;
@@ -610,16 +614,22 @@ pub(super) mod impl_server_key_eval_domain {
             M: MatrixMut + MatrixEntity,
             Rng: NewWithSeed,
             N: NttInit<CiphertextModulus<M::MatElement>> + Ntt<Element = M::MatElement>,
-        > From<&SeededMultiPartyServerKey<M, Rng::Seed, BoolParameters<M::MatElement>>>
+        >
+        From<&SeededMultiPartyServerKey<M, MultiPartyCrs<Rng::Seed>, BoolParameters<M::MatElement>>>
         for ServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, Rng, N>
     where
         <M as Matrix>::R: RowMut,
-        Rng::Seed: Copy,
-        Rng: RandomFillUniformInModulus<[M::MatElement], CiphertextModulus<M::MatElement>>,
+        Rng::Seed: Copy + Default,
+        Rng: RandomFillUniformInModulus<[M::MatElement], CiphertextModulus<M::MatElement>>
+            + RandomFill<Rng::Seed>,
         M::MatElement: Copy,
     {
         fn from(
-            value: &SeededMultiPartyServerKey<M, Rng::Seed, BoolParameters<M::MatElement>>,
+            value: &SeededMultiPartyServerKey<
+                M,
+                MultiPartyCrs<Rng::Seed>,
+                BoolParameters<M::MatElement>,
+            >,
         ) -> Self {
             let g = value.parameters.g() as isize;
             let rlwe_n = value.parameters.rlwe_n().0;
@@ -627,37 +637,42 @@ pub(super) mod impl_server_key_eval_domain {
             let rlwe_q = value.parameters.rlwe_q();
             let lwe_q = value.parameters.lwe_q();
 
-            let mut main_prng = Rng::new_with_seed(value.cr_seed);
-
             let rlwe_nttop = N::new(rlwe_q, rlwe_n);
 
             // auto keys
             let mut auto_keys = HashMap::new();
-            let auto_d_count = value.parameters.auto_decomposition_count().0;
-            let auto_element_dlogs = value.parameters.auto_element_dlogs();
-            for i in auto_element_dlogs.into_iter() {
-                let mut key = M::zeros(auto_d_count * 2, rlwe_n);
+            {
+                let mut auto_prng = Rng::new_with_seed(value.cr_seed.auto_keys_cts_seed::<Rng>());
+                let auto_d_count = value.parameters.auto_decomposition_count().0;
+                let auto_element_dlogs = value.parameters.auto_element_dlogs();
+                for i in auto_element_dlogs.into_iter() {
+                    let mut key = M::zeros(auto_d_count * 2, rlwe_n);
 
-                // sample a
-                key.iter_rows_mut().take(auto_d_count).for_each(|ri| {
-                    RandomFillUniformInModulus::random_fill(&mut main_prng, &rlwe_q, ri.as_mut())
-                });
+                    // sample a
+                    key.iter_rows_mut().take(auto_d_count).for_each(|ri| {
+                        RandomFillUniformInModulus::random_fill(
+                            &mut auto_prng,
+                            &rlwe_q,
+                            ri.as_mut(),
+                        )
+                    });
 
-                let key_part_b = value.auto_keys.get(&i).unwrap();
-                assert!(key_part_b.dimension() == (auto_d_count, rlwe_n));
-                izip!(
-                    key.iter_rows_mut().skip(auto_d_count),
-                    key_part_b.iter_rows()
-                )
-                .for_each(|(to_ri, from_ri)| {
-                    to_ri.as_mut().copy_from_slice(from_ri.as_ref());
-                });
+                    let key_part_b = value.auto_keys.get(&i).unwrap();
+                    assert!(key_part_b.dimension() == (auto_d_count, rlwe_n));
+                    izip!(
+                        key.iter_rows_mut().skip(auto_d_count),
+                        key_part_b.iter_rows()
+                    )
+                    .for_each(|(to_ri, from_ri)| {
+                        to_ri.as_mut().copy_from_slice(from_ri.as_ref());
+                    });
 
-                // send to evaluation domain
-                key.iter_rows_mut()
-                    .for_each(|ri| rlwe_nttop.forward(ri.as_mut()));
+                    // send to evaluation domain
+                    key.iter_rows_mut()
+                        .for_each(|ri| rlwe_nttop.forward(ri.as_mut()));
 
-                auto_keys.insert(i, key);
+                    auto_keys.insert(i, key);
+                }
             }
 
             // rgsw cts
@@ -682,12 +697,13 @@ pub(super) mod impl_server_key_eval_domain {
                 .collect_vec();
 
             // lwe ksk
+            let mut lwe_ksk_prng = Rng::new_with_seed(value.cr_seed.lwe_ksk_cts_seed_seed::<Rng>());
             let d_lwe = value.parameters.lwe_decomposition_count().0;
             let mut lwe_ksk = M::zeros(rlwe_n * d_lwe, lwe_n + 1);
             izip!(lwe_ksk.iter_rows_mut(), value.lwe_ksk.as_ref().iter()).for_each(
                 |(lwe_i, bi)| {
                     RandomFillUniformInModulus::random_fill(
-                        &mut main_prng,
+                        &mut lwe_ksk_prng,
                         &lwe_q,
                         &mut lwe_i.as_mut()[1..],
                     );

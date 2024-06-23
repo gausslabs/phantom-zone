@@ -298,14 +298,13 @@ mod tests {
             let d = 3;
             let mut stats = vec![Stats::new(); d];
 
-            for i in [true] {
+            for i in [true, false] {
                 let q = if i {
                     generate_prime(logq, 2 * ring_size, 1u64 << logq).unwrap()
                 } else {
                     1u64 << logq
                 };
                 let decomposer = DefaultDecomposer::new(q, logb, d);
-                dbg!(decomposer.ignore_bits);
                 let modq_op = ModularOpsU64::new(q);
                 for _ in 0..1000000 {
                     let value = rng.gen_range(0..q);
