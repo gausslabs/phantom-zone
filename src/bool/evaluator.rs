@@ -41,8 +41,8 @@ use crate::{
         RlweCiphertext, RlweSecret,
     },
     utils::{
-        fill_random_ternary_secret_with_hamming_weight, generate_prime, mod_exponent,
-        puncture_p_rng, Global, TryConvertFrom1, WithLocal,
+        encode_x_pow_si_with_emebedding_factor, fill_random_ternary_secret_with_hamming_weight,
+        generate_prime, mod_exponent, puncture_p_rng, Global, TryConvertFrom1, WithLocal,
     },
     Decryptor, Encoder, Encryptor, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor, Row,
     RowEntity, RowMut, Secret,
@@ -527,6 +527,24 @@ where
     reduced_ct_i_out
 }
 
+/// Assigns user with user_id segement of LWE secret indices for which they
+/// generate RGSW(X^{s[i]}) as the leader (i.e. for RLWExRGSW). If returned
+/// tuple is (start, end), user's segment is [start, end)
+pub(super) fn interactive_mult_party_user_id_lwe_segment(
+    user_id: usize,
+    total_users: usize,
+    lwe_n: usize,
+) -> (usize, usize) {
+    let per_user = (lwe_n as f64 / total_users as f64)
+        .ceil()
+        .to_usize()
+        .unwrap();
+    (
+        per_user * user_id,
+        std::cmp::min(per_user * (user_id + 1), lwe_n),
+    )
+}
+
 impl<M: Matrix, NttOp, RlweModOp, LweModOp, SKey> BoolEvaluator<M, NttOp, RlweModOp, LweModOp, SKey>
 where
     M: MatrixEntity + MatrixMut,
@@ -800,6 +818,8 @@ where
 
     pub(super) fn multi_party_server_key_share<K: InteractiveMultiPartyClientKey<Element = i32>>(
         &self,
+        user_id: usize,
+        total_users: usize,
         cr_seed: &MultiPartyCrs<[u8; 32]>,
         collective_pk: &M,
         client_key: &K,
@@ -809,10 +829,7 @@ where
         MultiPartyCrs<[u8; 32]>,
     > {
         assert_eq!(self.parameters().variant(), &ParameterVariant::MultiParty);
-        // let user_id = 0;
-
-        // let user_segment_start = 0;
-        // let user_segment_end = 1;
+        assert!(user_id < total_users);
 
         let sk_rlwe = client_key.sk_rlwe();
         let sk_lwe = client_key.sk_lwe();
@@ -836,41 +853,85 @@ where
         );
 
         // rgsw ciphertexts of lwe secret elements
-        let rgsw_cts = DefaultSecureRng::with_local_mut(|rng| {
-            let rgsw_rgsw_decomposer = self
-                .pbs_info
-                .parameters
-                .rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
-            let (rgrg_d_a, rgrg_d_b) = (
-                rgsw_rgsw_decomposer.0.decomposition_count(),
-                rgsw_rgsw_decomposer.1.decomposition_count(),
-            );
-            let (rgrg_gadget_a, rgrg_gadget_b) = (
-                rgsw_rgsw_decomposer.0.gadget_vector(),
-                rgsw_rgsw_decomposer.1.gadget_vector(),
-            );
-            let rgsw_cts = sk_lwe
-                .iter()
-                .map(|si| {
-                    let mut m = M::R::zeros(ring_size);
-                    //TODO(Jay): It will be nice to have a function that returns polynomial
-                    // (monomial infact!) corresponding to secret element embedded in ring X^{2N+1}.
-                    // Save lots of mistakes where one forgest to emebed si in bigger ring.
-                    let si = *si * (self.pbs_info.embedding_factor as i32);
-                    if si < 0 {
-                        // X^{-si} = X^{2N-si} = -X^{N-si}, assuming abs(si) < N
-                        // (which it is given si is secret element)
-                        m.as_mut()[ring_size - (si.abs() as usize)] = rlwe_q.neg_one();
-                    } else {
-                        m.as_mut()[si as usize] = M::MatElement::one();
-                    }
+        let (self_leader_rgsws, not_self_leader_rgsws) = DefaultSecureRng::with_local_mut(|rng| {
+            let mut self_leader_rgsw = vec![];
+            let mut not_self_leader_rgsws = vec![];
 
-                    // public key RGSW encryption has no part that can be seeded, unlike secret key
-                    // RGSW encryption where RLWE'_A(m) is seeded
+            let (segment_start, segment_end) = interactive_mult_party_user_id_lwe_segment(
+                user_id,
+                total_users,
+                self.pbs_info().lwe_n(),
+            );
+
+            // self LWE secret indices
+            {
+                // LWE secret indices for which user is the leader they need to send RGSW(m) for
+                // RLWE x RGSW multiplication
+                let rlrg_decomposer = self.pbs_info().rlwe_rgsw_decomposer();
+                let (rlrg_d_a, rlrg_d_b) = (
+                    rlrg_decomposer.a().decomposition_count(),
+                    rlrg_decomposer.b().decomposition_count(),
+                );
+                let (gadget_a, gadget_b) = (
+                    rlrg_decomposer.a().gadget_vector(),
+                    rlrg_decomposer.b().gadget_vector(),
+                );
+                for s_index in segment_start..segment_end {
+                    let mut out_rgsw = M::zeros(rlrg_d_a * 2 + rlrg_d_b * 2, ring_size);
+                    public_key_encrypt_rgsw(
+                        &mut out_rgsw,
+                        &encode_x_pow_si_with_emebedding_factor::<
+                            M::R,
+                            CiphertextModulus<M::MatElement>,
+                        >(
+                            sk_lwe[s_index],
+                            self.pbs_info().embedding_factor(),
+                            ring_size,
+                            self.pbs_info().rlwe_q(),
+                        )
+                        .as_ref(),
+                        collective_pk,
+                        &gadget_a,
+                        &gadget_b,
+                        rlweq_modop,
+                        rlweq_nttop,
+                        rng,
+                    );
+                    self_leader_rgsw.push(out_rgsw);
+                }
+            }
+
+            // not self LWE secret indices
+            {
+                // LWE secret indices for which user isn't the leader, they need to send RGSW(m)
+                // for RGSW x RGSW multiplcation
+                let rgsw_rgsw_decomposer = self
+                    .pbs_info
+                    .parameters
+                    .rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
+                let (rgrg_d_a, rgrg_d_b) = (
+                    rgsw_rgsw_decomposer.a().decomposition_count(),
+                    rgsw_rgsw_decomposer.b().decomposition_count(),
+                );
+                let (rgrg_gadget_a, rgrg_gadget_b) = (
+                    rgsw_rgsw_decomposer.a().gadget_vector(),
+                    rgsw_rgsw_decomposer.b().gadget_vector(),
+                );
+
+                for s_index in (0..segment_start).chain(segment_end..self.parameters().lwe_n().0) {
                     let mut out_rgsw = M::zeros(rgrg_d_a * 2 + rgrg_d_b * 2, ring_size);
                     public_key_encrypt_rgsw(
                         &mut out_rgsw,
-                        &m.as_ref(),
+                        &encode_x_pow_si_with_emebedding_factor::<
+                            M::R,
+                            CiphertextModulus<M::MatElement>,
+                        >(
+                            sk_lwe[s_index],
+                            self.pbs_info().embedding_factor(),
+                            ring_size,
+                            self.pbs_info().rlwe_q(),
+                        )
+                        .as_ref(),
                         collective_pk,
                         &rgrg_gadget_a,
                         &rgrg_gadget_b,
@@ -879,10 +940,11 @@ where
                         rng,
                     );
 
-                    out_rgsw
-                })
-                .collect_vec();
-            rgsw_cts
+                    not_self_leader_rgsws.push(out_rgsw);
+                }
+            }
+
+            (self_leader_rgsw, not_self_leader_rgsws)
         });
 
         // LWE Ksk
@@ -893,12 +955,171 @@ where
         );
 
         CommonReferenceSeededMultiPartyServerKeyShare::new(
-            rgsw_cts,
+            self_leader_rgsws,
+            not_self_leader_rgsws,
             auto_keys,
             lwe_ksk,
             cr_seed.clone(),
             self.pbs_info.parameters.clone(),
+            user_id,
         )
+    }
+
+    pub(super) fn aggregate_multi_party_server_key_shares<S>(
+        &self,
+        shares: &[CommonReferenceSeededMultiPartyServerKeyShare<
+            M,
+            BoolParameters<M::MatElement>,
+            MultiPartyCrs<S>,
+        >],
+    ) -> SeededMultiPartyServerKey<M, MultiPartyCrs<S>, BoolParameters<M::MatElement>>
+    where
+        S: PartialEq + Clone,
+        M: Clone,
+    {
+        assert_eq!(self.parameters().variant(), &ParameterVariant::MultiParty);
+        assert!(shares.len() > 0);
+
+        let total_users = shares.len();
+
+        let parameters = shares[0].parameters().clone();
+        let cr_seed = shares[0].cr_seed();
+
+        let rlwe_n = parameters.rlwe_n().0;
+        let g = parameters.g() as isize;
+        let rlwe_q = parameters.rlwe_q();
+        let lwe_q = parameters.lwe_q();
+
+        // sanity checks
+        shares.iter().skip(1).for_each(|s| {
+            assert!(s.parameters() == &parameters);
+            assert!(s.cr_seed() == cr_seed);
+        });
+
+        let rlweq_modop = &self.pbs_info.rlwe_modop;
+        let rlweq_nttop = &self.pbs_info.rlwe_nttop;
+
+        // auto keys
+        let mut auto_keys = HashMap::new();
+        let auto_elements_dlog = parameters.auto_element_dlogs();
+        for i in auto_elements_dlog.into_iter() {
+            let mut key = M::zeros(parameters.auto_decomposition_count().0, rlwe_n);
+
+            shares.iter().for_each(|s| {
+                let auto_key_share_i = s.auto_keys().get(&i).expect("Auto key {i} missing");
+                assert!(
+                    auto_key_share_i.dimension()
+                        == (parameters.auto_decomposition_count().0, rlwe_n)
+                );
+                izip!(key.iter_rows_mut(), auto_key_share_i.iter_rows()).for_each(
+                    |(partb_out, partb_share)| {
+                        rlweq_modop.elwise_add_mut(partb_out.as_mut(), partb_share.as_ref());
+                    },
+                );
+            });
+
+            auto_keys.insert(i, key);
+        }
+
+        // rgsw ciphertext (most expensive part!)
+        let rgsw_cts = {
+            let rgsw_by_rgsw_decomposer =
+                parameters.rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
+            let rlwe_x_rgsw_decomposer = self.pbs_info().rlwe_rgsw_decomposer();
+            let rgsw_x_rgsw_dimension = (
+                rgsw_by_rgsw_decomposer.a().decomposition_count() * 2
+                    + rgsw_by_rgsw_decomposer.b().decomposition_count() * 2,
+                rlwe_n,
+            );
+            let rlwe_x_rgsw_dimension = (
+                rlwe_x_rgsw_decomposer.a().decomposition_count() * 2
+                    + rlwe_x_rgsw_decomposer.b().decomposition_count() * 2,
+                rlwe_n,
+            );
+            let mut rgsw_x_rgsw_scratch_mat = M::zeros(
+                std::cmp::max(
+                    rgsw_by_rgsw_decomposer.a().decomposition_count(),
+                    rgsw_by_rgsw_decomposer.b().decomposition_count(),
+                ) + rlwe_x_rgsw_dimension.0,
+                rlwe_n,
+            );
+
+            let shares_in_correct_order = (0..total_users)
+                .map(|i| shares.iter().find(|s| s.user_id() == i).unwrap())
+                .collect_vec();
+
+            let lwe_n = self.parameters().lwe_n().0;
+            let (users_segments, users_segments_sizes): (Vec<(usize, usize)>, Vec<usize>) = (0
+                ..total_users)
+                .map(|(user_id)| {
+                    let (start_index, end_index) =
+                        interactive_mult_party_user_id_lwe_segment(user_id, total_users, lwe_n);
+                    ((start_index, end_index), end_index - start_index)
+                })
+                .unzip();
+
+            let mut rgsw_cts = Vec::with_capacity(lwe_n);
+            users_segments
+                .iter()
+                .enumerate()
+                .for_each(|(user_id, user_segment)| {
+                    let share = shares_in_correct_order[user_id];
+                    for secret_index in user_segment.0..user_segment.1 {
+                        let mut rgsw_i =
+                            share.self_leader_rgsws()[secret_index - user_segment.0].clone();
+                        // assert already exists in RGSW x RGSW rountine
+                        assert!(rgsw_i.dimension() == rlwe_x_rgsw_dimension);
+
+                        // multiply leader's RGSW ct at `secret_index` with RGSW cts of other users
+                        // for lwe index `secret_index`
+                        (0..total_users)
+                            .filter(|i| i != &user_id)
+                            .for_each(|other_user_id| {
+                                let mut offset = 0;
+                                if other_user_id < user_id {
+                                    offset = users_segments_sizes[other_user_id];
+                                }
+
+                                let mut other_rgsw_i = shares_in_correct_order[other_user_id]
+                                    .not_self_leader_rgsws()
+                                    [secret_index.checked_sub(offset).unwrap()]
+                                .clone();
+                                // assert already exists in RGSW x RGSW rountine
+                                assert!(other_rgsw_i.dimension() == rgsw_x_rgsw_dimension);
+
+                                // send to evaluation domain for RGSwxRGSW mul
+                                other_rgsw_i
+                                    .iter_rows_mut()
+                                    .for_each(|r| rlweq_nttop.forward(r.as_mut()));
+
+                                rgsw_by_rgsw_inplace(
+                                    &mut rgsw_i,
+                                    rlwe_x_rgsw_decomposer.a().decomposition_count(),
+                                    rlwe_x_rgsw_decomposer.b().decomposition_count(),
+                                    &other_rgsw_i,
+                                    &rgsw_by_rgsw_decomposer,
+                                    &mut rgsw_x_rgsw_scratch_mat,
+                                    rlweq_nttop,
+                                    rlweq_modop,
+                                )
+                            });
+
+                        rgsw_cts.push(rgsw_i);
+                    }
+                });
+
+            rgsw_cts
+        };
+
+        // LWE ksks
+        let mut lwe_ksk = M::R::zeros(rlwe_n * parameters.lwe_decomposition_count().0);
+        let lweq_modop = &self.pbs_info.lwe_modop;
+        shares.iter().for_each(|si| {
+            assert!(si.lwe_ksk().as_ref().len() == rlwe_n * parameters.lwe_decomposition_count().0);
+            lweq_modop.elwise_add_mut(lwe_ksk.as_mut(), si.lwe_ksk().as_ref())
+        });
+
+        SeededMultiPartyServerKey::new(rgsw_cts, auto_keys, lwe_ksk, cr_seed.clone(), parameters)
     }
 
     pub(super) fn aggregate_non_interactive_multi_party_key_share(
@@ -1351,6 +1572,8 @@ where
                     .for_each(|user_i_rgsws| {
                         rgsw_by_rgsw_inplace(
                             &mut rgsw_i,
+                            rgsw_by_rgsw_decomposer.a().decomposition_count(),
+                            rgsw_by_rgsw_decomposer.b().decomposition_count(),
                             &user_i_rgsws[s_index],
                             &rgsw_by_rgsw_decomposer,
                             &mut scratch_matrix,
@@ -1834,125 +2057,6 @@ where
         let m = decrypt_lwe(lwe_ct, &client_key.sk_rlwe(), &self.pbs_info.rlwe_modop);
         self.pbs_info.rlwe_q().decode(m)
     }
-
-    pub(super) fn aggregate_multi_party_server_key_shares<S>(
-        &self,
-        shares: &[CommonReferenceSeededMultiPartyServerKeyShare<
-            M,
-            BoolParameters<M::MatElement>,
-            MultiPartyCrs<S>,
-        >],
-    ) -> SeededMultiPartyServerKey<M, MultiPartyCrs<S>, BoolParameters<M::MatElement>>
-    where
-        S: PartialEq + Clone,
-        M: Clone,
-    {
-        assert_eq!(self.parameters().variant(), &ParameterVariant::MultiParty);
-        assert!(shares.len() > 0);
-        let parameters = shares[0].parameters().clone();
-        let cr_seed = shares[0].cr_seed();
-
-        let rlwe_n = parameters.rlwe_n().0;
-        let g = parameters.g() as isize;
-        let rlwe_q = parameters.rlwe_q();
-        let lwe_q = parameters.lwe_q();
-
-        // sanity checks
-        shares.iter().skip(1).for_each(|s| {
-            assert!(s.parameters() == &parameters);
-            assert!(s.cr_seed() == cr_seed);
-        });
-
-        let rlweq_modop = &self.pbs_info.rlwe_modop;
-        let rlweq_nttop = &self.pbs_info.rlwe_nttop;
-
-        // auto keys
-        let mut auto_keys = HashMap::new();
-        let auto_elements_dlog = parameters.auto_element_dlogs();
-        for i in auto_elements_dlog.into_iter() {
-            let mut key = M::zeros(parameters.auto_decomposition_count().0, rlwe_n);
-
-            shares.iter().for_each(|s| {
-                let auto_key_share_i = s.auto_keys().get(&i).expect("Auto key {i} missing");
-                assert!(
-                    auto_key_share_i.dimension()
-                        == (parameters.auto_decomposition_count().0, rlwe_n)
-                );
-                izip!(key.iter_rows_mut(), auto_key_share_i.iter_rows()).for_each(
-                    |(partb_out, partb_share)| {
-                        rlweq_modop.elwise_add_mut(partb_out.as_mut(), partb_share.as_ref());
-                    },
-                );
-            });
-
-            auto_keys.insert(i, key);
-        }
-
-        // rgsw ciphertext (most expensive part!)
-        let lwe_n = parameters.lwe_n().0;
-        let rgsw_by_rgsw_decomposer =
-            parameters.rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
-        let mut scratch_matrix = M::zeros(
-            std::cmp::max(
-                rgsw_by_rgsw_decomposer.a().decomposition_count(),
-                rgsw_by_rgsw_decomposer.b().decomposition_count(),
-            ) + (rgsw_by_rgsw_decomposer.a().decomposition_count() * 2
-                + rgsw_by_rgsw_decomposer.b().decomposition_count() * 2),
-            rlwe_n,
-        );
-
-        let mut tmp_rgsw =
-            RgswCiphertext::<M, _>::empty(rlwe_n, &rgsw_by_rgsw_decomposer, rlwe_q.clone()).data;
-        let rgsw_cts = (0..lwe_n).into_iter().map(|index| {
-            // copy over rgsw ciphertext for index^th secret element from first share and
-            // treat it as accumulating rgsw ciphertext
-            let mut rgsw_i = shares[0].rgsw_cts()[index].clone();
-
-            shares.iter().skip(1).for_each(|si| {
-                // copy over si's RGSW[index] ciphertext and send to evaluation domain
-                izip!(tmp_rgsw.iter_rows_mut(), si.rgsw_cts()[index].iter_rows()).for_each(
-                    |(to_ri, from_ri)| {
-                        to_ri.as_mut().copy_from_slice(from_ri.as_ref());
-                        rlweq_nttop.forward(to_ri.as_mut())
-                    },
-                );
-
-                rgsw_by_rgsw_inplace(
-                    &mut rgsw_i,
-                    &tmp_rgsw,
-                    &rgsw_by_rgsw_decomposer,
-                    &mut scratch_matrix,
-                    rlweq_nttop,
-                    rlweq_modop,
-                );
-            });
-
-            rgsw_i
-        });
-        // d_a and d_b may differ for RGSWxRGSW multiplication and RLWExRGSW
-        // multiplication. After this point RGSW ciphertexts will only be used for
-        // RLWExRGSW multiplication (in blind rotation). Thus we drop any additional
-        // RLWE ciphertexts in RGSW ciphertexts after RGSw x RGSW multiplication
-        let rgsw_cts = rgsw_cts
-            .map(|ct_i_in| {
-                trim_rgsw_ct_matrix_from_rgrg_to_rlrg(
-                    ct_i_in,
-                    self.parameters().rgsw_by_rgsw_decomposition_params(),
-                    self.parameters().rlwe_by_rgsw_decomposition_params(),
-                )
-            })
-            .collect_vec();
-
-        // LWE ksks
-        let mut lwe_ksk = M::R::zeros(rlwe_n * parameters.lwe_decomposition_count().0);
-        let lweq_modop = &self.pbs_info.lwe_modop;
-        shares.iter().for_each(|si| {
-            assert!(si.lwe_ksk().as_ref().len() == rlwe_n * parameters.lwe_decomposition_count().0);
-            lweq_modop.elwise_add_mut(lwe_ksk.as_mut(), si.lwe_ksk().as_ref())
-        });
-
-        SeededMultiPartyServerKey::new(rgsw_cts, auto_keys, lwe_ksk, cr_seed.clone(), parameters)
-    }
 }
 
 impl<M, NttOp, RlweModOp, LweModOp, Skey> BoolEvaluator<M, NttOp, RlweModOp, LweModOp, Skey>
@@ -2267,6 +2371,8 @@ mod tests {
             });
         });
 
+        let mut rng = DefaultSecureRng::new();
+
         // check noise in freshly encrypted RLWE ciphertext (ie var_fresh)
         if false {
             let mut rng = DefaultSecureRng::new();
@@ -2316,9 +2422,6 @@ mod tests {
 
         if true {
             // Generate server key shares
-            let mut rng = DefaultSecureRng::new();
-            let mut pk_cr_seed = [0u8; 32];
-            rng.fill_bytes(&mut pk_cr_seed);
             let public_key_share = parties
                 .iter()
                 .map(|k| bool_evaluator.multi_party_public_key_share(&int_mp_seed, k))
@@ -2329,12 +2432,13 @@ mod tests {
                 ModularOpsU64<CiphertextModulus<u64>>,
             >::from(public_key_share.as_slice());
 
-            let pbs_cr_seed = [0u8; 32];
-            rng.fill_bytes(&mut pk_cr_seed);
             let server_key_shares = parties
                 .iter()
-                .map(|k| {
+                .enumerate()
+                .map(|(user_id, k)| {
                     bool_evaluator.multi_party_server_key_share(
+                        user_id,
+                        no_of_parties,
                         &int_mp_seed,
                         collective_pk.key(),
                         k,
@@ -2351,13 +2455,12 @@ mod tests {
                 izip!(ideal_lwe_sk.iter(), seeded_server_key.rgsw_cts().iter()).for_each(
                     |(s_i, rgsw_ct_i)| {
                         // X^{s[i]}
-                        let mut m_si = vec![0u64; rlwe_n];
-                        let s_i = *s_i * (bool_evaluator.pbs_info.embedding_factor as i32);
-                        if s_i < 0 {
-                            m_si[rlwe_n - (s_i.abs() as usize)] = rlwe_q.neg_one();
-                        } else {
-                            m_si[s_i as usize] = 1;
-                        }
+                        let m_si = encode_x_pow_si_with_emebedding_factor::<Vec<u64>, _>(
+                            *s_i,
+                            bool_evaluator.pbs_info.embedding_factor,
+                            rlwe_n,
+                            rlwe_q,
+                        );
 
                         // RLWE'(-sm)
                         let mut neg_s_eval =

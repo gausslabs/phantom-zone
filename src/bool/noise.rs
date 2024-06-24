@@ -13,6 +13,7 @@ mod test {
         },
         evaluator::MultiPartyCrs,
         ntt::NttBackendU64,
+        parameters::OPTIMISED_SMALL_MP_BOOL_PARAMS,
         random::DefaultSecureRng,
     };
 
@@ -25,7 +26,7 @@ mod test {
             ModularOpsU64<CiphertextModulus<u64>>,
             ModulusPowerOf2<CiphertextModulus<u64>>,
             ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
-        >::new(SMALL_MP_BOOL_PARAMS);
+        >::new(OPTIMISED_SMALL_MP_BOOL_PARAMS);
 
         let parties = 2;
 
@@ -72,7 +73,10 @@ mod test {
         // round 2
         let server_key_shares = cks
             .iter()
-            .map(|c| evaluator.multi_party_server_key_share(&cr_seed, &pk.key(), c))
+            .enumerate()
+            .map(|(index, c)| {
+                evaluator.multi_party_server_key_share(index, parties, &cr_seed, &pk.key(), c)
+            })
             .collect_vec();
 
         let server_key = evaluator.aggregate_multi_party_server_key_shares(&server_key_shares);
@@ -88,9 +92,6 @@ mod test {
 
         let mut c_m0 = evaluator.pk_encrypt(pk.key(), m0);
         let mut c_m1 = evaluator.pk_encrypt(pk.key(), m1);
-
-        let true_el_encoded = evaluator.parameters().rlwe_q().true_el();
-        let false_el_encoded = evaluator.parameters().rlwe_q().false_el();
 
         // let mut stats = Stats::new();
 

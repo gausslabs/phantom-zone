@@ -314,7 +314,8 @@ impl<Ro, S, P> CommonReferenceSeededCollectivePublicKeyShare<Ro, S, P> {
 
 /// CRS seeded Multi-party server key share
 pub struct CommonReferenceSeededMultiPartyServerKeyShare<M: Matrix, P, S> {
-    rgsw_cts: Vec<M>,
+    self_leader_rgsws: Vec<M>,
+    not_self_leader_rgsws: Vec<M>,
     /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
     /// to -g is at 0
     auto_keys: HashMap<usize, M>,
@@ -322,22 +323,27 @@ pub struct CommonReferenceSeededMultiPartyServerKeyShare<M: Matrix, P, S> {
     /// Common reference seed
     cr_seed: S,
     parameters: P,
+    user_id: usize,
 }
 
 impl<M: Matrix, P, S> CommonReferenceSeededMultiPartyServerKeyShare<M, P, S> {
     pub(super) fn new(
-        rgsw_cts: Vec<M>,
+        self_leader_rgsws: Vec<M>,
+        not_self_leader_rgsws: Vec<M>,
         auto_keys: HashMap<usize, M>,
         lwe_ksk: M::R,
         cr_seed: S,
         parameters: P,
+        user_id: usize,
     ) -> Self {
         CommonReferenceSeededMultiPartyServerKeyShare {
-            rgsw_cts,
+            self_leader_rgsws,
+            not_self_leader_rgsws,
             auto_keys,
             lwe_ksk,
             cr_seed,
             parameters,
+            user_id,
         }
     }
 
@@ -353,12 +359,20 @@ impl<M: Matrix, P, S> CommonReferenceSeededMultiPartyServerKeyShare<M, P, S> {
         &self.auto_keys
     }
 
-    pub(super) fn rgsw_cts(&self) -> &[M] {
-        &self.rgsw_cts
+    pub(crate) fn self_leader_rgsws(&self) -> &[M] {
+        &self.self_leader_rgsws
+    }
+
+    pub(super) fn not_self_leader_rgsws(&self) -> &[M] {
+        &self.not_self_leader_rgsws
     }
 
     pub(super) fn lwe_ksk(&self) -> &M::R {
         &self.lwe_ksk
+    }
+
+    pub(super) fn user_id(&self) -> usize {
+        self.user_id
     }
 }
 

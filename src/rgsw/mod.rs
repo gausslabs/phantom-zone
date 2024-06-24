@@ -1114,6 +1114,8 @@ pub(crate) mod tests {
                 );
             rgsw_by_rgsw_inplace(
                 &mut rgsw_carrym,
+                decomposer.a().decomposition_count(),
+                decomposer.b().decomposition_count(),
                 &rgsw_m.data,
                 &decomposer,
                 &mut scratch_matrix,

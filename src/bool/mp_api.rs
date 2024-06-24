@@ -58,6 +58,8 @@ pub fn gen_mp_keys_phase1(
 
 pub fn gen_mp_keys_phase2<R, ModOp>(
     ck: &ClientKey,
+    user_id: usize,
+    total_users: usize,
     pk: &PublicKey<Vec<Vec<u64>>, R, ModOp>,
 ) -> CommonReferenceSeededMultiPartyServerKeyShare<
     Vec<Vec<u64>>,
@@ -65,8 +67,13 @@ pub fn gen_mp_keys_phase2<R, ModOp>(
     MultiPartyCrs<[u8; 32]>,
 > {
     BoolEvaluator::with_local_mut(|e| {
-        let server_key_share =
-            e.multi_party_server_key_share(MultiPartyCrs::global(), pk.key(), ck);
+        let server_key_share = e.multi_party_server_key_share(
+            user_id,
+            total_users,
+            MultiPartyCrs::global(),
+            pk.key(),
+            ck,
+        );
         server_key_share
     })
 }
@@ -251,7 +258,11 @@ mod tests {
         let pk = aggregate_public_key_shares(&pk_shares);
 
         // round 2
-        let server_key_shares = cks.iter().map(|k| gen_mp_keys_phase2(k, &pk)).collect_vec();
+        let server_key_shares = cks
+            .iter()
+            .enumerate()
+            .map(|(user_id, k)| gen_mp_keys_phase2(k, user_id, parties, &pk))
+            .collect_vec();
 
         // server key
         let server_key = aggregate_server_key_shares(&server_key_shares);

@@ -1,12 +1,12 @@
 use std::{fmt::Debug, usize, vec};
 
 use itertools::{izip, Itertools};
-use num_traits::{FromPrimitive, PrimInt, Signed};
+use num_traits::{FromPrimitive, One, PrimInt, Signed};
 
 use crate::{
     backend::Modulus,
     random::{RandomElementInModulus, RandomFill},
-    Matrix,
+    Matrix, Row, RowEntity, RowMut,
 };
 pub trait WithLocal {
     fn with_local<F, R>(func: F) -> R
@@ -188,6 +188,31 @@ pub fn negacyclic_mul<T: PrimInt, F: Fn(&T, &T) -> T>(
     }
 
     return r;
+}
+
+/// Returns a polynomial X^{emebedding_factor * si} \mod {Z_Q / X^{N}+1}
+pub(crate) fn encode_x_pow_si_with_emebedding_factor<
+    R: RowEntity + RowMut,
+    M: Modulus<Element = R::Element>,
+>(
+    si: i32,
+    embedding_factor: usize,
+    ring_size: usize,
+    modulus: &M,
+) -> R
+where
+    R::Element: One,
+{
+    assert!((si.abs() as usize) < ring_size);
+    let mut m = R::zeros(ring_size);
+    let si = si * (embedding_factor as i32);
+    if si < 0 {
+        // X^{-si} = X^{2N-si} = -X^{N-si}, assuming abs(si) < N
+        m.as_mut()[ring_size - (si.abs() as usize)] = modulus.neg_one();
+    } else {
+        m.as_mut()[si as usize] = R::Element::one();
+    }
+    m
 }
 
 pub(crate) fn puncture_p_rng<S: Default + Copy, R: RandomFill<S>>(

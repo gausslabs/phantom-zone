@@ -494,14 +494,14 @@ pub(crate) const OPTIMISED_SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParam
     lwe_n: LweDimension(500),
     lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(11)),
     rlrg_decomposer_params: (
-        DecompostionLogBase(24),
+        DecompostionLogBase(16),
         (DecompositionCount(1), DecompositionCount(1)),
     ),
     rgrg_decomposer_params: Some((
-        DecompostionLogBase(12),
-        (DecompositionCount(3), DecompositionCount(3)),
+        DecompostionLogBase(8),
+        (DecompositionCount(6), DecompositionCount(6)),
     )),
-    auto_decomposer_params: (DecompostionLogBase(20), DecompositionCount(1)),
+    auto_decomposer_params: (DecompostionLogBase(24), DecompositionCount(1)),
     non_interactive_ui_to_s_key_switch_decomposer: None,
     g: 5,
     w: 10,
