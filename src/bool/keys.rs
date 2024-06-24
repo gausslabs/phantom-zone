@@ -1243,3 +1243,56 @@ impl<M> WithShoupRepr for NormalAndShoup<M> {
         &self.1
     }
 }
+
+pub(super) mod tests {
+    use itertools::izip;
+    use num_traits::{FromPrimitive, PrimInt, ToPrimitive, Zero};
+
+    use crate::{
+        backend::{GetModulus, Modulus},
+        bool::ClientKey,
+        lwe::decrypt_lwe,
+        parameters::CiphertextModulus,
+        utils::TryConvertFrom1,
+        ArithmeticOps, Row,
+    };
+
+    use super::SinglePartyClientKey;
+
+    pub(crate) fn ideal_sk_rlwe(cks: &[ClientKey]) -> Vec<i32> {
+        let mut ideal_rlwe_sk = cks[0].sk_rlwe();
+        cks.iter().skip(1).for_each(|k| {
+            let sk_rlwe = k.sk_rlwe();
+            izip!(ideal_rlwe_sk.iter_mut(), sk_rlwe.iter()).for_each(|(a, b)| {
+                *a = *a + b;
+            });
+        });
+        ideal_rlwe_sk
+    }
+
+    pub(crate) fn measure_noise_lwe<
+        R: Row,
+        S,
+        Modop: ArithmeticOps<Element = R::Element>
+            + GetModulus<M = CiphertextModulus<R::Element>, Element = R::Element>,
+    >(
+        lwe_ct: &R,
+        m_expected: R::Element,
+        sk: &[S],
+        modop: &Modop,
+    ) -> f64
+    where
+        R: TryConvertFrom1<[S], CiphertextModulus<R::Element>>,
+        R::Element: Zero + FromPrimitive + PrimInt,
+    {
+        let noisy_m = decrypt_lwe(lwe_ct, &sk, modop);
+        let noise = modop.sub(&m_expected, &noisy_m);
+        modop
+            .modulus()
+            .map_element_to_i64(&noise)
+            .abs()
+            .to_f64()
+            .unwrap()
+            .log2()
+    }
+}

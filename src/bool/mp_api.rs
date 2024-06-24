@@ -30,6 +30,10 @@ pub fn set_parameter_set(select: ParameterSelector) {
         ParameterSelector::MultiPartyLessThanOrEqualTo16 => {
             BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(SMALL_MP_BOOL_PARAMS)));
         }
+        ParameterSelector::HighCommunicationButFast2Party => {
+            BOOL_EVALUATOR
+                .with_borrow_mut(|v| *v = Some(BoolEvaluator::new(OPTIMISED_SMALL_MP_BOOL_PARAMS)));
+        }
         _ => {
             panic!("Paramerters not supported")
         }
@@ -234,16 +238,25 @@ mod impl_enc_dec {
 
 #[cfg(test)]
 mod tests {
+    use std::thread::panicking;
+
     use itertools::Itertools;
     use rand::{thread_rng, RngCore};
 
-    use crate::{bool::evaluator::BooleanGates, Encryptor, MultiPartyDecryptor};
+    use crate::{
+        bool::{
+            evaluator::BooleanGates,
+            keys::tests::{ideal_sk_rlwe, measure_noise_lwe},
+        },
+        evaluator::{BoolEncoding, BoolEvaluator},
+        Encryptor, MultiPartyDecryptor,
+    };
 
     use super::*;
 
     #[test]
     fn multi_party_bool_gates() {
-        set_parameter_set(ParameterSelector::MultiPartyLessThanOrEqualTo16);
+        set_parameter_set(ParameterSelector::HighCommunicationButFast2Party);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
         set_mp_seed(seed);
@@ -274,6 +287,10 @@ mod tests {
         let mut ct0 = pk.encrypt(&m0);
         let mut ct1 = pk.encrypt(&m1);
 
+        let ideal_sk_rlwe = ideal_sk_rlwe(&cks);
+        let parameters = BoolEvaluator::with_local(|e| e.parameters().clone());
+        let rlwe_modop = parameters.default_rlwe_modop();
+
         for _ in 0..500 {
             let ct_out =
                 BoolEvaluator::with_local_mut(|e| e.nand(&ct0, &ct1, RuntimeServerKey::global()));
@@ -287,6 +304,15 @@ mod tests {
             let m_out = cks[0].aggregate_decryption_shares(&ct_out, &decryption_shares);
 
             assert!(m_out == m_expected, "Expected {m_expected}, got {m_out}");
+            {
+                let m_expected_el = if m_expected == true {
+                    parameters.rlwe_q().true_el()
+                } else {
+                    parameters.rlwe_q().false_el()
+                };
+                let noise = measure_noise_lwe(&ct_out, m_expected_el, &ideal_sk_rlwe, &rlwe_modop);
+                println!("NAND Noise: {noise}");
+            }
 
             m1 = m0;
             m0 = m_expected;

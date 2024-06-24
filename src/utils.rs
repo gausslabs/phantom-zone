@@ -262,7 +262,6 @@ pub(crate) mod tests {
     use std::fmt::Debug;
 
     use num_traits::{FromPrimitive, PrimInt};
-    use rand::thread_rng;
 
     use crate::random::DefaultSecureRng;
 
