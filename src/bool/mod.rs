@@ -7,7 +7,6 @@ use keys::tests;
 pub(crate) use keys::PublicKey;
 
 #[cfg(feature = "interactive_mp")]
-#[cfg(not(feature = "non_interactive_mp"))]
 mod mp_api;
 #[cfg(feature = "non_interactive_mp")]
 mod ni_mp_api;
@@ -16,7 +15,6 @@ mod ni_mp_api;
 pub use ni_mp_api::*;
 
 #[cfg(feature = "interactive_mp")]
-#[cfg(not(feature = "non_interactive_mp"))]
 pub use mp_api::*;
 
 pub type ClientKey = keys::ClientKey<[u8; 32], u64>;

@@ -751,6 +751,22 @@ pub(super) mod impl_server_key_eval_domain {
             &self.lwe_ksk
         }
     }
+
+    #[cfg(test)]
+    impl<M, P, R, N> super::super::print_noise::CollectRuntimeServerKeyStats
+        for ServerKeyEvaluationDomain<M, P, R, N>
+    {
+        type M = M;
+        fn galois_key_for_auto(&self, k: usize) -> &Self::M {
+            self.galois_keys.get(&k).unwrap()
+        }
+        fn lwe_ksk(&self) -> &Self::M {
+            &self.lwe_ksk
+        }
+        fn rgsw_cts_lwe_si(&self, s_index: usize) -> &Self::M {
+            &self.rgsw_cts[s_index]
+        }
+    }
 }
 
 pub(crate) struct NonInteractiveServerKeyEvaluationDomain<M, P, R, N> {
@@ -933,6 +949,22 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
                 parameters: value.parameters.clone(),
                 _phanton: PhantomData,
             }
+        }
+    }
+
+    #[cfg(test)]
+    impl<M, P, R, N> super::super::print_noise::CollectRuntimeServerKeyStats
+        for NonInteractiveServerKeyEvaluationDomain<M, P, R, N>
+    {
+        type M = M;
+        fn galois_key_for_auto(&self, k: usize) -> &Self::M {
+            self.auto_keys.get(&k).unwrap()
+        }
+        fn lwe_ksk(&self) -> &Self::M {
+            &self.lwe_ksk
+        }
+        fn rgsw_cts_lwe_si(&self, s_index: usize) -> &Self::M {
+            &self.rgsw_cts[s_index]
         }
     }
 }

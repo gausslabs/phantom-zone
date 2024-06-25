@@ -24,6 +24,7 @@ trait SingleDecomposerParams {
 impl DoubleDecomposerParams
     for (
         DecompostionLogBase,
+        // Assume (Decomposition count for A, Decomposition count for B)
         (DecompositionCount, DecompositionCount),
     )
 {
@@ -486,7 +487,7 @@ pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u6
     variant: ParameterVariant::MultiParty,
 };
 
-pub(crate) const OPTIMISED_SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+pub(crate) const I_2P: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
     lwe_q: CiphertextModulus::new_non_native(1 << 15),
     br_q: 1 << 11,
@@ -508,7 +509,7 @@ pub(crate) const OPTIMISED_SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParam
     variant: ParameterVariant::MultiParty,
 };
 
-pub(crate) const NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+pub(crate) const NI_2P: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_q: CiphertextModulus::new_non_native(36028797018820609),
     lwe_q: CiphertextModulus::new_non_native(1 << 20),
     br_q: 1 << 11,

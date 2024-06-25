@@ -15,7 +15,7 @@ use super::{
         NonInteractiveServerKeyEvaluationDomain, SeededNonInteractiveMultiPartyServerKey,
         ShoupNonInteractiveServerKeyEvaluationDomain,
     },
-    parameters::{BoolParameters, CiphertextModulus, NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS},
+    parameters::{BoolParameters, CiphertextModulus, NI_2P},
     ClientKey, ParameterSelector,
 };
 
@@ -39,9 +39,7 @@ static MULTI_PARTY_CRS: OnceLock<NonInteractiveMultiPartyCrs<[u8; 32]>> = OnceLo
 pub fn set_parameter_set(select: ParameterSelector) {
     match select {
         ParameterSelector::NonInteractiveMultiPartyLessThanOrEqualTo16 => {
-            BOOL_EVALUATOR.with_borrow_mut(|v| {
-                *v = Some(BoolEvaluator::new(NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS))
-            });
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_2P)));
         }
         _ => {
             panic!("Paramerters not supported")
@@ -358,7 +356,13 @@ mod tests {
 
     use crate::{
         backend::{GetModulus, Modulus},
-        bool::{evaluator::BooleanGates, keys::SinglePartyClientKey},
+        bool::{
+            evaluator::BooleanGates,
+            keys::{
+                tests::{ideal_sk_rlwe, measure_noise_lwe},
+                SinglePartyClientKey,
+            },
+        },
         lwe::decrypt_lwe,
         rgsw::decrypt_rlwe,
         utils::{tests::Stats, TryConvertFrom1},
@@ -367,8 +371,6 @@ mod tests {
     };
 
     use super::*;
-
-  
 
     #[test]
     fn non_interactive_mp_bool_nand() {

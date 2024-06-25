@@ -13,7 +13,7 @@ mod test {
         },
         evaluator::MultiPartyCrs,
         ntt::NttBackendU64,
-        parameters::OPTIMISED_SMALL_MP_BOOL_PARAMS,
+        parameters::I_2P,
         random::DefaultSecureRng,
     };
 
@@ -26,7 +26,7 @@ mod test {
             ModularOpsU64<CiphertextModulus<u64>>,
             ModulusPowerOf2<CiphertextModulus<u64>>,
             ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>,
-        >::new(OPTIMISED_SMALL_MP_BOOL_PARAMS);
+        >::new(I_2P);
 
         let parties = 2;
 

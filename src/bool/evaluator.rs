@@ -134,6 +134,16 @@ pub struct NonInteractiveMultiPartyCrs<S> {
     pub(super) seed: S,
 }
 
+impl NonInteractiveMultiPartyCrs<[u8; 32]> {
+    pub(super) fn random() -> Self {
+        DefaultSecureRng::with_local_mut(|rng| {
+            let mut seed = [0u8; 32];
+            rng.fill_bytes(&mut seed);
+            Self { seed }
+        })
+    }
+}
+
 impl<S: Default + Copy> NonInteractiveMultiPartyCrs<S> {
     fn key_seed<R: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
         let mut p_rng = R::new_with_seed(self.seed);
@@ -2289,14 +2299,11 @@ mod tests {
                 NonInteractiveServerKeyEvaluationDomain, PublicKey,
                 ShoupNonInteractiveServerKeyEvaluationDomain,
             },
-            parameters::{
-                MP_BOOL_PARAMS, NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS, SMALL_MP_BOOL_PARAMS,
-                SP_TEST_BOOL_PARAMS,
-            },
+            parameters::{MP_BOOL_PARAMS, NI_2P, SMALL_MP_BOOL_PARAMS, SP_TEST_BOOL_PARAMS},
         },
         evaluator,
         ntt::NttBackendU64,
-        parameters::OPTIMISED_SMALL_MP_BOOL_PARAMS,
+        parameters::I_2P,
         random::{RandomElementInModulus, DEFAULT_RNG},
         rgsw::{
             self, measure_noise, public_key_encrypt_rlwe, secret_key_encrypt_rlwe,
@@ -2317,7 +2324,7 @@ mod tests {
             ModularOpsU64<CiphertextModulus<u64>>,
             ModulusPowerOf2<CiphertextModulus<u64>>,
             ShoupNonInteractiveServerKeyEvaluationDomain<Vec<Vec<u64>>>,
-        >::new(NON_INTERACTIVE_SMALL_MP_BOOL_PARAMS);
+        >::new(NI_2P);
         let mp_seed = NonInteractiveMultiPartyCrs { seed: [1u8; 32] };
 
         let ring_size = evaluator.parameters().rlwe_n().0;
@@ -2433,5 +2440,4 @@ mod tests {
         }
         println!("Stats: {}", stats.std_dev().abs().log2());
     }
-
 }
