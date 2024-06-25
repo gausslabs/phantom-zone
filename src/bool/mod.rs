@@ -3,6 +3,7 @@ mod keys;
 mod noise;
 pub(crate) mod parameters;
 
+use keys::tests;
 pub(crate) use keys::PublicKey;
 
 #[cfg(feature = "interactive_mp")]
@@ -68,3 +69,6 @@ mod common_mp_enc_dec {
         }
     }
 }
+
+#[cfg(test)]
+mod print_noise;

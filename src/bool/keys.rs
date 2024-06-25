@@ -1270,6 +1270,17 @@ pub(super) mod tests {
         ideal_rlwe_sk
     }
 
+    pub(crate) fn ideal_sk_lwe(cks: &[ClientKey]) -> Vec<i32> {
+        let mut ideal_rlwe_sk = cks[0].sk_lwe();
+        cks.iter().skip(1).for_each(|k| {
+            let sk_rlwe = k.sk_lwe();
+            izip!(ideal_rlwe_sk.iter_mut(), sk_rlwe.iter()).for_each(|(a, b)| {
+                *a = *a + b;
+            });
+        });
+        ideal_rlwe_sk
+    }
+
     pub(crate) fn measure_noise_lwe<
         R: Row,
         S,

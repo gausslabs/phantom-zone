@@ -52,6 +52,7 @@ pub trait Decomposer {
     fn decompose_to_vec(&self, v: &Self::Element) -> Vec<Self::Element>;
     fn decompose_iter(&self, v: &Self::Element) -> Self::Iter;
     fn decomposition_count(&self) -> usize;
+    fn gadget_vector(&self) -> Vec<Self::Element>;
 }
 
 pub struct DefaultDecomposer<T> {
@@ -94,16 +95,12 @@ impl<T: PrimInt + NumInfo + Debug> DefaultDecomposer<T> {
         Op: ArithmeticOps<Element = T>,
     {
         let mut value = T::zero();
-        let gadget_vector = self.gadget_vector();
+        let gadget_vector = gadget_vector(self.logq, self.logb, self.d);
         assert!(limbs.len() == gadget_vector.len());
         izip!(limbs.iter(), gadget_vector.iter())
             .for_each(|(d_el, beta)| value = modq_op.add(&value, &modq_op.mul(d_el, beta)));
 
         value
-    }
-
-    pub(crate) fn gadget_vector(&self) -> Vec<T> {
-        return gadget_vector(self.logq, self.logb, self.d);
     }
 }
 
@@ -200,6 +197,10 @@ impl<
             b_mask: self.b_mask,
             steps_left: self.d,
         }
+    }
+
+    fn gadget_vector(&self) -> Vec<T> {
+        return gadget_vector(self.logq, self.logb, self.d);
     }
 }
 

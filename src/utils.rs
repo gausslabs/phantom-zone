@@ -272,6 +272,12 @@ pub(crate) mod tests {
         pub(crate) samples: Vec<T>,
     }
 
+    impl<T> Default for Stats<T> {
+        fn default() -> Self {
+            Stats { samples: vec![] }
+        }
+    }
+
     impl<T: PrimInt + FromPrimitive + Debug> Stats<T>
     where
         // T: for<'a> Sum<&'a T>,
