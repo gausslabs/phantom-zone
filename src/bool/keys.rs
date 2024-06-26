@@ -1186,10 +1186,18 @@ mod shoup_server_key_eval_domain {
 }
 
 pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix, S> {
+    /// Non-interactive RGSW ciphertexts for secret indices for which user is
+    /// the leader
+    self_leader_ni_rgsw_cts: Vec<M>,
+    /// Non-interactive RGSW ciphertexts for secret indices for which user is
+    /// not the leader
+    not_self_leader_ni_rgsw_cts: Vec<M>,
+    /// Zero encryptions for RGSW ciphertexts for all indicces
+    ni_rgsw_zero_encs: Vec<M>,
+
     /// (ak*si + e + \beta ui, ak*si + e)
-    ni_rgsw_cts: (Vec<M>, Vec<M>),
     ui_to_s_ksk: M,
-    others_ksk_zero_encs: Vec<M>,
+    ksk_zero_encs_for_others: Vec<M>,
 
     auto_keys_share: HashMap<usize, M>,
     lwe_ksk_share: M::R,
@@ -1203,18 +1211,22 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
 
     impl<M: Matrix, S> CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M, S> {
         pub(in super::super) fn new(
-            ni_rgsw_cts: (Vec<M>, Vec<M>),
+            self_leader_ni_rgsw_cts: Vec<M>,
+            not_self_leader_ni_rgsw_cts: Vec<M>,
+            ni_rgsw_zero_encs: Vec<M>,
             ui_to_s_ksk: M,
-            others_ksk_zero_encs: Vec<M>,
+            ksk_zero_encs_for_others: Vec<M>,
             auto_keys_share: HashMap<usize, M>,
             lwe_ksk_share: M::R,
             user_index: usize,
             cr_seed: S,
         ) -> Self {
             Self {
-                ni_rgsw_cts,
+                self_leader_ni_rgsw_cts,
+                not_self_leader_ni_rgsw_cts,
+                ni_rgsw_zero_encs,
                 ui_to_s_ksk,
-                others_ksk_zero_encs,
+                ksk_zero_encs_for_others,
                 auto_keys_share,
                 lwe_ksk_share,
                 user_index,

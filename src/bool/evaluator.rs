@@ -1,19 +1,13 @@
 use std::{
-    borrow::BorrowMut,
-    cell::{OnceCell, RefCell},
-    clone,
     collections::HashMap,
     fmt::{Debug, Display},
-    iter::Once,
     marker::PhantomData,
-    ops::Shr,
-    sync::OnceLock,
     usize,
 };
 
 use itertools::{izip, partition, Itertools};
 use num_traits::{
-    FromPrimitive, Num, One, Pow, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero,
+    zero, FromPrimitive, Num, One, Pow, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero,
 };
 use rand::Rng;
 use rand_distr::uniform::SampleUniform;
@@ -37,8 +31,7 @@ use crate::{
     },
     rgsw::{
         decrypt_rlwe, galois_auto, galois_key_gen, generate_auto_map, public_key_encrypt_rgsw,
-        rgsw_by_rgsw_inplace, rlwe_by_rgsw, secret_key_encrypt_rgsw, IsTrivial, RgswCiphertext,
-        RlweCiphertext, RlweSecret,
+        rgsw_by_rgsw_inplace, secret_key_encrypt_rgsw,
     },
     utils::{
         encode_x_pow_si_with_emebedding_factor, fill_random_ternary_secret_with_hamming_weight,
@@ -125,6 +118,8 @@ impl<S: Default + Copy> MultiPartyCrs<S> {
 /// Initial Seed
 ///     Puncture 1 -> Key Seed
 ///         Puncture 1 -> Rgsw ciphertext seed
+///             Puncture l+1 -> Seed for zero encs and non-interactive
+/// multi-party RGSW ciphertext corresponding to l^th LWE index.
 ///         Puncture 2 -> auto keys seed
 ///         Puncture 3 -> Lwe key switching key seed
 ///     Puncture 2 -> user specific seed for u_j to s ksk
@@ -150,9 +145,17 @@ impl<S: Default + Copy> NonInteractiveMultiPartyCrs<S> {
         puncture_p_rng(&mut p_rng, 1)
     }
 
-    pub(crate) fn rgsw_cts_seed<R: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
+    pub(crate) fn ni_rgsw_cts_main_seed<R: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
         let mut p_rng = R::new_with_seed(self.key_seed::<R>());
         puncture_p_rng(&mut p_rng, 1)
+    }
+
+    pub(crate) fn ni_rgsw_ct_seed_for_index<R: NewWithSeed<Seed = S> + RandomFill<S>>(
+        &self,
+        lwe_index: usize,
+    ) -> S {
+        let mut p_rng = R::new_with_seed(self.ni_rgsw_cts_main_seed::<R>());
+        puncture_p_rng(&mut p_rng, lwe_index + 1)
     }
 
     pub(crate) fn auto_keys_cts_seed<R: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
@@ -1207,7 +1210,7 @@ where
 
         let rgsw_cts = {
             let mut rgsw_prng =
-                DefaultSecureRng::new_seeded(cr_seed.rgsw_cts_seed::<DefaultSecureRng>());
+                DefaultSecureRng::new_seeded(cr_seed.ni_rgsw_cts_main_seed::<DefaultSecureRng>());
 
             let rgsw_by_rgsw_decomposer = self
                 .parameters()
@@ -1664,7 +1667,6 @@ where
         K: NonInteractiveMultiPartyClientKey<Element = i32>,
     >(
         &self,
-        // TODO(Jay): Should get a common reference seed here and derive the rest.
         cr_seed: &NonInteractiveMultiPartyCrs<[u8; 32]>,
         self_index: usize,
         total_users: usize,
@@ -1688,7 +1690,7 @@ where
         let sk_u_rlwe = client_key.sk_u_rlwe();
         let sk_lwe = client_key.sk_lwe();
 
-        let (ui_to_s_ksk, zero_encs_for_others) = DefaultSecureRng::with_local_mut(|rng| {
+        let (ui_to_s_ksk, ksk_zero_encs_for_others) = DefaultSecureRng::with_local_mut(|rng| {
             // ui_to_s_ksk
             let non_interactive_decomposer = self
                 .parameters()
@@ -1734,51 +1736,182 @@ where
             (ui_to_s_ksk, zero_encs_for_others)
         });
 
-        // Non-interactive RGSW cts = (a_i * u_j + e + \beta X^{s[i]}, a_i * s_j + e')
-        let ni_rgsw_cts = DefaultSecureRng::with_local_mut(|rng| {
-            let mut rgsw_cts_prng =
-                DefaultSecureRng::new_seeded(cr_seed.rgsw_cts_seed::<DefaultSecureRng>());
-            // generate non-interactive rgsw cts
-            let rgsw_by_rgsw_decomposer = self
+        // Non-interactive RGSW cts
+        let (ni_rgsw_zero_encs, self_leader_ni_rgsw_cts, not_self_leader_rgsw_cts) = {
+            // Warning: Below we assume that max(d_a, d_b) for RLWE x RGSW are always
+            // smaller than max(d_a, d_b) for RGSW x RGSW. The assumption is reasonable
+            // since RGSW x RGSW multiplication always precede RLWE x RGSW multiplication,
+            // hence require greater room.
+            let rgsw_x_rgsw_decomposer = self
                 .parameters()
                 .rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
+            let rlwe_x_rgsw_decomposer = self
+                .parameters()
+                .rlwe_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
 
-            let ni_rgrg_gadget_vec = {
-                if rgsw_by_rgsw_decomposer.a().decomposition_count()
-                    > rgsw_by_rgsw_decomposer.b().decomposition_count()
-                {
-                    rgsw_by_rgsw_decomposer.a().gadget_vector()
-                } else {
-                    rgsw_by_rgsw_decomposer.b().gadget_vector()
-                }
+            let sj_poly_eval = {
+                let mut s = M::R::try_convert_from(&sk_rlwe, rlwe_q);
+                nttop.forward(s.as_mut());
+                s
             };
-            let ni_rgsw_cts: (Vec<M>, Vec<M>) = sk_lwe
-                .iter()
-                .map(|s_i| {
-                    // X^{s[i]}
-                    let mut m = M::R::zeros(ring_size);
-                    let s_i = s_i * (self.pbs_info().embedding_factor() as i32);
-                    if s_i < 0 {
-                        // X^{-s[i]} -> -X^{N+s[i]}
-                        m.as_mut()[ring_size - (s_i.abs() as usize)] = rlwe_q.neg_one();
-                    } else {
-                        m.as_mut()[s_i as usize] = M::MatElement::one();
-                    }
 
-                    non_interactive_rgsw_ct::<M, _, _, _, _, _>(
-                        &sk_rlwe,
-                        &sk_u_rlwe,
-                        m.as_ref(),
-                        &ni_rgrg_gadget_vec,
-                        &mut rgsw_cts_prng,
-                        rng,
-                        nttop,
-                        rlwe_modop,
-                    )
-                })
-                .unzip();
-            ni_rgsw_cts
-        });
+            let d_rgsw_a = rgsw_x_rgsw_decomposer.a().decomposition_count();
+
+            // Zero encyptions for each LWE index.
+            // Zero encryptions are needed to generate RLWE(-sm) from a_i * u_j + e. Hence,
+            // zero encryptions are only required for first `d_a` a's where d_a
+            // is decomposition count `a` in RGSW x RGSW.
+            let zero_encs = {
+                (0..self.parameters().lwe_n().0)
+                    .map(|lwe_index| {
+                        let mut p_rng = DefaultSecureRng::new_seeded(
+                            cr_seed.ni_rgsw_ct_seed_for_index::<DefaultSecureRng>(lwe_index),
+                        );
+
+                        let mut scratch = M::R::zeros(self.parameters().rlwe_n().0);
+
+                        let mut zero_enc = M::zeros(d_rgsw_a, self.parameters().rlwe_n().0);
+                        zero_enc.iter_rows_mut().for_each(|out| {
+                            // sample a_i
+                            RandomFillUniformInModulus::random_fill(
+                                &mut p_rng,
+                                rlwe_q,
+                                out.as_mut(),
+                            );
+
+                            // a_i * s_j
+                            nttop.forward(out.as_mut());
+                            rlwe_modop.elwise_mul_mut(out.as_mut(), sj_poly_eval.as_ref());
+                            nttop.backward(out.as_mut());
+
+                            // a_j * s_j + e
+                            DefaultSecureRng::with_local_mut_mut(&mut |rng| {
+                                RandomFillGaussianInModulus::random_fill(
+                                    rng,
+                                    rlwe_q,
+                                    scratch.as_mut(),
+                                );
+                            });
+
+                            rlwe_modop.elwise_add_mut(out.as_mut(), scratch.as_ref());
+                        });
+
+                        zero_enc
+                    })
+                    .collect_vec()
+            };
+
+            let uj_poly_eval = {
+                let mut u = M::R::try_convert_from(&sk_u_rlwe, rlwe_q);
+                nttop.forward(u.as_mut());
+                u
+            };
+
+            // Non-interactive RGSW ciphertexts: a_i u_j + e + \beta X^{s_j[l]}
+            // Non-interactive RGSW ciphertexts are needed for both RLWE'(-sm)
+            // and RLWE'(m). Hence, we should generate them a_i's with i \in [0,
+            // max(d_a, d_b)) where d_{a/b} are either decomposition counts for
+            // RGSW x RGSW (if self is not leader for l^th) or RLWE x RGSW (if
+            // self is leader for l^th index)
+            let (self_start_index, self_end_index) = interactive_mult_party_user_id_lwe_segment(
+                self_index,
+                total_users,
+                self.parameters().lwe_n().0,
+            );
+
+            // For LWE indices [self_start_index, self_end_index) user generates
+            // non-interactive RGSW cts for RLWE x RGSW product. We refer to
+            // such indices where user is the leader. For the rest of
+            // the indices user generates non-interactive RGWS cts for RGSW x
+            // RGSW multiplication. We refer to such indices as where user is
+            // not the leader.
+
+            let self_leader_ni_rgsw_cts = {
+                let max_rlwe_x_rgsw_d = std::cmp::max(
+                    rlwe_x_rgsw_decomposer.a().decomposition_count(),
+                    rlwe_x_rgsw_decomposer.b().decomposition_count(),
+                );
+                (self_start_index..self_end_index)
+                    .map(|lwe_index| {
+                        let mut p_rng = DefaultSecureRng::new_seeded(
+                            cr_seed.ni_rgsw_ct_seed_for_index::<DefaultSecureRng>(lwe_index),
+                        );
+                        let mut ni_rgsw_cts =
+                            M::zeros(max_rlwe_x_rgsw_d, self.parameters().rlwe_n().0);
+                        let mut scratch = M::R::zeros(self.parameters().rlwe_n().0);
+                        ni_rgsw_cts.iter_rows_mut().for_each(|out| {
+                            // sample a_i
+                            RandomFillUniformInModulus::random_fill(
+                                &mut p_rng,
+                                rlwe_q,
+                                out.as_mut(),
+                            );
+
+                            // u_j * a_i
+                            nttop.forward(out.as_mut());
+                            rlwe_modop.elwise_mul_mut(out.as_mut(), uj_poly_eval.as_ref());
+                            nttop.backward(out.as_mut());
+
+                            // u_j + a_i + e
+                            DefaultSecureRng::with_local_mut_mut(&mut |rng| {
+                                RandomFillGaussianInModulus::random_fill(
+                                    rng,
+                                    rlwe_q,
+                                    scratch.as_mut(),
+                                );
+                            });
+                            rlwe_modop.elwise_add_mut(out.as_mut(), scratch.as_ref());
+                        });
+
+                        ni_rgsw_cts
+                    })
+                    .collect_vec()
+            };
+
+            let not_self_leader_rgsw_cts = {
+                let max_rgsw_x_rgsw_d = std::cmp::max(
+                    rgsw_x_rgsw_decomposer.a().decomposition_count(),
+                    rgsw_x_rgsw_decomposer.b().decomposition_count(),
+                );
+                ((0..self_start_index).chain(self_end_index..self.parameters().lwe_n().0))
+                    .map(|lwe_index| {
+                        let mut p_rng = DefaultSecureRng::new_seeded(
+                            cr_seed.ni_rgsw_ct_seed_for_index::<DefaultSecureRng>(lwe_index),
+                        );
+                        let mut ni_rgsw_cts =
+                            M::zeros(max_rgsw_x_rgsw_d, self.parameters().rlwe_n().0);
+                        let mut scratch = M::R::zeros(self.parameters().rlwe_n().0);
+                        ni_rgsw_cts.iter_rows_mut().for_each(|out| {
+                            // sample a_i
+                            RandomFillUniformInModulus::random_fill(
+                                &mut p_rng,
+                                rlwe_q,
+                                out.as_mut(),
+                            );
+
+                            // u_j * a_i
+                            nttop.forward(out.as_mut());
+                            rlwe_modop.elwise_mul_mut(out.as_mut(), uj_poly_eval.as_ref());
+                            nttop.backward(out.as_mut());
+
+                            // u_j + a_i + e
+                            DefaultSecureRng::with_local_mut_mut(&mut |rng| {
+                                RandomFillGaussianInModulus::random_fill(
+                                    rng,
+                                    rlwe_q,
+                                    scratch.as_mut(),
+                                );
+                            });
+                            rlwe_modop.elwise_add_mut(out.as_mut(), scratch.as_ref());
+                        });
+
+                        ni_rgsw_cts
+                    })
+                    .collect_vec()
+            };
+
+            (zero_encs, self_leader_ni_rgsw_cts, not_self_leader_rgsw_cts)
+        };
 
         // Auto key share
         let auto_keys_share = {
@@ -1793,9 +1926,11 @@ where
         };
 
         CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare::new(
-            ni_rgsw_cts,
+            self_leader_ni_rgsw_cts,
+            not_self_leader_rgsw_cts,
+            ni_rgsw_zero_encs,
             ui_to_s_ksk,
-            zero_encs_for_others,
+            ksk_zero_encs_for_others,
             auto_keys_share,
             lwe_ksk_share,
             self_index,
@@ -2283,161 +2418,5 @@ where
         let mut out = c.clone();
         self.not_inplace(&mut out);
         out
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use rand::{thread_rng, Rng};
-    use rand_distr::Uniform;
-
-    use crate::{
-        backend::ModulusPowerOf2,
-        bool::{
-            keys::{
-                NonInteractiveServerKeyEvaluationDomain, PublicKey,
-                ShoupNonInteractiveServerKeyEvaluationDomain,
-            },
-            parameters::{MP_BOOL_PARAMS, NI_2P, SMALL_MP_BOOL_PARAMS, SP_TEST_BOOL_PARAMS},
-        },
-        evaluator,
-        ntt::NttBackendU64,
-        parameters::I_2P,
-        random::{RandomElementInModulus, DEFAULT_RNG},
-        rgsw::{
-            self, measure_noise, public_key_encrypt_rlwe, secret_key_encrypt_rlwe,
-            tests::{_measure_noise_rgsw, _sk_encrypt_rlwe},
-            RgswCiphertext, RgswCiphertextEvaluationDomain, SeededRgswCiphertext,
-            SeededRlweCiphertext,
-        },
-        utils::{negacyclic_mul, tests::Stats},
-    };
-
-    use super::*;
-
-    #[test]
-    fn testtest() {
-        let evaluator = BoolEvaluator::<
-            Vec<Vec<u64>>,
-            NttBackendU64,
-            ModularOpsU64<CiphertextModulus<u64>>,
-            ModulusPowerOf2<CiphertextModulus<u64>>,
-            ShoupNonInteractiveServerKeyEvaluationDomain<Vec<Vec<u64>>>,
-        >::new(NI_2P);
-        let mp_seed = NonInteractiveMultiPartyCrs { seed: [1u8; 32] };
-
-        let ring_size = evaluator.parameters().rlwe_n().0;
-        let rlwe_q = evaluator.parameters().rlwe_q();
-        let rlwe_modop = evaluator.pbs_info().modop_rlweq();
-        let nttop = evaluator.pbs_info().nttop_rlweq();
-
-        let parties = 2;
-
-        let cks = (0..parties).map(|_| evaluator.client_key()).collect_vec();
-
-        let key_shares = (0..parties)
-            .map(|i| evaluator.non_interactive_multi_party_key_share(&mp_seed, i, parties, &cks[i]))
-            .collect_vec();
-        // dbg!(key_shares[1].user_index);
-
-        let seeded_server_key = evaluator.aggregate_non_interactive_multi_party_key_share(
-            &mp_seed,
-            parties,
-            &key_shares,
-        );
-        let server_key_evaluation_domain =
-            NonInteractiveServerKeyEvaluationDomain::<_, _, DefaultSecureRng, NttBackendU64>::from(
-                &seeded_server_key,
-            );
-
-        let mut ideal_rlwe = vec![0; ring_size];
-        cks.iter().for_each(|k| {
-            izip!(
-                ideal_rlwe.iter_mut(),
-                NonInteractiveMultiPartyClientKey::sk_rlwe(k).iter()
-            )
-            .for_each(|(a, b)| {
-                *a = *a + b;
-            });
-        });
-
-        let mut ideal_lwe = vec![0; evaluator.parameters().lwe_n().0];
-        cks.iter().for_each(|k| {
-            izip!(
-                ideal_lwe.iter_mut(),
-                NonInteractiveMultiPartyClientKey::sk_lwe(k).iter()
-            )
-            .for_each(|(a, b)| {
-                *a = *a + b;
-            });
-        });
-
-        let mut stats = Stats::new();
-
-        {
-            let (rlrg_decomp_a, rlrg_decomp_b) = evaluator
-                .parameters()
-                .rlwe_rgsw_decomposer::<DefaultDecomposer<u64>>();
-            let gadget_vec_a = rlrg_decomp_a.gadget_vector();
-            let gadget_vec_b = rlrg_decomp_b.gadget_vector();
-            let d_a = rlrg_decomp_a.decomposition_count();
-            let d_b = rlrg_decomp_b.decomposition_count();
-
-            // s[X]
-            let s_poly = Vec::<u64>::try_convert_from(ideal_rlwe.as_slice(), rlwe_q);
-
-            // -s[X]
-            let mut neg_s_poly_eval = s_poly.clone();
-            rlwe_modop.elwise_neg_mut(&mut neg_s_poly_eval);
-            nttop.forward(neg_s_poly_eval.as_mut());
-
-            server_key_evaluation_domain
-                .rgsw_cts()
-                .iter()
-                .enumerate()
-                .for_each(|(s_index, ct)| {
-                    // X^{lwe_s[i]}
-                    let mut m = vec![0u64; ring_size];
-                    let s_i = ideal_lwe[s_index] * (evaluator.pbs_info().embedding_factor() as i32);
-                    if s_i < 0 {
-                        m[ring_size - (s_i.abs() as usize)] = rlwe_q.neg_one();
-                    } else {
-                        m[(s_i as usize)] = 1;
-                    }
-
-                    let mut neg_sm = m.clone();
-                    nttop.forward(&mut neg_sm);
-                    rlwe_modop.elwise_mul_mut(&mut neg_sm, &neg_s_poly_eval);
-                    nttop.backward(&mut neg_sm);
-
-                    // RLWE'(-sm)
-                    gadget_vec_a.iter().enumerate().for_each(|(index, beta)| {
-                        // RLWE(\beta -sm)
-
-                        // \beta * -sX^[lwe_s[i]]
-                        let mut beta_neg_sm = neg_sm.clone();
-                        rlwe_modop.elwise_scalar_mul_mut(&mut beta_neg_sm, beta);
-
-                        // extract RLWE(-sm \beta)
-                        let mut rlwe = vec![vec![0u64; ring_size]; 2];
-                        rlwe[0].copy_from_slice(&ct[index]);
-                        rlwe[1].copy_from_slice(&ct[index + d_a]);
-                        // send back to coefficient domain
-                        rlwe.iter_rows_mut()
-                            .for_each(|r| nttop.backward(r.as_mut_slice()));
-
-                        // decrypt
-                        let mut m_out = vec![0u64; ring_size];
-                        decrypt_rlwe(&rlwe, &ideal_rlwe, &mut m_out, nttop, rlwe_modop); // println!("{:?}", &beta_neg_sm);
-
-                        let mut diff = m_out;
-                        rlwe_modop.elwise_sub_mut(&mut diff, &beta_neg_sm);
-
-                        stats.add_more(&Vec::<i64>::try_convert_from(&diff, rlwe_q));
-                    });
-                });
-        }
-        println!("Stats: {}", stats.std_dev().abs().log2());
     }
 }
