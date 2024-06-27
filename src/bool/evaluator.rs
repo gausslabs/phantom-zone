@@ -540,6 +540,130 @@ where
     reduced_ct_i_out
 }
 
+fn produce_rgsw_ciphertext_from_ni_rgsw<
+    M: MatrixMut + MatrixEntity,
+    D: RlweDecomposer,
+    ModOp: VectorOps<Element = M::MatElement>,
+    NttOp: Ntt<Element = M::MatElement>,
+>(
+    ni_rgsw_ct: &M,
+    aggregated_decomposed_ni_rgsw_zero_encs: &[M],
+    decomposed_neg_ais: &[M],
+    decomposer: &D,
+    parameters: &BoolParameters<M::MatElement>,
+    uj_to_s_ksk: (&M, &M),
+    rlwe_modop: &ModOp,
+    nttop: &NttOp,
+    out_eval: bool,
+) -> M
+where
+    <M as Matrix>::R: RowMut + Clone,
+{
+    let max_decomposer =
+        if decomposer.a().decomposition_count() > decomposer.b().decomposition_count() {
+            decomposer.a()
+        } else {
+            decomposer.b()
+        };
+
+    assert!(
+        ni_rgsw_ct.dimension() == (max_decomposer.decomposition_count(), parameters.rlwe_n().0)
+    );
+    assert!(aggregated_decomposed_ni_rgsw_zero_encs.len() == decomposer.a().decomposition_count(),);
+    assert!(decomposed_neg_ais.len() == decomposer.b().decomposition_count());
+
+    let mut rgsw_i = M::zeros(
+        decomposer.a().decomposition_count() * 2 + decomposer.b().decomposition_count() * 2,
+        parameters.rlwe_n().0,
+    );
+    let (rlwe_dash_nsm, rlwe_dash_m) =
+        rgsw_i.split_at_row_mut(decomposer.a().decomposition_count() * 2);
+
+    // RLWE'_{s}(-sm)
+    // Key switch `s * a_{i, l} + e` using ksk(u_j -> s) to produce RLWE(s *
+    // u_{j=user_id} * a_{i, l}).
+    //
+    // Then set RLWE_{s}(-s B^i m) = (0, u_{j=user_id} * a_{i, l} + e + B^i m) +
+    // RLWE(s * u_{j=user_id} * a_{i, l})
+    {
+        let (rlwe_dash_nsm_parta, rlwe_dash_nsm_partb) =
+            rlwe_dash_nsm.split_at_mut(decomposer.a().decomposition_count());
+        izip!(
+            rlwe_dash_nsm_parta.iter_mut(),
+            rlwe_dash_nsm_partb.iter_mut(),
+            ni_rgsw_ct
+                .iter_rows()
+                .skip(max_decomposer.decomposition_count() - decomposer.a().decomposition_count()),
+            aggregated_decomposed_ni_rgsw_zero_encs.iter()
+        )
+        .for_each(|(rlwe_a, rlwe_b, ni_rlwe_ct, decomp_zero_enc)| {
+            // KS(s * a_{i, l} + e) = RLWE(s * u_j *
+            // a_{i, l}) using user j's Ksk
+            izip!(
+                decomp_zero_enc.iter_rows(),
+                uj_to_s_ksk.0.iter_rows(),
+                uj_to_s_ksk.1.iter_rows()
+            )
+            .for_each(|(c, pb, pa)| {
+                rlwe_modop.elwise_fma_mut(rlwe_b.as_mut(), pb.as_ref(), c.as_ref());
+                rlwe_modop.elwise_fma_mut(rlwe_a.as_mut(), pa.as_ref(), c.as_ref());
+            });
+
+            // RLWE(-s beta^i m) = (0, u_j * a_{j, l} +
+            // e + beta^i m) + RLWE(s * u_j * a_{i, l})
+            if out_eval {
+                let mut ni_rlwe_ct = ni_rlwe_ct.clone();
+                nttop.forward(ni_rlwe_ct.as_mut());
+                rlwe_modop.elwise_add_mut(rlwe_a.as_mut(), ni_rlwe_ct.as_ref());
+            } else {
+                nttop.backward(rlwe_a.as_mut());
+                nttop.backward(rlwe_b.as_mut());
+                rlwe_modop.elwise_add_mut(rlwe_a.as_mut(), ni_rlwe_ct.as_ref());
+            }
+        });
+    }
+
+    // RLWE'_{s}(m)
+    {
+        let (rlwe_dash_m_parta, rlwe_dash_partb) =
+            rlwe_dash_m.split_at_mut(decomposer.b().decomposition_count());
+        izip!(
+            rlwe_dash_m_parta.iter_mut(),
+            rlwe_dash_partb.iter_mut(),
+            ni_rgsw_ct
+                .iter_rows()
+                .skip(max_decomposer.decomposition_count() - decomposer.b().decomposition_count()),
+            decomposed_neg_ais.iter()
+        )
+        .for_each(|(rlwe_a, rlwe_b, ni_rlwe_ct, decomp_neg_ai)| {
+            // KS(-a_{i, l}) = RLWE(u_i * -a_{i,l}) using user j's Ksk
+            izip!(
+                decomp_neg_ai.iter_rows(),
+                uj_to_s_ksk.0.iter_rows(),
+                uj_to_s_ksk.1.iter_rows()
+            )
+            .for_each(|(c, pb, pa)| {
+                rlwe_modop.elwise_fma_mut(rlwe_b.as_mut(), pb.as_ref(), c.as_ref());
+                rlwe_modop.elwise_fma_mut(rlwe_a.as_mut(), pa.as_ref(), c.as_ref());
+            });
+
+            // RLWE_{s}(beta^i m) = (u_j * a_{i, l} + e + beta^i m, 0) -
+            // RLWE(-a_{i, l} u_j)
+            if out_eval {
+                let mut ni_rlwe_ct = ni_rlwe_ct.clone();
+                nttop.forward(ni_rlwe_ct.as_mut());
+                rlwe_modop.elwise_add_mut(rlwe_b.as_mut(), ni_rlwe_ct.as_ref());
+            } else {
+                nttop.backward(rlwe_a.as_mut());
+                nttop.backward(rlwe_b.as_mut());
+                rlwe_modop.elwise_add_mut(rlwe_b.as_mut(), ni_rlwe_ct.as_ref());
+            }
+        });
+    }
+
+    rgsw_i
+}
+
 /// Assigns user with user_id segement of LWE secret indices for which they
 /// generate RGSW(X^{s[i]}) as the leader (i.e. for RLWExRGSW). If returned
 /// tuple is (start, end), user's segment is [start, end)
@@ -1150,30 +1274,23 @@ where
     >
     where
         M: Clone + Debug,
+        <M as Matrix>::R: RowMut + Clone,
     {
         assert_eq!(
             self.parameters().variant(),
             &ParameterVariant::NonInteractiveMultiParty
         );
 
-        // sanity checks
-        let key_order = {
-            let existing_key_order = key_shares.iter().map(|s| s.user_index()).collect_vec();
-
-            // record the order s.t. key_order[i] stores the position of i^th
-            // users key share in existing order
-            let mut key_order = Vec::with_capacity(existing_key_order.len());
-            (0..total_users).for_each(|i| {
-                // find i
-                let index = existing_key_order
+        let total_users = key_shares.len();
+        let key_shares = (0..total_users)
+            .map(|user_id| {
+                // find share of user_id
+                key_shares
                     .iter()
-                    .position(|x| x == &i)
-                    .expect(&format!("Missing user {i}'s key!"));
-                key_order.push(index);
-            });
-
-            key_order
-        };
+                    .find(|share| share.user_index() == user_id)
+                    .expect(&format!("Key Share for user_id={user_id} missing"))
+            })
+            .collect_vec();
 
         let rlwe_modop = &self.pbs_info().rlwe_modop;
         let nttop = &self.pbs_info().rlwe_nttop;
@@ -1181,23 +1298,37 @@ where
         let rlwe_q = self.parameters().rlwe_q();
         let lwe_modop = self.pbs_info().modop_lweq();
 
-        // genrate key switching key from u_i to s
-        let ui_to_s_ksk_decomposition_count = self
+        // Generate Key switching key from u_j to s, where u_j user j's RLWE secret and
+        // s is the ideal RLWE secret.
+        //
+        // User j gives [s_j * a_{i, j}  + e  + \beta^i u_j] where a_{i, j} is user j
+        // specific publicly know polynomial sampled from user j's pseudo random seed
+        // defined in the protocol.
+        //
+        // User k, k != j, gives [s_k * a_{i, j} + e].
+        //
+        // We set Ksk(u_j -> s) = [s_j * a_{i, j}  + e  + \beta^i u_j + \sum_{k \in P, k
+        // != j} s_k * a_{i, j} + e]
+        let ni_uj_to_s_decomposer = self
             .parameters()
-            .non_interactive_ui_to_s_key_switch_decomposition_count();
-        let mut ui_to_s_ksks = key_shares
+            .non_interactive_ui_to_s_key_switch_decomposer::<DefaultDecomposer<M::MatElement>>();
+        let mut uj_to_s_ksks = key_shares
             .iter()
             .map(|share| {
                 let mut useri_ui_to_s_ksk = share.ui_to_s_ksk().clone();
                 assert!(
-                    useri_ui_to_s_ksk.dimension() == (ui_to_s_ksk_decomposition_count.0, ring_size)
+                    useri_ui_to_s_ksk.dimension()
+                        == (ni_uj_to_s_decomposer.decomposition_count(), ring_size)
                 );
                 key_shares
                     .iter()
                     .filter(|x| x.user_index() != share.user_index())
-                    .for_each(|(other_share)| {
+                    .for_each(|other_share| {
                         let op2 = other_share.ui_to_s_ksk_zero_encs_for_user_i(share.user_index());
-                        assert!(op2.dimension() == (ui_to_s_ksk_decomposition_count.0, ring_size));
+                        assert!(
+                            op2.dimension()
+                                == (ni_uj_to_s_decomposer.decomposition_count(), ring_size)
+                        );
                         izip!(useri_ui_to_s_ksk.iter_rows_mut(), op2.iter_rows()).for_each(
                             |(add_to, add_from)| {
                                 rlwe_modop.elwise_add_mut(add_to.as_mut(), add_from.as_ref())
@@ -1209,406 +1340,255 @@ where
             .collect_vec();
 
         let rgsw_cts = {
-            let mut rgsw_prng =
-                DefaultSecureRng::new_seeded(cr_seed.ni_rgsw_cts_main_seed::<DefaultSecureRng>());
+            // Send u_j -> s ksk in evaluation domain and sample corresponding a's using
+            // user j's ksk seed to prepare for upcoming key switches
+            uj_to_s_ksks.iter_mut().for_each(|ksk_i| {
+                ksk_i
+                    .iter_rows_mut()
+                    .for_each(|r| nttop.forward(r.as_mut()))
+            });
+            let uj_to_s_ksks_part_a_eval = key_shares
+                .iter()
+                .map(|share| {
+                    let mut ksk_prng = DefaultSecureRng::new_seeded(
+                        cr_seed.ui_to_s_ks_seed_for_user_i::<DefaultSecureRng>(share.user_index()),
+                    );
+                    let mut ais = M::zeros(ni_uj_to_s_decomposer.decomposition_count(), ring_size);
 
-            let rgsw_by_rgsw_decomposer = self
-                .parameters()
-                .rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
-
-            // Generate RGSW Cts
-            let rgsw_cts_all_users_eval = {
-                // temporarily put ui_to_s in evaluation domain and sample a_i's for u_i to s
-                // ksk for upcomong key switches
-                ui_to_s_ksks.iter_mut().for_each(|ksk_i| {
-                    ksk_i
-                        .iter_rows_mut()
-                        .for_each(|r| nttop.forward(r.as_mut()))
-                });
-                let ui_to_s_ksks_part_a_eval = key_shares
-                    .iter()
-                    .map(|share| {
-                        let mut ksk_prng = DefaultSecureRng::new_seeded(
-                            cr_seed
-                                .ui_to_s_ks_seed_for_user_i::<DefaultSecureRng>(share.user_index()),
+                    ais.iter_rows_mut().for_each(|r_ai| {
+                        RandomFillUniformInModulus::random_fill(
+                            &mut ksk_prng,
+                            rlwe_q,
+                            r_ai.as_mut(),
                         );
-                        let mut ais = M::zeros(ui_to_s_ksk_decomposition_count.0, ring_size);
 
-                        ais.iter_rows_mut().for_each(|r_ai| {
-                            RandomFillUniformInModulus::random_fill(
-                                &mut ksk_prng,
-                                rlwe_q,
-                                r_ai.as_mut(),
-                            );
-
-                            nttop.forward(r_ai.as_mut())
-                        });
-                        ais
-                    })
-                    .collect_vec();
-
-                let max_rgrg_deocmposer = if rgsw_by_rgsw_decomposer.a().decomposition_count()
-                    > rgsw_by_rgsw_decomposer.b().decomposition_count()
-                {
-                    rgsw_by_rgsw_decomposer.a()
-                } else {
-                    rgsw_by_rgsw_decomposer.b()
-                };
-
-                let ui_to_s_ksk_decomposer = self
-                .parameters()
-                .non_interactive_ui_to_s_key_switch_decomposer::<DefaultDecomposer<M::MatElement>>(
-                );
-
-                // Generate a_i*s + E = \sum_{j \in P} a_i*s_j + e for all rlwes in each
-                // non-interactive rgsws. Then decompose and put decompositions in evaluation
-                // for u_i -> s key switch.
-                let decomp_ni_rgsws_part_1_acc = {
-                    let mut tmp_space = M::R::zeros(ring_size);
-
-                    (0..self.parameters().lwe_n().0)
-                        .into_iter()
-                        .map(|lwe_index| {
-                            (0..max_rgrg_deocmposer.decomposition_count())
-                                .into_iter()
-                                .map(|d_index| {
-                                    let mut sum = M::zeros(
-                                        ui_to_s_ksk_decomposer.decomposition_count(),
-                                        ring_size,
-                                    );
-
-                                    // set temp_space to all zeros
-                                    tmp_space.as_mut().fill(M::MatElement::zero());
-
-                                    // a_i*s + E
-                                    key_shares.iter().for_each(|s| {
-                                        rlwe_modop.elwise_add_mut(
-                                            tmp_space.as_mut(),
-                                            s.ni_rgsw_cts().1[lwe_index].get_row_slice(d_index),
-                                        );
-                                    });
-
-                                    tmp_space.as_ref().iter().enumerate().for_each(|(ri, el)| {
-                                        ui_to_s_ksk_decomposer
-                                            .decompose_iter(el)
-                                            .enumerate()
-                                            .for_each(|(row_j, d_el)| {
-                                                (sum.as_mut()[row_j]).as_mut()[ri] = d_el;
-                                            });
-                                    });
-
-                                    sum.iter_rows_mut().for_each(|r| nttop.forward(r.as_mut()));
-
-                                    sum
-                                })
-                                .collect_vec()
-                        })
-                        .collect_vec()
-                };
-
-                // Sample a_i's are used to generate non-interactive rgsw cts for all lwe
-                // indices. Since a_i are just needed for key switches , decompose them
-                // and put them in evaluation domain
-                // Decomposition count used for RGSW ct in non-interactive key share gen equals
-                // max of A and B decomposition required in RGSWxRGSW. This is because same
-                // polynomials are used to generate RLWE'(m) and RLWE'(-sm)
-                let decomp_ni_rgsw_neg_ais = {
-                    let mut tmp_space = M::R::zeros(ring_size);
-                    (0..self.parameters().lwe_n().0)
-                        .into_iter()
-                        .map(|_| {
-                            // FIXME(Jay): well well, ais are only required for key switching to
-                            // generate RLWE'(m) and RLWE'(m) itself
-                            // requires RLWE(\beta^i m) for i \in RGSWxRGSW
-                            // part B decomposition count. However, we still need to puncture prng
-                            // for ais corresponding to ignored limbs.
-                            // Probably it will be nice idea to
-                            // avoid decomposition after punturing for a_i's corresponding to
-                            // ignored limbs. Moreover, note that, for
-                            // RGSWxRGSW often times decompostion count for part A
-                            // > part B. Hence, it's very likely that we are doing
-                            // unecesary decompositions for ignored limbs all the time.
-                            (0..max_rgrg_deocmposer.decomposition_count())
-                                .map(|_| {
-                                    RandomFillUniformInModulus::random_fill(
-                                        &mut rgsw_prng,
-                                        rlwe_q,
-                                        tmp_space.as_mut(),
-                                    );
-
-                                    // negate
-                                    rlwe_modop.elwise_neg_mut(tmp_space.as_mut());
-
-                                    // decomposer a_i for ui -> s key switch
-                                    let mut decomp_neg_ai = M::zeros(
-                                        ui_to_s_ksk_decomposer.decomposition_count(),
-                                        ring_size,
-                                    );
-                                    tmp_space.as_ref().iter().enumerate().for_each(
-                                        |(index, el)| {
-                                            ui_to_s_ksk_decomposer
-                                                .decompose_iter(el)
-                                                .enumerate()
-                                                .for_each(|(row_j, d_el)| {
-                                                    (decomp_neg_ai.as_mut()[row_j]).as_mut()
-                                                        [index] = d_el;
-                                                });
-                                        },
-                                    );
-
-                                    // put in evaluation domain
-                                    decomp_neg_ai
-                                        .iter_rows_mut()
-                                        .for_each(|r| nttop.forward(r.as_mut()));
-
-                                    decomp_neg_ai
-                                })
-                                .collect_vec()
-                        })
-                        .collect_vec()
-                };
-
-                // genrate RGSW cts
-                let rgsw_cts_all_users_eval = izip!(
-                    key_shares.iter(),
-                    ui_to_s_ksks.iter(),
-                    ui_to_s_ksks_part_a_eval.iter()
-                )
-                .map(
-                    |(share, user_uitos_ksk_partb_eval, user_uitos_ksk_parta_eval)| {
-                        // RGSW_s(X^{s[i]})
-                        let rgsw_cts_user_i_eval = izip!(
-                            share.ni_rgsw_cts().0.iter(),
-                            decomp_ni_rgsw_neg_ais.iter(),
-                            decomp_ni_rgsws_part_1_acc.iter()
-                        )
-                        .map(
-                            |(
-                                m_encs_under_ui,
-                                decomposed_rgsw_i_neg_ais,
-                                decomposed_acc_rgsw_part1,
-                            )| {
-                                let d_a = rgsw_by_rgsw_decomposer.a().decomposition_count();
-                                let d_b = rgsw_by_rgsw_decomposer.b().decomposition_count();
-                                let max_d = std::cmp::max(d_a, d_b);
-
-                                assert!(decomposed_rgsw_i_neg_ais.len() == max_d);
-
-                                // To be RGSW(X^{s[i]}) = [RLWE'(-sm), RLWE'(m)]
-                                let mut rgsw_ct_eval = M::zeros(d_a * 2 + d_b * 2, ring_size);
-                                let (rlwe_dash_nsm, rlwe_dash_m) =
-                                    rgsw_ct_eval.split_at_row_mut(d_a * 2);
-
-                                let mut scratch_row = M::R::zeros(ring_size);
-
-                                let mut m_encs_under_ui_eval = m_encs_under_ui.clone();
-                                m_encs_under_ui_eval
-                                    .iter_rows_mut()
-                                    .for_each(|r| nttop.forward(r.as_mut()));
-
-                                // RLWE(-sm)
-                                {
-                                    // Recall that we have RLWE(a_i * s + e). We key
-                                    // switch RLWE(a_i * s + e) using ksk(u_i -> s) to
-                                    // get RLWE(a_i*s*u_i + e*u_i).
-                                    // Given (u_i * a_i + e + \beta m), we obtain
-                                    // RLWE(-sm) = RLWE(a_i*s*u_i + e*u_i) + (0, (u_i *
-                                    // a_i + e + \beta m))
-                                    //
-                                    // Again RLWE'(-sm) only cares for RLWE(\beta -sm)
-                                    // with scaling factor \beta corresponding to most
-                                    // signficant d_a limbs. Hence, we skip (d_max -
-                                    // d_a) least signficant limbs
-
-                                    let (rlwe_dash_neg_sm_part_a, rlwe_dash_neg_sm_part_b) =
-                                        rlwe_dash_nsm.split_at_mut(d_a);
-
-                                    izip!(
-                                        rlwe_dash_neg_sm_part_a.iter_mut(),
-                                        rlwe_dash_neg_sm_part_b.iter_mut(),
-                                        decomposed_acc_rgsw_part1.iter().skip(max_d - d_a),
-                                        m_encs_under_ui_eval.iter_rows().skip(max_d - d_a)
-                                    )
-                                    .for_each(
-                                        |(rlwe_a, rlwe_b, decomp_ai_s, beta_m_enc_ui)| {
-                                            // RLWE_s(a_i * s * u_i + u_i * e) = decomp<a_i * s + e>
-                                            // * ksk(u_i
-                                            // -> s)
-                                            izip!(
-                                                decomp_ai_s.iter_rows(),
-                                                user_uitos_ksk_partb_eval.iter_rows(),
-                                                user_uitos_ksk_parta_eval.iter_rows()
-                                            )
-                                            .for_each(
-                                                |(a0, part_b, part_a)| {
-                                                    // rlwe_b += decomp<a_i * s + e>[i] * ksk
-                                                    // part_b[i]
-                                                    rlwe_modop.elwise_mul(
-                                                        scratch_row.as_mut(),
-                                                        a0.as_ref(),
-                                                        part_b.as_ref(),
-                                                    );
-                                                    rlwe_modop.elwise_add_mut(
-                                                        rlwe_b.as_mut(),
-                                                        scratch_row.as_ref(),
-                                                    );
-
-                                                    // rlwe_a += decomp<a_i * s + e>[i] * ksk
-                                                    // part_a[i]
-                                                    rlwe_modop.elwise_mul(
-                                                        scratch_row.as_mut(),
-                                                        a0.as_ref(),
-                                                        part_a.as_ref(),
-                                                    );
-                                                    rlwe_modop.elwise_add_mut(
-                                                        rlwe_a.as_mut(),
-                                                        scratch_row.as_ref(),
-                                                    );
-                                                },
-                                            );
-
-                                            // RLWE_s(-sm) = RLWE_s(a_i * s * u_i + u_i
-                                            // * e) + (0, a_i * u + e + m)
-                                            rlwe_modop.elwise_add_mut(
-                                                rlwe_a.as_mut(),
-                                                beta_m_enc_ui.as_ref(),
-                                            );
-                                        },
-                                    );
-                                }
-
-                                // RLWE(m)
-                                {
-                                    // Routine:
-                                    // Let RLWE(-a_i * u_i) = (decomp<-a_i> \cdot ksk(u_i -> s)),
-                                    // then RLWE(m) = RLWE(a'*s + e + m) = (a_i
-                                    // * u_i + e + m, 0) + RLWE(-a_i * u_i)
-                                    //
-                                    // Since RLWE'(m) only cares for RLWE ciphertexts corresponding
-                                    // to higher d_b limbs, we skip routine 1 for lower max(d_a,
-                                    // d_b) - d_b limbs
-                                    let (rlwe_dash_m_part_a, rlwe_dash_m_part_b) =
-                                        rlwe_dash_m.split_at_mut(d_b);
-
-                                    izip!(
-                                        rlwe_dash_m_part_a.iter_mut(),
-                                        rlwe_dash_m_part_b.iter_mut(),
-                                        decomposed_rgsw_i_neg_ais.iter().skip(max_d - d_b),
-                                        m_encs_under_ui_eval.iter_rows().skip(max_d - d_b)
-                                    )
-                                    .for_each(
-                                        |(rlwe_a, rlwe_b, decomp_neg_ai, beta_m_enc_ui)| {
-                                            // RLWE_s(-a_i * ui) = decomp<-a_i> \cdot ksk(ui -> s)
-                                            izip!(
-                                                decomp_neg_ai.iter_rows(),
-                                                user_uitos_ksk_partb_eval.iter_rows(),
-                                                user_uitos_ksk_parta_eval.iter_rows()
-                                            )
-                                            .for_each(
-                                                |(a0, part_b, part_a)| {
-                                                    // rlwe_b += decomp<a>[i] * ksk part_b[i]
-                                                    rlwe_modop.elwise_mul(
-                                                        scratch_row.as_mut(),
-                                                        a0.as_ref(),
-                                                        part_b.as_ref(),
-                                                    );
-                                                    rlwe_modop.elwise_add_mut(
-                                                        rlwe_b.as_mut(),
-                                                        scratch_row.as_ref(),
-                                                    );
-
-                                                    // rlwe_a += decomp<a>[i] * ksk
-                                                    // part_a[i]
-                                                    rlwe_modop.elwise_mul(
-                                                        scratch_row.as_mut(),
-                                                        a0.as_ref(),
-                                                        part_a.as_ref(),
-                                                    );
-                                                    rlwe_modop.elwise_add_mut(
-                                                        rlwe_a.as_mut(),
-                                                        scratch_row.as_ref(),
-                                                    );
-                                                },
-                                            );
-
-                                            // RLWE_s(m) = (a_i * ui + e +  \beta m, 0)
-                                            // +
-                                            // RLWE_s(-a_i * ui)
-                                            rlwe_modop.elwise_add_mut(
-                                                rlwe_b.as_mut(),
-                                                beta_m_enc_ui.as_ref(),
-                                            );
-                                        },
-                                    );
-                                }
-
-                                rgsw_ct_eval
-                            },
-                        )
-                        .collect_vec();
-                        rgsw_cts_user_i_eval
-                    },
-                )
+                        nttop.forward(r_ai.as_mut())
+                    });
+                    ais
+                })
                 .collect_vec();
 
-                // put u_i -> s ksks back in coefficient domain
-                ui_to_s_ksks.iter_mut().for_each(|ksk_i| {
-                    ksk_i
-                        .iter_rows_mut()
-                        .for_each(|r| nttop.backward(r.as_mut()))
-                });
+            let rgsw_x_rgsw_decomposer = self
+                .parameters()
+                .rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
+            let rlwe_x_rgsw_decomposer = self
+                .parameters()
+                .rlwe_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
 
-                rgsw_cts_all_users_eval
+            let d_max = if rgsw_x_rgsw_decomposer.a().decomposition_count()
+                > rgsw_x_rgsw_decomposer.b().decomposition_count()
+            {
+                rgsw_x_rgsw_decomposer.a().decomposition_count()
+            } else {
+                rgsw_x_rgsw_decomposer.b().decomposition_count()
             };
 
-            // RGSW x RGSW
-            let lwe_n = self.parameters().lwe_n().0;
-            let mut scratch_matrix = M::zeros(
+            let mut scratch_rgsw_x_rgsw = M::zeros(
                 std::cmp::max(
-                    rgsw_by_rgsw_decomposer.a().decomposition_count(),
-                    rgsw_by_rgsw_decomposer.b().decomposition_count(),
-                ) + (rgsw_by_rgsw_decomposer.a().decomposition_count() * 2
-                    + rgsw_by_rgsw_decomposer.b().decomposition_count() * 2),
-                ring_size,
+                    rgsw_x_rgsw_decomposer.a().decomposition_count(),
+                    rgsw_x_rgsw_decomposer.b().decomposition_count(),
+                ) + rlwe_x_rgsw_decomposer.a().decomposition_count() * 2
+                    + rlwe_x_rgsw_decomposer.b().decomposition_count() * 2,
+                self.parameters().rlwe_n().0,
             );
-            let rgsw_cts_untrimmed = (0..lwe_n).map(|s_index| {
-                // copy over s_index^th rgsw ct of user 0. Use it to accumulate RGSW products of
-                // all RGSW ciphertexts at s_index
-                let mut rgsw_i = rgsw_cts_all_users_eval[0][s_index].clone();
-                rgsw_i
-                    .iter_rows_mut()
-                    .for_each(|r| nttop.backward(r.as_mut()));
 
-                rgsw_cts_all_users_eval
-                    .iter()
-                    .skip(1)
-                    .for_each(|user_i_rgsws| {
-                        rgsw_by_rgsw_inplace(
-                            &mut rgsw_i,
-                            rgsw_by_rgsw_decomposer.a().decomposition_count(),
-                            rgsw_by_rgsw_decomposer.b().decomposition_count(),
-                            &user_i_rgsws[s_index],
-                            &rgsw_by_rgsw_decomposer,
-                            &mut scratch_matrix,
-                            nttop,
-                            rlwe_modop,
-                        );
-                    });
-
-                rgsw_i
-            });
-
-            // After this point we don't require RGSW cts for RGSWxRGSW
-            // multiplicaiton anymore. So we trim them to suit RLWExRGSW require  for PBS
-            let rgsw_cts = rgsw_cts_untrimmed
-                .map(|rgsw_ct| {
-                    trim_rgsw_ct_matrix_from_rgrg_to_rlrg(
-                        rgsw_ct,
-                        self.parameters().rgsw_by_rgsw_decomposition_params(),
-                        self.parameters().rlwe_by_rgsw_decomposition_params(),
+            // Recall that given u_j * a_{i, l} + e + \beta^i X^{s_j[l]} from user j
+            //
+            // We generate:
+            //
+            // - RLWE(-s \beta^i X^{s_j[l]}) = KS_{u_j -> s}(a_{i, l} * s + e) + (0 , u_j *
+            //   a_{i, l} + e + \beta^i X^{s_j[l]}), where KS_{u_j -> s}(a_{i, l} * s + e) =
+            //   RLWE_s(a_{i, l} * u_j)
+            // - RLWE(\beta^i X^{s_j[l]}) = KS_{u_j -> s}(-a_{i,l}) + (u_j * a_{i, l} + e +
+            //   \beta^i X^{s_j[l]}, 0), where KS_{u_j -> s}(-a_{i,l}) = RLWE_s(-a_{i,l} *
+            //   u_j)
+            //
+            // a_{i, l} * s + e = \sum_{j \in P} a_{i, l} * s_{j} + e
+            let user_segments = (0..total_users)
+                .map(|user_id| {
+                    interactive_mult_party_user_id_lwe_segment(
+                        user_id,
+                        total_users,
+                        self.parameters().lwe_n().0,
                     )
                 })
                 .collect_vec();
+            // Note: Each user is assigned a contigous LWE segement and the LWE dimension is
+            // split approximately uniformly across all users. Hence, concatenation of all
+            // user specific lwe segments will give LWE dimension.
+            let rgsw_cts = user_segments
+                .into_iter()
+                .enumerate()
+                .flat_map(|(user_id, lwe_segment)| {
+                    (lwe_segment.0..lwe_segment.1)
+                        .into_iter()
+                        .map(|lwe_index| {
+                            // We sample d_b `-a_i`s to key switch and generate RLWE'(m). But before
+                            // we sampling we need to puncture a_prng d_max - d_b times to align
+                            // a_i's. After sampling we decompose `-a_i`s and send them to
+                            // evaluation domain for upcoming key switches.
+                            let mut a_prng = DefaultSecureRng::new_seeded(
+                                cr_seed.ni_rgsw_ct_seed_for_index::<DefaultSecureRng>(lwe_index),
+                            );
+
+                            let mut scratch = M::R::zeros(self.parameters().rlwe_n().0);
+                            (0..d_max - rgsw_x_rgsw_decomposer.b().decomposition_count()).for_each(
+                                |_| {
+                                    RandomFillUniformInModulus::random_fill(
+                                        &mut a_prng,
+                                        rlwe_q,
+                                        scratch.as_mut(),
+                                    );
+                                },
+                            );
+
+                            let decomp_neg_ais = (0..rgsw_x_rgsw_decomposer
+                                .b()
+                                .decomposition_count())
+                                .map(|_| {
+                                    RandomFillUniformInModulus::random_fill(
+                                        &mut a_prng,
+                                        rlwe_q,
+                                        scratch.as_mut(),
+                                    );
+                                    rlwe_modop.elwise_neg_mut(scratch.as_mut());
+
+                                    let mut decomp_neg_ai = M::zeros(
+                                        ni_uj_to_s_decomposer.decomposition_count(),
+                                        self.parameters().rlwe_n().0,
+                                    );
+                                    scratch.as_ref().iter().enumerate().for_each(|(index, el)| {
+                                        ni_uj_to_s_decomposer
+                                            .decompose_iter(el)
+                                            .enumerate()
+                                            .for_each(|(row_j, d_el)| {
+                                                (decomp_neg_ai.as_mut()[row_j]).as_mut()[index] =
+                                                    d_el;
+                                            });
+                                    });
+
+                                    decomp_neg_ai
+                                        .iter_rows_mut()
+                                        .for_each(|ri| nttop.forward(ri.as_mut()));
+
+                                    decomp_neg_ai
+                                })
+                                .collect_vec();
+
+                            // Aggregate zero encryptions to produce a_{i, l} * s + e =
+                            // \sum_{k in P} a_{i, l} * s_{k} + e where s is the ideal RLWE
+                            // secret. Aggregated  a_{i, l} * s + e are key switched using
+                            // Ksk(u_j -> s) to produce RLWE_{s}(a_{i, l} * s) which are
+                            // then use to produce RLWE'(-sX^{s_{lwe}[l]}).
+                            // Hence, after aggregation we decompose a_{i, l} * s + e to
+                            // prepare for key switching
+                            let ni_rgsw_zero_encs = (0..rgsw_x_rgsw_decomposer
+                                .a()
+                                .decomposition_count())
+                                .map(|i| {
+                                    let mut sum = M::R::zeros(self.parameters().rlwe_n().0);
+                                    key_shares.iter().for_each(|k| {
+                                        let to_add_ref = k
+                                            .ni_rgsw_zero_enc_for_lwe_index(lwe_index)
+                                            .get_row_slice(i);
+                                        assert!(to_add_ref.len() == self.parameters().rlwe_n().0);
+                                        rlwe_modop.elwise_add_mut(sum.as_mut(), to_add_ref);
+                                    });
+
+                                    // decompose
+                                    let mut decomp_sum = M::zeros(
+                                        ni_uj_to_s_decomposer.decomposition_count(),
+                                        self.parameters().rlwe_n().0,
+                                    );
+                                    sum.as_ref().iter().enumerate().for_each(|(index, el)| {
+                                        ni_uj_to_s_decomposer
+                                            .decompose_iter(el)
+                                            .enumerate()
+                                            .for_each(|(row_j, d_el)| {
+                                                (decomp_sum.as_mut()[row_j]).as_mut()[index] = d_el;
+                                            });
+                                    });
+
+                                    decomp_sum
+                                        .iter_rows_mut()
+                                        .for_each(|r| nttop.forward(r.as_mut()));
+
+                                    decomp_sum
+                                })
+                                .collect_vec();
+
+                            // Produce RGSW(X^{s_{j=user_id, lwe}[l]}) for the
+                            // leader, ie user's id = user_id.
+                            // Recall leader's RGSW ciphertext must be constructed
+                            // for RLWE x RGSW multiplication, and is then used
+                            // to accumulate, using RGSW x RGSW multiplication,
+                            // X^{s_{j != user_id, lwe}[l]} from other users.
+                            let mut rgsw_i = produce_rgsw_ciphertext_from_ni_rgsw(
+                                key_shares[user_id]
+                                    .ni_rgsw_cts_for_self_leader_lwe_index(lwe_index),
+                                &ni_rgsw_zero_encs[rgsw_x_rgsw_decomposer
+                                    .a()
+                                    .decomposition_count()
+                                    - rlwe_x_rgsw_decomposer.a().decomposition_count()..],
+                                &decomp_neg_ais[rgsw_x_rgsw_decomposer.b().decomposition_count()
+                                    - rlwe_x_rgsw_decomposer.b().decomposition_count()..],
+                                &rlwe_x_rgsw_decomposer,
+                                self.parameters(),
+                                (&uj_to_s_ksks[user_id], &uj_to_s_ksks_part_a_eval[user_id]),
+                                rlwe_modop,
+                                nttop,
+                                false,
+                            );
+
+                            // RGSW for lwe_index of users that are not leader.
+                            //
+                            // Recall that for users that are not leader for the
+                            // lwe_index we require to produce RGSW ciphertext for
+                            // RGSW x RGSW product
+                            (0..total_users)
+                                .filter(|i| *i != user_id)
+                                .for_each(|other_user_id| {
+                                    let other_rgsw_i = produce_rgsw_ciphertext_from_ni_rgsw(
+                                        key_shares[other_user_id]
+                                            .ni_rgsw_cts_for_self_not_leader_lwe_index(lwe_index),
+                                        &ni_rgsw_zero_encs,
+                                        &decomp_neg_ais,
+                                        &rgsw_x_rgsw_decomposer,
+                                        self.parameters(),
+                                        (
+                                            &uj_to_s_ksks[other_user_id],
+                                            &uj_to_s_ksks_part_a_eval[other_user_id],
+                                        ),
+                                        rlwe_modop,
+                                        nttop,
+                                        true,
+                                    );
+
+                                    rgsw_by_rgsw_inplace(
+                                        &mut rgsw_i,
+                                        rlwe_x_rgsw_decomposer.a().decomposition_count(),
+                                        rlwe_x_rgsw_decomposer.b().decomposition_count(),
+                                        &other_rgsw_i,
+                                        &rgsw_x_rgsw_decomposer,
+                                        &mut scratch_rgsw_x_rgsw,
+                                        nttop,
+                                        rlwe_modop,
+                                    )
+                                });
+
+                            rgsw_i
+                        })
+                        .collect_vec()
+                })
+                .collect_vec();
+
+            // put u_j to s ksk in coefficient domain
+            uj_to_s_ksks.iter_mut().for_each(|ksk_i| {
+                ksk_i
+                    .iter_rows_mut()
+                    .for_each(|r| nttop.backward(r.as_mut()))
+            });
+
             rgsw_cts
         };
 
@@ -1653,8 +1633,7 @@ where
         };
 
         SeededNonInteractiveMultiPartyServerKey::new(
-            ui_to_s_ksks,
-            key_order,
+            uj_to_s_ksks,
             rgsw_cts,
             auto_keys,
             lwe_ksk,
@@ -1738,16 +1717,22 @@ where
 
         // Non-interactive RGSW cts
         let (ni_rgsw_zero_encs, self_leader_ni_rgsw_cts, not_self_leader_rgsw_cts) = {
-            // Warning: Below we assume that max(d_a, d_b) for RLWE x RGSW are always
-            // smaller than max(d_a, d_b) for RGSW x RGSW. The assumption is reasonable
-            // since RGSW x RGSW multiplication always precede RLWE x RGSW multiplication,
-            // hence require greater room.
             let rgsw_x_rgsw_decomposer = self
                 .parameters()
                 .rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
             let rlwe_x_rgsw_decomposer = self
                 .parameters()
                 .rlwe_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
+
+            // We assume that d_{a/b} for RGSW x RGSW are always < d'_{a/b} for RLWE x RGSW
+            assert!(
+                rlwe_x_rgsw_decomposer.a().decomposition_count()
+                    < rgsw_x_rgsw_decomposer.a().decomposition_count()
+            );
+            assert!(
+                rlwe_x_rgsw_decomposer.b().decomposition_count()
+                    < rgsw_x_rgsw_decomposer.b().decomposition_count()
+            );
 
             let sj_poly_eval = {
                 let mut s = M::R::try_convert_from(&sk_rlwe, rlwe_q);
@@ -1756,11 +1741,11 @@ where
             };
 
             let d_rgsw_a = rgsw_x_rgsw_decomposer.a().decomposition_count();
+            let d_rgsw_b = rgsw_x_rgsw_decomposer.b().decomposition_count();
+            let d_max = std::cmp::max(d_rgsw_a, d_rgsw_b);
 
-            // Zero encyptions for each LWE index.
-            // Zero encryptions are needed to generate RLWE(-sm) from a_i * u_j + e. Hence,
-            // zero encryptions are only required for first `d_a` a's where d_a
-            // is decomposition count `a` in RGSW x RGSW.
+            // Zero encyptions for each LWE index. We generate d_a zero encryptions for each
+            // LWE index using a_{i, l} with i \in {d_max - d_a , d_max) and l = lwe_index
             let zero_encs = {
                 (0..self.parameters().lwe_n().0)
                     .map(|lwe_index| {
@@ -1769,6 +1754,15 @@ where
                         );
 
                         let mut scratch = M::R::zeros(self.parameters().rlwe_n().0);
+
+                        // puncture seeded prng d_max - d_a times
+                        (0..(d_max - d_rgsw_a)).into_iter().for_each(|_| {
+                            RandomFillUniformInModulus::random_fill(
+                                &mut p_rng,
+                                rlwe_q,
+                                scratch.as_mut(),
+                            );
+                        });
 
                         let mut zero_enc = M::zeros(d_rgsw_a, self.parameters().rlwe_n().0);
                         zero_enc.iter_rows_mut().for_each(|out| {
@@ -1807,12 +1801,8 @@ where
                 u
             };
 
-            // Non-interactive RGSW ciphertexts: a_i u_j + e + \beta X^{s_j[l]}
-            // Non-interactive RGSW ciphertexts are needed for both RLWE'(-sm)
-            // and RLWE'(m). Hence, we should generate them a_i's with i \in [0,
-            // max(d_a, d_b)) where d_{a/b} are either decomposition counts for
-            // RGSW x RGSW (if self is not leader for l^th) or RLWE x RGSW (if
-            // self is leader for l^th index)
+            // Generate non-interactive RGSW ciphertexts a_{i, l} u_j + e + \beta X^{s_j[l]}
+            // for i \in (0, d_max]
             let (self_start_index, self_end_index) = interactive_mult_party_user_id_lwe_segment(
                 self_index,
                 total_users,
@@ -1821,47 +1811,86 @@ where
 
             // For LWE indices [self_start_index, self_end_index) user generates
             // non-interactive RGSW cts for RLWE x RGSW product. We refer to
-            // such indices where user is the leader. For the rest of
+            // such indices as where user is the leader. For the rest of
             // the indices user generates non-interactive RGWS cts for RGSW x
             // RGSW multiplication. We refer to such indices as where user is
             // not the leader.
-
             let self_leader_ni_rgsw_cts = {
-                let max_rlwe_x_rgsw_d = std::cmp::max(
-                    rlwe_x_rgsw_decomposer.a().decomposition_count(),
-                    rlwe_x_rgsw_decomposer.b().decomposition_count(),
-                );
+                let max_rlwe_x_rgsw_decomposer = if rlwe_x_rgsw_decomposer.a().decomposition_count()
+                    > rlwe_x_rgsw_decomposer.b().decomposition_count()
+                {
+                    rlwe_x_rgsw_decomposer.a()
+                } else {
+                    rlwe_x_rgsw_decomposer.b()
+                };
+
+                let gadget_vec = max_rlwe_x_rgsw_decomposer.gadget_vector();
+
                 (self_start_index..self_end_index)
                     .map(|lwe_index| {
                         let mut p_rng = DefaultSecureRng::new_seeded(
                             cr_seed.ni_rgsw_ct_seed_for_index::<DefaultSecureRng>(lwe_index),
                         );
-                        let mut ni_rgsw_cts =
-                            M::zeros(max_rlwe_x_rgsw_d, self.parameters().rlwe_n().0);
+
+                        // puncture p_rng d_max - d'_max time to align with `a_{i, l}`s used to
+                        // produce RGSW cts for RGSW x RGSW
                         let mut scratch = M::R::zeros(self.parameters().rlwe_n().0);
-                        ni_rgsw_cts.iter_rows_mut().for_each(|out| {
-                            // sample a_i
-                            RandomFillUniformInModulus::random_fill(
-                                &mut p_rng,
-                                rlwe_q,
-                                out.as_mut(),
-                            );
-
-                            // u_j * a_i
-                            nttop.forward(out.as_mut());
-                            rlwe_modop.elwise_mul_mut(out.as_mut(), uj_poly_eval.as_ref());
-                            nttop.backward(out.as_mut());
-
-                            // u_j + a_i + e
-                            DefaultSecureRng::with_local_mut_mut(&mut |rng| {
-                                RandomFillGaussianInModulus::random_fill(
-                                    rng,
+                        (0..(d_max - max_rlwe_x_rgsw_decomposer.decomposition_count()))
+                            .into_iter()
+                            .for_each(|_| {
+                                RandomFillUniformInModulus::random_fill(
+                                    &mut p_rng,
                                     rlwe_q,
                                     scratch.as_mut(),
                                 );
                             });
-                            rlwe_modop.elwise_add_mut(out.as_mut(), scratch.as_ref());
-                        });
+
+                        let mut ni_rgsw_cts = M::zeros(
+                            max_rlwe_x_rgsw_decomposer.decomposition_count(),
+                            self.parameters().rlwe_n().0,
+                        );
+
+                        // X^{s_{j, lwe}[l]}
+                        let m_poly = encode_x_pow_si_with_emebedding_factor::<M::R, _>(
+                            sk_lwe[lwe_index],
+                            self.pbs_info().embedding_factor(),
+                            self.parameters().rlwe_n().0,
+                            rlwe_q,
+                        );
+
+                        izip!(ni_rgsw_cts.iter_rows_mut(), gadget_vec.iter()).for_each(
+                            |(out, beta)| {
+                                // sample a_i
+                                RandomFillUniformInModulus::random_fill(
+                                    &mut p_rng,
+                                    rlwe_q,
+                                    out.as_mut(),
+                                );
+
+                                // u_j * a_i
+                                nttop.forward(out.as_mut());
+                                rlwe_modop.elwise_mul_mut(out.as_mut(), uj_poly_eval.as_ref());
+                                nttop.backward(out.as_mut());
+
+                                // u_j + a_i + e
+                                DefaultSecureRng::with_local_mut_mut(&mut |rng| {
+                                    RandomFillGaussianInModulus::random_fill(
+                                        rng,
+                                        rlwe_q,
+                                        scratch.as_mut(),
+                                    );
+                                });
+                                rlwe_modop.elwise_add_mut(out.as_mut(), scratch.as_ref());
+
+                                // u_j + a_i + e + beta m
+                                rlwe_modop.elwise_scalar_mul(
+                                    scratch.as_mut(),
+                                    m_poly.as_ref(),
+                                    beta,
+                                );
+                                rlwe_modop.elwise_add_mut(out.as_mut(), scratch.as_ref());
+                            },
+                        );
 
                         ni_rgsw_cts
                     })
@@ -1869,41 +1898,67 @@ where
             };
 
             let not_self_leader_rgsw_cts = {
-                let max_rgsw_x_rgsw_d = std::cmp::max(
-                    rgsw_x_rgsw_decomposer.a().decomposition_count(),
-                    rgsw_x_rgsw_decomposer.b().decomposition_count(),
-                );
+                let max_rgsw_x_rgsw_decomposer = if rgsw_x_rgsw_decomposer.a().decomposition_count()
+                    > rgsw_x_rgsw_decomposer.b().decomposition_count()
+                {
+                    rgsw_x_rgsw_decomposer.a()
+                } else {
+                    rgsw_x_rgsw_decomposer.b()
+                };
+                let gadget_vec = max_rgsw_x_rgsw_decomposer.gadget_vector();
+
                 ((0..self_start_index).chain(self_end_index..self.parameters().lwe_n().0))
                     .map(|lwe_index| {
                         let mut p_rng = DefaultSecureRng::new_seeded(
                             cr_seed.ni_rgsw_ct_seed_for_index::<DefaultSecureRng>(lwe_index),
                         );
-                        let mut ni_rgsw_cts =
-                            M::zeros(max_rgsw_x_rgsw_d, self.parameters().rlwe_n().0);
+                        let mut ni_rgsw_cts = M::zeros(
+                            max_rgsw_x_rgsw_decomposer.decomposition_count(),
+                            self.parameters().rlwe_n().0,
+                        );
                         let mut scratch = M::R::zeros(self.parameters().rlwe_n().0);
-                        ni_rgsw_cts.iter_rows_mut().for_each(|out| {
-                            // sample a_i
-                            RandomFillUniformInModulus::random_fill(
-                                &mut p_rng,
-                                rlwe_q,
-                                out.as_mut(),
-                            );
 
-                            // u_j * a_i
-                            nttop.forward(out.as_mut());
-                            rlwe_modop.elwise_mul_mut(out.as_mut(), uj_poly_eval.as_ref());
-                            nttop.backward(out.as_mut());
+                        // X^{s_{j, lwe}[l]}
+                        let m_poly = encode_x_pow_si_with_emebedding_factor::<M::R, _>(
+                            sk_lwe[lwe_index],
+                            self.pbs_info().embedding_factor(),
+                            self.parameters().rlwe_n().0,
+                            rlwe_q,
+                        );
 
-                            // u_j + a_i + e
-                            DefaultSecureRng::with_local_mut_mut(&mut |rng| {
-                                RandomFillGaussianInModulus::random_fill(
-                                    rng,
+                        izip!(ni_rgsw_cts.iter_rows_mut(), gadget_vec.iter()).for_each(
+                            |(out, beta)| {
+                                // sample a_i
+                                RandomFillUniformInModulus::random_fill(
+                                    &mut p_rng,
                                     rlwe_q,
-                                    scratch.as_mut(),
+                                    out.as_mut(),
                                 );
-                            });
-                            rlwe_modop.elwise_add_mut(out.as_mut(), scratch.as_ref());
-                        });
+
+                                // u_j * a_i
+                                nttop.forward(out.as_mut());
+                                rlwe_modop.elwise_mul_mut(out.as_mut(), uj_poly_eval.as_ref());
+                                nttop.backward(out.as_mut());
+
+                                // u_j + a_i + e
+                                DefaultSecureRng::with_local_mut_mut(&mut |rng| {
+                                    RandomFillGaussianInModulus::random_fill(
+                                        rng,
+                                        rlwe_q,
+                                        scratch.as_mut(),
+                                    );
+                                });
+                                rlwe_modop.elwise_add_mut(out.as_mut(), scratch.as_ref());
+
+                                // u_j * a_i + e + beta m
+                                rlwe_modop.elwise_scalar_mul(
+                                    scratch.as_mut(),
+                                    m_poly.as_ref(),
+                                    beta,
+                                );
+                                rlwe_modop.elwise_add_mut(out.as_mut(), scratch.as_ref());
+                            },
+                        );
 
                         ni_rgsw_cts
                     })
@@ -1934,6 +1989,8 @@ where
             auto_keys_share,
             lwe_ksk_share,
             self_index,
+            total_users,
+            self.parameters().lwe_n().0,
             cr_seed.clone(),
         )
     }
@@ -2166,7 +2223,6 @@ where
         })
     }
 
-    /// TODO(Jay): Fetch client key from thread local
     pub fn sk_encrypt<K: SinglePartyClientKey<Element = i32>>(
         &self,
         m: bool,

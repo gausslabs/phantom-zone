@@ -518,7 +518,7 @@ pub(crate) const NI_2P: BoolParameters<u64> = BoolParameters::<u64> {
     lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(5)),
     rlrg_decomposer_params: (
         DecompostionLogBase(11),
-        (DecompositionCount(2), DecompositionCount(1)),
+        (DecompositionCount(4), DecompositionCount(3)),
     ),
     rgrg_decomposer_params: Some((
         DecompostionLogBase(11),

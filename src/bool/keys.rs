@@ -907,10 +907,12 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
                 .parameters
                 .non_interactive_ui_to_s_key_switch_decomposition_count()
                 .0;
-            let total_users = *value.ui_to_s_ksks_key_order.iter().max().unwrap();
-            let ui_to_s_ksks = (0..total_users + 1)
-                .map(|user_index| {
-                    let user_i_seed = value.cr_seed.ui_to_s_ks_seed_for_user_i::<Rng>(user_index);
+            let ui_to_s_ksks = value
+                .ui_to_s_ksks
+                .iter()
+                .enumerate()
+                .map(|(user_id, incoming_ksk_partb)| {
+                    let user_i_seed = value.cr_seed.ui_to_s_ks_seed_for_user_i::<Rng>(user_id);
                     let mut prng = Rng::new_with_seed(user_i_seed);
 
                     let mut ksk_ct = M::zeros(d_uitos * 2, ring_size);
@@ -923,12 +925,10 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
                         );
                     });
 
-                    let incoming_ksk_partb_ref =
-                        &value.ui_to_s_ksks[value.ui_to_s_ksks_key_order[user_index]];
-                    assert!(incoming_ksk_partb_ref.dimension() == (d_uitos, ring_size));
+                    assert!(incoming_ksk_partb.dimension() == (d_uitos, ring_size));
                     izip!(
                         ksk_ct.iter_rows_mut().skip(d_uitos),
-                        incoming_ksk_partb_ref.iter_rows()
+                        incoming_ksk_partb.iter_rows()
                     )
                     .for_each(|(to_ri, from_ri)| {
                         to_ri.as_mut().copy_from_slice(from_ri.as_ref());
@@ -970,12 +970,9 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
 }
 
 pub struct SeededNonInteractiveMultiPartyServerKey<M: Matrix, S, P> {
-    /// u_i to s key switching keys in random order
+    /// u_i to s key switching keys in random order. Key switchin key for user j
+    /// is stored at j^th index
     ui_to_s_ksks: Vec<M>,
-    /// Defines order for u_i to s key switchin keys by storing the index of
-    /// user j's ksk in `ui_to_s_ksks` at index `j`. Find user j's u_i to s ksk
-    /// at `ui_to_s_ksks[ui_to_s_ksks_key_order[j]]`
-    ui_to_s_ksks_key_order: Vec<usize>,
     /// RGSW ciphertets
     rgsw_cts: Vec<M>,
     auto_keys: HashMap<usize, M>,
@@ -987,7 +984,7 @@ pub struct SeededNonInteractiveMultiPartyServerKey<M: Matrix, S, P> {
 impl<M: Matrix, S, P> SeededNonInteractiveMultiPartyServerKey<M, S, P> {
     pub(super) fn new(
         ui_to_s_ksks: Vec<M>,
-        ui_to_s_ksks_key_order: Vec<usize>,
+
         rgsw_cts: Vec<M>,
         auto_keys: HashMap<usize, M>,
         lwe_ksk: M::R,
@@ -996,7 +993,7 @@ impl<M: Matrix, S, P> SeededNonInteractiveMultiPartyServerKey<M, S, P> {
     ) -> Self {
         Self {
             ui_to_s_ksks,
-            ui_to_s_ksks_key_order,
+
             rgsw_cts,
             auto_keys,
             lwe_ksk,
@@ -1203,10 +1200,14 @@ pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix
     lwe_ksk_share: M::R,
 
     user_index: usize,
+    total_users: usize,
+    lwe_n: usize,
     cr_seed: S,
 }
 
 mod impl_common_ref_non_interactive_multi_party_server_share {
+    use crate::evaluator::interactive_mult_party_user_id_lwe_segment;
+
     use super::*;
 
     impl<M: Matrix, S> CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M, S> {
@@ -1219,6 +1220,8 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
             auto_keys_share: HashMap<usize, M>,
             lwe_ksk_share: M::R,
             user_index: usize,
+            total_users: usize,
+            lwe_n: usize,
             cr_seed: S,
         ) -> Self {
             Self {
@@ -1230,12 +1233,49 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
                 auto_keys_share,
                 lwe_ksk_share,
                 user_index,
+                total_users,
+                lwe_n,
                 cr_seed,
             }
         }
 
-        pub(in super::super) fn ni_rgsw_cts(&self) -> &(Vec<M>, Vec<M>) {
-            &self.ni_rgsw_cts
+        pub(in super::super) fn ni_rgsw_cts_for_self_leader_lwe_index(
+            &self,
+            lwe_index: usize,
+        ) -> &M {
+            let self_segment = interactive_mult_party_user_id_lwe_segment(
+                self.user_index,
+                self.total_users,
+                self.lwe_n,
+            );
+            assert!(lwe_index >= self_segment.0 && lwe_index < self_segment.1);
+            &self.self_leader_ni_rgsw_cts[lwe_index - self_segment.0]
+        }
+
+        pub(in super::super) fn ni_rgsw_cts_for_self_not_leader_lwe_index(
+            &self,
+            lwe_index: usize,
+        ) -> &M {
+            let self_segment = interactive_mult_party_user_id_lwe_segment(
+                self.user_index,
+                self.total_users,
+                self.lwe_n,
+            );
+            // Non-interactive RGSW cts when self is not leader are stored in
+            // sorted-order. For ex, if self is the leader for indices (5, 6]
+            // then self stores NI-RGSW cts for rest of indices like [0, 1, 2,
+            // 3, 4, 6, 7, 8, 9]
+            assert!(lwe_index < self.lwe_n);
+            assert!(lwe_index < self_segment.0 || lwe_index >= self_segment.1);
+            if lwe_index < self_segment.0 {
+                &self.not_self_leader_ni_rgsw_cts[lwe_index]
+            } else {
+                &self.not_self_leader_ni_rgsw_cts[lwe_index - (self_segment.1 - self_segment.0)]
+            }
+        }
+
+        pub(in super::super) fn ni_rgsw_zero_enc_for_lwe_index(&self, lwe_index: usize) -> &M {
+            &self.ni_rgsw_zero_encs[lwe_index]
         }
 
         pub(in super::super) fn ui_to_s_ksk(&self) -> &M {
@@ -1257,9 +1297,9 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
         pub(in super::super) fn ui_to_s_ksk_zero_encs_for_user_i(&self, user_i: usize) -> &M {
             assert!(user_i != self.user_index);
             if user_i < self.user_index {
-                &self.others_ksk_zero_encs[user_i]
+                &self.ksk_zero_encs_for_others[user_i]
             } else {
-                &self.others_ksk_zero_encs[user_i - 1]
+                &self.ksk_zero_encs_for_others[user_i - 1]
             }
         }
     }

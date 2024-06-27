@@ -314,7 +314,7 @@ where
     // LWE key switches LWE_in = LWE_{Q_ks,N, s}(m) = (b, a_0, ... a_N) -> LWE_out =
     // LWE_{Q_{ks}, n, z}(m) = (b', a'_0, ..., a'n)
     // If LWE_in = (0, a = {a_0, ..., a_N}), then LWE_out = LWE(-a \cdot s_{rlwe})
-    for _ in 0..1000 {
+    for _ in 0..10 {
         let mut lwe_in = M::R::zeros(rlwe_n + 1);
         RandomFillUniformInModulus::random_fill(&mut rng, lwe_q, &mut lwe_in.as_mut()[1..]);
 
