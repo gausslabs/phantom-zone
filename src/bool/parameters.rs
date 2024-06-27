@@ -510,24 +510,24 @@ pub(crate) const I_2P: BoolParameters<u64> = BoolParameters::<u64> {
 };
 
 pub(crate) const NI_2P: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_q: CiphertextModulus::new_non_native(36028797018820609),
-    lwe_q: CiphertextModulus::new_non_native(1 << 20),
+    rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
+    lwe_q: CiphertextModulus::new_non_native(1 << 15),
     br_q: 1 << 11,
     rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(600),
-    lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(5)),
+    lwe_n: LweDimension(480),
+    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(12)),
     rlrg_decomposer_params: (
-        DecompostionLogBase(11),
-        (DecompositionCount(4), DecompositionCount(3)),
+        DecompostionLogBase(16),
+        (DecompositionCount(1), DecompositionCount(1)),
     ),
     rgrg_decomposer_params: Some((
-        DecompostionLogBase(11),
-        (DecompositionCount(5), DecompositionCount(4)),
+        DecompostionLogBase(6),
+        (DecompositionCount(7), DecompositionCount(7)),
     )),
-    auto_decomposer_params: (DecompostionLogBase(11), DecompositionCount(2)),
+    auto_decomposer_params: (DecompostionLogBase(24), DecompositionCount(1)),
     non_interactive_ui_to_s_key_switch_decomposer: Some((
         DecompostionLogBase(1),
-        DecompositionCount(55),
+        DecompositionCount(50),
     )),
     g: 5,
     w: 10,
