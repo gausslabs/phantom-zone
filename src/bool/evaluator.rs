@@ -25,8 +25,8 @@ use crate::{
         RandomFillUniformInModulus, RandomGaussianElementInModulus,
     },
     rgsw::{
-        decrypt_rlwe, galois_auto, galois_key_gen, generate_auto_map, public_key_encrypt_rgsw,
-        rgsw_by_rgsw_inplace, secret_key_encrypt_rgsw,
+        decrypt_rlwe, galois_auto, generate_auto_map, public_key_encrypt_rgsw,
+        rgsw_by_rgsw_inplace, secret_key_encrypt_rgsw, seeded_auto_key_gen,
     },
     utils::{
         encode_x_pow_si_with_emebedding_factor, fill_random_ternary_secret_with_hamming_weight,
@@ -864,7 +864,7 @@ where
                     (g.pow(i as u32) % br_q) as isize
                 };
                 let mut gk = M::zeros(self.pbs_info.auto_decomposer.decomposition_count(), rlwe_n);
-                galois_key_gen(
+                seeded_auto_key_gen(
                     &mut gk,
                     &sk_rlwe,
                     g_pow,
@@ -2010,7 +2010,7 @@ where
                     self.pbs_info.auto_decomposer.decomposition_count(),
                     ring_size,
                 );
-                galois_key_gen(
+                seeded_auto_key_gen(
                     &mut ksk_out,
                     sk_rlwe,
                     g_pow,

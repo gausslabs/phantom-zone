@@ -1,12 +1,12 @@
-use std::{fmt::Debug, usize, vec};
+use std::{usize, vec};
 
 use itertools::{izip, Itertools};
-use num_traits::{FromPrimitive, One, PrimInt, Signed};
+use num_traits::{One, PrimInt, Signed};
 
 use crate::{
     backend::Modulus,
     random::{RandomElementInModulus, RandomFill},
-    Matrix, Row, RowEntity, RowMut,
+    Matrix, RowEntity, RowMut,
 };
 pub trait WithLocal {
     fn with_local<F, R>(func: F) -> R
@@ -163,11 +163,11 @@ pub fn mod_exponent(a: u64, mut b: u64, q: u64) -> u64 {
     out
 }
 
-pub fn mod_inverse(a: u64, q: u64) -> u64 {
+pub(crate) fn mod_inverse(a: u64, q: u64) -> u64 {
     mod_exponent(a, q - 2, q)
 }
 
-pub fn negacyclic_mul<T: PrimInt, F: Fn(&T, &T) -> T>(
+pub(crate) fn negacyclic_mul<T: PrimInt, F: Fn(&T, &T) -> T>(
     a: &[T],
     b: &[T],
     mul: F,

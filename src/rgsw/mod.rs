@@ -524,8 +524,9 @@ pub(crate) mod tests {
 
     use super::{
         keygen::{
-            decrypt_rlwe, galois_key_gen, gen_rlwe_public_key, generate_auto_map, measure_noise,
-            public_key_encrypt_rgsw, secret_key_encrypt_rgsw, secret_key_encrypt_rlwe,
+            decrypt_rlwe, generate_auto_map, measure_noise, public_key_encrypt_rgsw,
+            rlwe_public_key, secret_key_encrypt_rgsw, seeded_auto_key_gen,
+            seeded_secret_key_encrypt_rlwe,
         },
         runtime::{galois_auto, rgsw_by_rgsw_inplace, rlwe_by_rgsw},
         AutoKeyEvaluationDomain, RgswCiphertext, RgswCiphertextEvaluationDomain, RlweCiphertext,
@@ -549,7 +550,7 @@ pub(crate) mod tests {
         let mut seeded_rlwe_ct =
             SeededRlweCiphertext::<_, [u8; 32], _>::empty(ring_size as usize, rlwe_seed, q.clone());
         let mut p_rng = DefaultSecureRng::new_seeded(rlwe_seed);
-        secret_key_encrypt_rlwe(
+        seeded_secret_key_encrypt_rlwe(
             &m,
             &mut seeded_rlwe_ct.data,
             s,
@@ -782,7 +783,7 @@ pub(crate) mod tests {
         let mut pk_prng = DefaultSecureRng::new_seeded(pk_seed);
         let mut seeded_pk =
             SeededRlwePublicKey::<Vec<u64>, _>::empty(ring_size as usize, pk_seed, q);
-        gen_rlwe_public_key(
+        rlwe_public_key(
             &mut seeded_pk.data,
             s.values(),
             &ntt_op,
@@ -934,7 +935,7 @@ pub(crate) mod tests {
         rng.fill_bytes(&mut seed_rlwe);
         let mut seeded_rlwe_m = SeededRlweCiphertext::empty(ring_size as usize, seed_rlwe, q);
         let mut p_rng = DefaultSecureRng::new_seeded(seed_rlwe);
-        secret_key_encrypt_rlwe(
+        seeded_secret_key_encrypt_rlwe(
             &encoded_m,
             &mut seeded_rlwe_m.data,
             s.values(),
@@ -955,7 +956,7 @@ pub(crate) mod tests {
             SeededAutoKey::empty(ring_size as usize, &decomposer, seed_auto, q);
         let mut p_rng = DefaultSecureRng::new_seeded(seed_auto);
         let gadget_vector = decomposer.gadget_vector();
-        galois_key_gen(
+        seeded_auto_key_gen(
             &mut seeded_auto_key.data,
             s.values(),
             auto_k,

@@ -50,7 +50,7 @@ pub fn forward_butterly_0_to_4q(
 
 pub fn forward_butterly_0_to_2q(
     mut x: u64,
-    mut y: u64,
+    y: u64,
     w: u64,
     w_shoup: u64,
     q: u64,
@@ -310,7 +310,7 @@ pub(crate) fn find_primitive_root<R: RngCore>(q: u64, n: u64, rng: &mut R) -> Op
 pub struct NttBackendU64 {
     q: u64,
     q_twice: u64,
-    n: u64,
+    _n: u64,
     n_inv: u64,
     n_inv_shoup: u64,
     psi_powers_bo: Box<[u64]>,
@@ -374,7 +374,7 @@ impl NttBackendU64 {
         NttBackendU64 {
             q,
             q_twice: 2 * q,
-            n: n as u64,
+            _n: n as u64,
             n_inv,
             n_inv_shoup: ShoupMul::representation(n_inv, q),
             psi_powers_bo: psi_powers_bo.into_boxed_slice(),
@@ -390,17 +390,6 @@ impl<M: Modulus<Element = u64>> NttInit<M> for NttBackendU64 {
         // This NTT does not support native modulus
         assert!(!q.is_native());
         NttBackendU64::_new(q.q().unwrap(), n)
-    }
-}
-
-impl NttBackendU64 {
-    fn reduce_from_lazy(&self, a: &mut [u64]) {
-        let q = self.q;
-        a.iter_mut().for_each(|a0| {
-            if *a0 >= q {
-                *a0 = *a0 - q;
-            }
-        });
     }
 }
 
@@ -458,9 +447,9 @@ mod tests {
     use rand::{thread_rng, Rng};
     use rand_distr::Uniform;
 
-    use super::{NttBackendU64, NttInit};
+    use super::NttBackendU64;
     use crate::{
-        backend::{ArithmeticOps, ModInit, ModularOpsU64, VectorOps},
+        backend::{ModInit, ModularOpsU64, VectorOps},
         ntt::Ntt,
         utils::{generate_prime, negacyclic_mul},
     };

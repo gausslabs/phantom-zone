@@ -1,25 +1,16 @@
-use std::{
-    clone,
-    fmt::Debug,
-    iter,
-    marker::PhantomData,
-    ops::{Div, Neg, Sub},
-};
+use std::{fmt::Debug, ops::Sub};
 
-use itertools::{izip, Itertools};
+use itertools::izip;
 use num_traits::{PrimInt, Signed, ToPrimitive, Zero};
 
 use crate::{
     backend::{ArithmeticOps, GetModulus, Modulus, VectorOps},
-    decomposer::{self, Decomposer, RlweDecomposer},
-    ntt::{self, Ntt, NttInit},
+    ntt::Ntt,
     random::{
-        DefaultSecureRng, NewWithSeed, RandomElementInModulus, RandomFill,
-        RandomFillGaussianInModulus, RandomFillUniformInModulus,
+        RandomElementInModulus, RandomFill, RandomFillGaussianInModulus, RandomFillUniformInModulus,
     },
-    rgsw::decompose_r,
-    utils::{fill_random_ternary_secret_with_hamming_weight, TryConvertFrom1, WithLocal},
-    Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret, ShoupMatrixFMA,
+    utils::{fill_random_ternary_secret_with_hamming_weight, TryConvertFrom1},
+    Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut,
 };
 
 pub(crate) fn generate_auto_map(ring_size: usize, k: isize) -> (Vec<usize>, Vec<bool>) {
@@ -49,13 +40,31 @@ pub(crate) fn generate_auto_map(ring_size: usize, k: isize) -> (Vec<usize>, Vec<
     (auto_map_index, auto_sign_index)
 }
 
-/// Encrypts message m as a RGSW ciphertext.
+/// Returns RGSW(m)
 ///
-/// - m_eval: is `m` is evaluation domain
-/// - out_rgsw: RGSW(m) is stored as single matrix of dimension (d_rgsw * 3,
-///   ring_size). The matrix has the following structure [RLWE'_A(-sm) ||
-///   RLWE'_B(-sm) || RLWE'_B(m)]^T and RLWE'_A(m) is generated via seed (where
-///   p_rng is assumed to be seeded with seed)
+/// RGSW = [RLWE'(-sm) || RLWE(m)] = [RLWE'_A(-sm), RLWE'_B(-sm), RLWE'_A(m),
+/// RLWE'_B(m)]
+///
+/// RGSW(m1) ciphertext is used for RLWE(m0) x RGSW(m1) multiplication.
+/// Let RLWE(m) = [a, b] where b = as + e + m0.
+/// For RLWExRGSW we calculate:
+///       (\sum signed_decompose(a)[i] x RLWE(-s \beta^i' m1))
+///     + (\sum signed_decompose(b)[i'] x RLWE(\beta^i' m1))
+///     = RLWE(m0m1)
+/// We denote decomposer count for signed_decompose(a)[i] with d_a and
+/// corresponding gadget vector with `gadget_a`. We denote decomposer count for
+/// signed_decompose(b)[i] with d_b and corresponding gadget vector with
+/// `gadget_b`
+///
+/// In secret key RGSW encrypton RLWE'_A(m) can be seeded. Hence, we seed it
+/// using the `p_rng` passed and the retured RGSW ciphertext has d_a * 2 + d_b
+/// rows
+///
+/// - s: is the secret key
+/// - m: message to encrypt
+/// - gadget_a: Gadget vector for RLWE'(-sm)
+/// - gadget_b: Gadget vector for RLWE'(m)
+/// - p_rng: Seeded psuedo random generator used to sample RLWE'_A(m).
 pub(crate) fn secret_key_encrypt_rgsw<
     Mmut: MatrixMut + MatrixEntity,
     S,
@@ -150,6 +159,13 @@ pub(crate) fn secret_key_encrypt_rgsw<
     });
 }
 
+/// Returns RGSW(m) encrypted with public key
+///
+/// Follows the same routine as `secret_key_encrypt_rgsw` but with the
+/// difference that each RLWE encryption uses public key instead of secret key.
+///
+/// Since public key encryption cannot be seeded `RLWE'_A(m)` is included in the
+/// ciphertext. Hence the returned RGSW ciphertext has d_a * 2 + d_b * 2 rows
 pub(crate) fn public_key_encrypt_rgsw<
     Mmut: MatrixMut + MatrixEntity,
     M: Matrix<MatElement = Mmut::MatElement>,
@@ -269,20 +285,25 @@ pub(crate) fn public_key_encrypt_rgsw<
     });
 }
 
-/// Generates RLWE Key switching key to key switch ciphertext RLWE_{from_s}(m)
+/// Returns key switching key to key switch ciphertext RLWE_{from_s}(m)
 /// to RLWE_{to_s}(m).
 ///
-/// Key switching equals
-///     \sum decompose(c_1)_i * RLWE_{to_s}(\beta^i -from_s)
-/// Hence, key switchin key equals RLWE'(-from_s) = RLWE(-from_s), RLWE(beta^1
-/// -from_s), ..., RLWE(beta^{d-1} -from_s).
+/// Let key switching decomposer have `d` decompostion count with gadget vector:
+/// [1, \beta, ..., \beta^d-1]
 ///
-/// - ksk_out: Output Key switching key. Key switching key stores only part B
-///   polynomials of ksk RLWE ciphertexts (i.e. RLWE'_B(-from_s)) in coefficient
-///   domain
-/// - neg_from_s: Negative of secret polynomial to key switch from
+/// Key switching key consists of `d` RLWE ciphertexts:
+/// RLWE'_{to_s}(-from_s) = [RLWE_{to_s}(\beta^i -from_s)]
+///
+/// In RLWE(m) s.t. b = as + e + m where s is the secret key, `a` can be seeded.
+/// And we seed all RLWE ciphertexts in key switchin key.
+///
+/// - neg_from_s: Negative of secret polynomial to key switch from (i.e.
+///   -from_s)
 /// - to_s: secret polynomial to key switch to.
-pub(crate) fn rlwe_ksk_gen<
+/// - gadget_vector: Gadget vector of decomposer used in key switch
+/// - p_rng: Seeded pseudo random generate used to generate `a` polynomials of
+///   key switching key RLWE ciphertexts
+fn seeded_rlwe_ksk_gen<
     Mmut: MatrixMut + MatrixEntity,
     ModOp: ArithmeticOps<Element = Mmut::MatElement>
         + VectorOps<Element = Mmut::MatElement>
@@ -341,7 +362,18 @@ pub(crate) fn rlwe_ksk_gen<
     });
 }
 
-pub(crate) fn galois_key_gen<
+/// Returns auto key to send RLWE(m(X)) -> RLWE(m(X^k))
+///
+/// Auto key is key switchin key that key-switches RLWE_{s(X^k)}(m(X^k)) to
+/// RLWE_{s(X)}(m(X^k)).
+///
+/// - s: secret polynomial s(X)
+/// - auto_k: k used in for autmorphism X -> X^k
+/// - gadget_vector: Gadget vector corresponding to decomposer used in key
+///   switch
+/// - p_rng: pseudo random generator used to generate `a` polynomials of key
+///   switching key RLWE ciphertexts
+pub(crate) fn seeded_auto_key_gen<
     Mmut: MatrixMut + MatrixEntity,
     ModOp: ArithmeticOps<Element = Mmut::MatElement>
         + VectorOps<Element = Mmut::MatElement>
@@ -385,7 +417,7 @@ pub(crate) fn galois_key_gen<
     );
 
     // Ksk from -s(X^k) to s(X)
-    rlwe_ksk_gen(
+    seeded_rlwe_ksk_gen(
         ksk_out,
         neg_s_auto,
         s,
@@ -397,12 +429,14 @@ pub(crate) fn galois_key_gen<
     );
 }
 
-/// Encrypt polynomial m(X) as RLWE ciphertext.
+/// Returns seeded RLWE(m(X))
 ///
-/// - rlwe_out: returned RLWE ciphertext RLWE(m) in coefficient domain. RLWE
-///   ciphertext is a matirx with first row consiting polynomial `a` and the
-///   second rows consting polynomial `b`
-pub(crate) fn secret_key_encrypt_rlwe<
+/// RLWE(m(X)) = [a(X), b(X) = a(X)s(X) + e(X) + m(X)]
+///
+/// a(X) of RLWE encyrptions using secret key s(X) can be seeded. We use seeded
+/// pseudo random generator `p_rng` to sample a(X) and return seeded RLWE
+/// ciphertext (i.e. only b(X))
+pub(crate) fn seeded_secret_key_encrypt_rlwe<
     Ro: Row + RowMut + RowEntity,
     ModOp: VectorOps<Element = Ro::Element> + GetModulus<Element = Ro::Element>,
     NttOp: Ntt<Element = Ro::Element>,
@@ -446,6 +480,9 @@ pub(crate) fn secret_key_encrypt_rlwe<
     mod_op.elwise_add_mut(b_rlwe_out.as_mut(), sa.as_ref());
 }
 
+/// Returns RLWE(m(X)) encrypted using public key.
+///
+/// Unlike secret key encryption, public key encryption cannot be seeded
 pub(crate) fn public_key_encrypt_rlwe<
     M: Matrix,
     Mmut: MatrixMut<MatElement = M::MatElement>,
@@ -507,8 +544,8 @@ pub(crate) fn public_key_encrypt_rlwe<
     mod_op.elwise_add_mut(rlwe_out.get_row_mut(1), m);
 }
 
-/// Generates RLWE public key
-pub(crate) fn gen_rlwe_public_key<
+/// Returns RLWE public key generated using RLWE secret key
+pub(crate) fn rlwe_public_key<
     Ro: RowMut + RowEntity,
     S,
     ModOp: VectorOps<Element = Ro::Element> + GetModulus<Element = Ro::Element>,
@@ -549,9 +586,9 @@ pub(crate) fn gen_rlwe_public_key<
     mod_op.elwise_add_mut(part_b_out.as_mut(), sa.as_ref());
 }
 
-/// Decrypts degree 1 RLWE ciphertext RLWE(m) and returns m
+/// Decrypts ciphertext RLWE(m) and returns noisy m
 ///
-/// - rlwe_ct: input degree 1 ciphertext RLWE(m).
+/// We assume RLWE(m) = [a, b] is a degree 1 ciphertext s.t. b - sa = e + m
 pub(crate) fn decrypt_rlwe<
     R: RowMut,
     M: Matrix<MatElement = R::Element>,

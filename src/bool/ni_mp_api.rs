@@ -178,7 +178,7 @@ mod impl_enc_dec {
         bool::{evaluator::BoolEncoding, keys::NonInteractiveMultiPartyClientKey},
         pbs::{sample_extract, PbsInfo, WithShoupRepr},
         random::{NewWithSeed, RandomFillUniformInModulus},
-        rgsw::{key_switch, secret_key_encrypt_rlwe},
+        rgsw::{key_switch, seeded_secret_key_encrypt_rlwe},
         utils::TryConvertFrom1,
         Encryptor, KeySwitchWithId, Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
     };
@@ -296,7 +296,7 @@ mod impl_enc_dec {
                             let mut rlwe_out =
                                 <<Mat as Matrix>::R as RowEntity>::zeros(parameters.rlwe_n().0);
 
-                            secret_key_encrypt_rlwe(
+                            seeded_secret_key_encrypt_rlwe(
                                 &message,
                                 &mut rlwe_out,
                                 &sk_u,
