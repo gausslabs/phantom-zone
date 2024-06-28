@@ -11,7 +11,7 @@ fn fhe_circuit(a: &FheUint8, b: &FheUint8, c: &FheUint8, d: &FheUint8) -> FheUin
 }
 
 fn main() {
-    set_parameter_set(ParameterSelector::NonInteractiveMultiPartyLessThanOrEqualTo16);
+    set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
 
     // set CRS
     let mut seed = [0u8; 32];

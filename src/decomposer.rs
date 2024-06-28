@@ -1,14 +1,8 @@
 use itertools::{izip, Itertools};
-use num_traits::{
-    AsPrimitive, FromPrimitive, Num, One, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero,
-};
-use std::{
-    fmt::{Debug, Display},
-    marker::PhantomData,
-    ops::Rem,
-};
+use num_traits::{FromPrimitive, PrimInt, ToPrimitive, WrappingAdd, WrappingSub};
+use std::fmt::{Debug, Display};
 
-use crate::backend::{ArithmeticOps, ModularOpsU64};
+use crate::backend::ArithmeticOps;
 
 fn gadget_vector<T: PrimInt>(logq: usize, logb: usize, d: usize) -> Vec<T> {
     assert!(logq >= (logb * d));
@@ -146,7 +140,6 @@ impl<
         }
     }
 
-    // TODO(Jay): Outline the caveat
     fn decompose_to_vec(&self, value: &T) -> Vec<T> {
         let q = self.q;
         let logb = self.logb;
@@ -283,7 +276,7 @@ mod tests {
     use crate::{
         backend::{ModInit, ModularOpsU64, Modulus},
         decomposer::round_value,
-        utils::{generate_prime, tests::Stats, TryConvertFrom1},
+        utils::{generate_prime, tests::Stats},
     };
 
     use super::{Decomposer, DefaultDecomposer};
@@ -297,7 +290,7 @@ mod tests {
         for logq in [37, 55] {
             let logb = 11;
             let d = 3;
-            let mut stats = vec![Stats::new(); d];
+            // let mut stats = vec![Stats::new(); d];
 
             for i in [true, false] {
                 let q = if i {
@@ -319,19 +312,19 @@ mod tests {
                     let rounded_value = round_value(value, decomposer.ignore_bits);
                     assert!((rounded_value as i64 - value_back as i64).abs() <= 1,);
 
-                    izip!(stats.iter_mut(), limbs.iter()).for_each(|(s, l)| {
-                        s.add_more(&vec![q.map_element_to_i64(l)]);
-                    });
+                    // izip!(stats.iter_mut(), limbs.iter()).for_each(|(s, l)| {
+                    //     s.add_more(&vec![q.map_element_to_i64(l)]);
+                    // });
                 }
             }
 
-            stats.iter().enumerate().for_each(|(index, s)| {
-                println!(
-                    "Limb {index} - Mean: {}, Std: {}",
-                    s.mean(),
-                    s.std_dev().abs().log2()
-                );
-            });
+            // stats.iter().enumerate().for_each(|(index, s)| {
+            //     println!(
+            //         "Limb {index} - Mean: {}, Std: {}",
+            //         s.mean(),
+            //         s.std_dev().abs().log2()
+            //     );
+            // });
         }
     }
 }

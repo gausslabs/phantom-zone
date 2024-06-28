@@ -427,7 +427,7 @@ mod tests {
             NttBackendU64,
         };
 
-        set_parameter_set(crate::ParameterSelector::NonInteractiveMultiPartyLessThanOrEqualTo16);
+        set_parameter_set(crate::ParameterSelector::NonInteractiveLTE2Party);
         set_common_reference_seed(NonInteractiveMultiPartyCrs::random().seed);
         let parties = 2;
         let cks = (0..parties).map(|i| gen_client_key()).collect_vec();
@@ -468,5 +468,74 @@ mod tests {
             "key switching noise rlwe secret s to lwe secret z std log2 {}",
             server_key_stats.post_lwe_key_switch.std_dev().abs().log2()
         );
+    }
+
+    #[test]
+    #[cfg(feature = "non_interactive_mp")]
+    fn enc_under_sk_and_key_switch() {
+        use rand::{thread_rng, Rng};
+
+        use crate::{
+            aggregate_server_key_shares,
+            bool::{keys::tests::ideal_sk_rlwe, ni_mp_api::NonInteractiveBatchedFheBools},
+            gen_client_key, gen_server_key_share,
+            rgsw::decrypt_rlwe,
+            set_common_reference_seed, set_parameter_set,
+            utils::{tests::Stats, TryConvertFrom1, WithLocal},
+            BoolEvaluator, Encoder, Encryptor, KeySwitchWithId, ModInit, ModularOpsU64,
+            NttBackendU64, NttInit, ParameterSelector, VectorOps,
+        };
+
+        set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
+        set_common_reference_seed([2; 32]);
+
+        let parties = 2;
+
+        let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
+
+        let key_shares = cks
+            .iter()
+            .enumerate()
+            .map(|(user_index, ck)| gen_server_key_share(user_index, parties, ck))
+            .collect_vec();
+
+        let seeded_server_key = aggregate_server_key_shares(&key_shares);
+        seeded_server_key.set_server_key();
+
+        let parameters = BoolEvaluator::with_local(|e| e.parameters().clone());
+        let nttop = NttBackendU64::new(parameters.rlwe_q(), parameters.rlwe_n().0);
+        let rlwe_q_modop = ModularOpsU64::new(*parameters.rlwe_q());
+
+        let m = (0..parameters.rlwe_n().0)
+            .map(|_| thread_rng().gen_bool(0.5))
+            .collect_vec();
+        let ct: NonInteractiveBatchedFheBools<_> = cks[0].encrypt(m.as_slice());
+        let ct = ct.key_switch(0);
+
+        let ideal_rlwe_sk = ideal_sk_rlwe(&cks);
+
+        let message = m
+            .iter()
+            .map(|b| parameters.rlwe_q().encode(*b))
+            .collect_vec();
+
+        let mut m_out = vec![0u64; parameters.rlwe_n().0];
+        decrypt_rlwe(
+            &ct.data[0],
+            &ideal_rlwe_sk,
+            &mut m_out,
+            &nttop,
+            &rlwe_q_modop,
+        );
+
+        let mut diff = m_out;
+        rlwe_q_modop.elwise_sub_mut(diff.as_mut_slice(), message.as_ref());
+
+        let mut stats = Stats::new();
+        stats.add_more(&Vec::<i64>::try_convert_from(
+            diff.as_slice(),
+            parameters.rlwe_q(),
+        ));
+        println!("Noise std log2: {}", stats.std_dev().abs().log2());
     }
 }

@@ -22,7 +22,8 @@ pub type ClientKey = keys::ClientKey<[u8; 32], u64>;
 pub enum ParameterSelector {
     HighCommunicationButFast2Party,
     MultiPartyLessThanOrEqualTo16,
-    NonInteractiveMultiPartyLessThanOrEqualTo16,
+    NonInteractiveLTE2Party,
+    NonInteractiveLTE4Party,
 }
 
 mod common_mp_enc_dec {

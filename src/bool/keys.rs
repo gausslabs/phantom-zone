@@ -2,7 +2,6 @@ use std::{collections::HashMap, hash::Hash, marker::PhantomData};
 
 use crate::{
     backend::{ModInit, VectorOps},
-    lwe::LweSecret,
     pbs::WithShoupRepr,
     random::{NewWithSeed, RandomFillUniformInModulus},
     rgsw::RlweSecret,

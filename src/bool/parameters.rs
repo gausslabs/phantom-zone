@@ -534,6 +534,31 @@ pub(crate) const NI_2P: BoolParameters<u64> = BoolParameters::<u64> {
     variant: ParameterVariant::NonInteractiveMultiParty,
 };
 
+pub(crate) const NI_4P: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
+    lwe_q: CiphertextModulus::new_non_native(1 << 16),
+    br_q: 1 << 11,
+    rlwe_n: PolynomialSize(1 << 11),
+    lwe_n: LweDimension(510),
+    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(12)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(17),
+        (DecompositionCount(1), DecompositionCount(1)),
+    ),
+    rgrg_decomposer_params: Some((
+        DecompostionLogBase(4),
+        (DecompositionCount(10), DecompositionCount(9)),
+    )),
+    auto_decomposer_params: (DecompostionLogBase(24), DecompositionCount(1)),
+    non_interactive_ui_to_s_key_switch_decomposer: Some((
+        DecompostionLogBase(1),
+        DecompositionCount(50),
+    )),
+    g: 5,
+    w: 10,
+    variant: ParameterVariant::NonInteractiveMultiParty,
+};
+
 #[cfg(test)]
 pub(crate) const SP_TEST_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_q: CiphertextModulus::new_non_native(268369921u64),

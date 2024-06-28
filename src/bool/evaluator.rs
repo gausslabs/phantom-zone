@@ -5,23 +5,18 @@ use std::{
     usize,
 };
 
-use itertools::{izip, partition, Itertools};
-use num_traits::{
-    zero, FromPrimitive, Num, One, Pow, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero,
-};
-use rand::Rng;
+use itertools::{izip, Itertools};
+use num_traits::{FromPrimitive, One, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero};
 use rand_distr::uniform::SampleUniform;
 
 use crate::{
-    backend::{
-        ArithmeticOps, GetModulus, ModInit, ModularOpsU64, Modulus, ShoupMatrixFMA, VectorOps,
-    },
+    backend::{ArithmeticOps, GetModulus, ModInit, Modulus, ShoupMatrixFMA, VectorOps},
     bool::parameters::ParameterVariant,
     decomposer::{Decomposer, DefaultDecomposer, NumInfo, RlweDecomposer},
-    lwe::{decrypt_lwe, encrypt_lwe, lwe_key_switch, lwe_ksk_keygen, measure_noise_lwe, LweSecret},
+    lwe::{decrypt_lwe, encrypt_lwe, seeded_lwe_ksk_keygen},
     multi_party::{
         non_interactive_ksk_gen, non_interactive_ksk_zero_encryptions_for_other_party_i,
-        non_interactive_rgsw_ct, public_key_share,
+        public_key_share,
     },
     ntt::{self, Ntt, NttBackendU64, NttInit},
     pbs::{pbs, sample_extract, PbsInfo, PbsKey, WithShoupRepr},
@@ -48,8 +43,7 @@ use super::{
         CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare,
         InteractiveMultiPartyClientKey, NonInteractiveMultiPartyClientKey,
         SeededMultiPartyServerKey, SeededNonInteractiveMultiPartyServerKey,
-        SeededSinglePartyServerKey, ServerKeyEvaluationDomain, ShoupServerKeyEvaluationDomain,
-        SinglePartyClientKey,
+        SeededSinglePartyServerKey, SinglePartyClientKey,
     },
     parameters::{
         BoolParameters, CiphertextModulus, DecompositionCount, DecompostionLogBase,
@@ -67,9 +61,8 @@ use super::{
 ///     Initial Seed:
 ///         Puncture 1 -> Public key share seed
 ///         Puncture 2 -> Main server key share seed
-///             Puncture 1 -> RGSW cuphertexts seed
-///             Puncture 2 -> Auto keys cipertexts seed
-///             Puncture 3 -> LWE ksk seed
+///             Puncture 1 -> Auto keys cipertexts seed
+///             Puncture 2 -> LWE ksk seed
 #[derive(Clone, PartialEq)]
 pub struct MultiPartyCrs<S> {
     pub(super) seed: S,
@@ -97,19 +90,14 @@ impl<S: Default + Copy> MultiPartyCrs<S> {
         puncture_p_rng(&mut prng, 2)
     }
 
-    pub(super) fn rgsw_cts_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
+    pub(super) fn auto_keys_cts_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
         let mut key_prng = Rng::new_with_seed(self.key_seed::<Rng>());
         puncture_p_rng(&mut key_prng, 1)
     }
 
-    pub(super) fn auto_keys_cts_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
-        let mut key_prng = Rng::new_with_seed(self.key_seed::<Rng>());
-        puncture_p_rng(&mut key_prng, 2)
-    }
-
     pub(super) fn lwe_ksk_cts_seed_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
         let mut key_prng = Rng::new_with_seed(self.key_seed::<Rng>());
-        puncture_p_rng(&mut key_prng, 3)
+        puncture_p_rng(&mut key_prng, 2)
     }
 }
 
@@ -119,7 +107,8 @@ impl<S: Default + Copy> MultiPartyCrs<S> {
 ///     Puncture 1 -> Key Seed
 ///         Puncture 1 -> Rgsw ciphertext seed
 ///             Puncture l+1 -> Seed for zero encs and non-interactive
-/// multi-party RGSW ciphertext corresponding to l^th LWE index.
+///                             multi-party RGSW ciphertexts of
+///                             l^th LWE index.
 ///         Puncture 2 -> auto keys seed
 ///         Puncture 3 -> Lwe key switching key seed
 ///     Puncture 2 -> user specific seed for u_j to s ksk
@@ -931,12 +920,9 @@ where
 
             // LWE KSK from RLWE secret s -> LWE secret z
             let d_lwe_gadget = self.pbs_info.lwe_decomposer.gadget_vector();
-            let mut lwe_ksk =
-                M::R::zeros(self.pbs_info.lwe_decomposer.decomposition_count() * ring_size);
-            lwe_ksk_keygen(
+            let lwe_ksk = seeded_lwe_ksk_keygen(
                 &sk_rlwe,
                 &sk_lwe,
-                &mut lwe_ksk,
                 &d_lwe_gadget,
                 &self.pbs_info.lwe_modop,
                 &mut main_prng,
@@ -2049,21 +2035,16 @@ where
     ) -> M::R {
         DefaultSecureRng::with_local_mut(|rng| {
             let mut p_rng = DefaultSecureRng::new_seeded(lwe_ksk_seed);
-            let mut lwe_ksk = M::R::zeros(
-                self.pbs_info.lwe_decomposer.decomposition_count() * self.parameters().rlwe_n().0,
-            );
             let lwe_modop = &self.pbs_info.lwe_modop;
             let d_lwe_gadget_vec = self.pbs_info.lwe_decomposer.gadget_vector();
-            lwe_ksk_keygen(
+            seeded_lwe_ksk_keygen(
                 sk_rlwe,
                 sk_lwe,
-                &mut lwe_ksk,
                 &d_lwe_gadget_vec,
                 lwe_modop,
                 &mut p_rng,
                 rng,
-            );
-            lwe_ksk
+            )
         })
     }
 
@@ -2238,15 +2219,7 @@ where
         };
 
         DefaultSecureRng::with_local_mut(|rng| {
-            let mut lwe_out = M::R::zeros(self.pbs_info.parameters.rlwe_n().0 + 1);
-            encrypt_lwe(
-                &mut lwe_out,
-                &m,
-                &client_key.sk_rlwe(),
-                &self.pbs_info.rlwe_modop,
-                rng,
-            );
-            lwe_out
+            encrypt_lwe(&m, &client_key.sk_rlwe(), &self.pbs_info.rlwe_modop, rng)
         })
     }
 

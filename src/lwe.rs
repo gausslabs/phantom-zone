@@ -1,108 +1,15 @@
-use std::{
-    cell::RefCell,
-    collections::btree_map::Values,
-    fmt::{Debug, Display},
-    marker::PhantomData,
-};
+use std::fmt::Debug;
 
-use itertools::{izip, Itertools};
-use num_traits::{abs, PrimInt, ToPrimitive, Zero};
+use itertools::izip;
+use num_traits::Zero;
 
 use crate::{
-    backend::{ArithmeticOps, GetModulus, Modulus, VectorOps},
+    backend::{ArithmeticOps, GetModulus, VectorOps},
     decomposer::Decomposer,
-    random::{
-        DefaultSecureRng, NewWithSeed, RandomFillGaussianInModulus, RandomFillUniformInModulus,
-        RandomGaussianElementInModulus, DEFAULT_RNG,
-    },
-    utils::{fill_random_ternary_secret_with_hamming_weight, TryConvertFrom1, WithLocal},
-    Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
+    random::{RandomFillUniformInModulus, RandomGaussianElementInModulus},
+    utils::TryConvertFrom1,
+    Matrix, Row, RowEntity, RowMut,
 };
-
-struct SeededLweKeySwitchingKey<Ro, S>
-where
-    Ro: Row,
-{
-    data: Ro,
-    seed: S,
-    to_lwe_n: usize,
-    modulus: Ro::Element,
-}
-
-impl<Ro: RowEntity, S> SeededLweKeySwitchingKey<Ro, S> {
-    pub(crate) fn empty(
-        from_lwe_n: usize,
-        to_lwe_n: usize,
-        d: usize,
-        seed: S,
-        modulus: Ro::Element,
-    ) -> Self {
-        let data = Ro::zeros(from_lwe_n * d);
-        SeededLweKeySwitchingKey {
-            data,
-            to_lwe_n,
-            seed,
-            modulus,
-        }
-    }
-}
-
-struct LweKeySwitchingKey<M, R> {
-    data: M,
-    _phantom: PhantomData<R>,
-}
-
-impl<
-        M: MatrixMut + MatrixEntity,
-        R: NewWithSeed + RandomFillUniformInModulus<[M::MatElement], M::MatElement>,
-    > From<&SeededLweKeySwitchingKey<M::R, R::Seed>> for LweKeySwitchingKey<M, R>
-where
-    M::R: RowMut,
-    R::Seed: Clone,
-    M::MatElement: Copy,
-{
-    fn from(value: &SeededLweKeySwitchingKey<M::R, R::Seed>) -> Self {
-        let mut p_rng = R::new_with_seed(value.seed.clone());
-        let mut data = M::zeros(value.data.as_ref().len(), value.to_lwe_n + 1);
-        izip!(value.data.as_ref().iter(), data.iter_rows_mut()).for_each(|(bi, lwe_i)| {
-            RandomFillUniformInModulus::random_fill(
-                &mut p_rng,
-                &value.modulus,
-                &mut lwe_i.as_mut()[1..],
-            );
-            lwe_i.as_mut()[0] = *bi;
-        });
-        LweKeySwitchingKey {
-            data,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-trait LweCiphertext<M: Matrix> {}
-
-#[derive(Clone)]
-pub struct LweSecret {
-    pub(crate) values: Vec<i32>,
-}
-
-impl Secret for LweSecret {
-    type Element = i32;
-    fn values(&self) -> &[Self::Element] {
-        &self.values
-    }
-}
-
-impl LweSecret {
-    pub(crate) fn random(hw: usize, n: usize) -> LweSecret {
-        DefaultSecureRng::with_local_mut(|rng| {
-            let mut out = vec![0i32; n];
-            fill_random_ternary_secret_with_hamming_weight(&mut out, hw, rng);
-
-            LweSecret { values: out }
-        })
-    }
-}
 
 pub(crate) fn lwe_key_switch<
     M: Matrix,
@@ -127,15 +34,17 @@ pub(crate) fn lwe_key_switch<
         .skip(1)
         .flat_map(|ai| decomposer.decompose_iter(ai));
     izip!(lwe_in_a_decomposed, lwe_ksk.iter_rows()).for_each(|(ai_j, beta_ij_lwe)| {
+        // let now = std::time::Instant::now();
         operator.elwise_fma_scalar_mut(lwe_out.as_mut(), beta_ij_lwe.as_ref(), &ai_j);
+        // println!("Time elwise_fma_scalar_mut: {:?}", now.elapsed());
     });
 
     let out_b = operator.add(&lwe_out.as_ref()[0], &lwe_in.as_ref()[0]);
     lwe_out.as_mut()[0] = out_b;
 }
 
-pub fn lwe_ksk_keygen<
-    Ro: Row + RowMut + RowEntity,
+pub fn seeded_lwe_ksk_keygen<
+    Ro: RowMut + RowEntity,
     S,
     Op: VectorOps<Element = Ro::Element>
         + ArithmeticOps<Element = Ro::Element>
@@ -145,16 +54,16 @@ pub fn lwe_ksk_keygen<
 >(
     from_lwe_sk: &[S],
     to_lwe_sk: &[S],
-    ksk_out: &mut Ro,
     gadget: &[Ro::Element],
     operator: &Op,
     p_rng: &mut PR,
     rng: &mut R,
-) where
+) -> Ro
+where
     Ro: TryConvertFrom1<[S], Op::M>,
     Ro::Element: Zero + Debug,
 {
-    assert!(ksk_out.as_ref().len() == (from_lwe_sk.len() * gadget.len()));
+    let mut ksk_out = Ro::zeros(from_lwe_sk.len() * gadget.len());
 
     let d = gadget.len();
 
@@ -167,7 +76,7 @@ pub fn lwe_ksk_keygen<
 
     izip!(neg_sk_in_m.as_ref(), ksk_out.as_mut().chunks_mut(d)).for_each(
         |(neg_sk_in_si, d_lwes_partb)| {
-            izip!(gadget.iter(), d_lwes_partb.into_iter()).for_each(|(f, lwe_b)| {
+            izip!(gadget.iter(), d_lwes_partb.into_iter()).for_each(|(beta, lwe_b)| {
                 // sample `a`
                 RandomFillUniformInModulus::random_fill(p_rng, &modulus, scratch.as_mut());
 
@@ -179,7 +88,7 @@ pub fn lwe_ksk_keygen<
                 });
 
                 // a*z + (-s_i)*\beta^j + e
-                let mut b = operator.add(&az, &operator.mul(f, neg_sk_in_si));
+                let mut b = operator.add(&az, &operator.mul(beta, neg_sk_in_si));
                 let e = RandomGaussianElementInModulus::random(rng, &modulus);
                 b = operator.add(&b, &e);
 
@@ -187,27 +96,29 @@ pub fn lwe_ksk_keygen<
             })
         },
     );
+
+    ksk_out
 }
 
 /// Encrypts encoded message m as LWE ciphertext
 pub fn encrypt_lwe<
-    Ro: Row + RowMut,
+    Ro: RowMut + RowEntity,
     Op: ArithmeticOps<Element = Ro::Element> + GetModulus<Element = Ro::Element>,
     R: RandomGaussianElementInModulus<Ro::Element, Op::M>
         + RandomFillUniformInModulus<[Ro::Element], Op::M>,
     S,
 >(
-    lwe_out: &mut Ro,
     m: &Ro::Element,
     s: &[S],
     operator: &Op,
     rng: &mut R,
-) where
+) -> Ro
+where
     Ro: TryConvertFrom1<[S], Op::M>,
     Ro::Element: Zero,
 {
     let s = Ro::try_convert_from(s, operator.modulus());
-    assert!(s.as_ref().len() == (lwe_out.as_ref().len() - 1));
+    let mut lwe_out = Ro::zeros(s.as_ref().len() + 1);
 
     // a*s
     RandomFillUniformInModulus::random_fill(rng, operator.modulus(), &mut lwe_out.as_mut()[1..]);
@@ -221,9 +132,11 @@ pub fn encrypt_lwe<
     let e = RandomGaussianElementInModulus::random(rng, operator.modulus());
     let b = operator.add(&operator.add(&sa, &e), m);
     lwe_out.as_mut()[0] = b;
+
+    lwe_out
 }
 
-pub fn decrypt_lwe<
+pub(crate) fn decrypt_lwe<
     Ro: Row,
     Op: ArithmeticOps<Element = Ro::Element> + GetModulus<Element = Ro::Element>,
     S,
@@ -248,57 +161,84 @@ where
     operator.sub(b, &sa)
 }
 
-/// Measures noise in input LWE ciphertext with reference of `ideal_m`
-///
-/// - ct: Input LWE ciphertext
-/// - s: corresponding secret
-/// - ideal_m: Ideal `encoded` message
-pub(crate) fn measure_noise_lwe<
-    Ro: Row,
-    Op: ArithmeticOps<Element = Ro::Element> + GetModulus<Element = Ro::Element>,
-    S,
->(
-    ct: &Ro,
-    s: &[S],
-    operator: &Op,
-    ideal_m: &Ro::Element,
-) -> f64
-where
-    Ro: TryConvertFrom1<[S], Op::M>,
-    Ro::Element: Zero + ToPrimitive + PrimInt + Display,
-{
-    assert!(s.len() == ct.as_ref().len() - 1,);
-
-    let s = Ro::try_convert_from(s, &operator.modulus());
-    let mut sa = Ro::Element::zero();
-    izip!(s.as_ref().iter(), ct.as_ref().iter().skip(1)).for_each(|(si, ai)| {
-        sa = operator.add(&sa, &operator.mul(si, ai));
-    });
-    let m = operator.sub(&ct.as_ref()[0], &sa);
-
-    let mut diff = operator.sub(&m, ideal_m);
-    let q = operator.modulus();
-    return q.map_element_to_i64(&diff).to_f64().unwrap().abs().log2();
-}
-
 #[cfg(test)]
 mod tests {
 
+    use std::marker::PhantomData;
+
+    use itertools::izip;
+
     use crate::{
-        backend::{ModInit, ModularOpsU64, ModulusPowerOf2},
-        decomposer::{Decomposer, DefaultDecomposer},
-        lwe::{lwe_key_switch, measure_noise_lwe},
-        random::DefaultSecureRng,
-        rgsw::measure_noise,
-        Secret,
+        backend::{ModInit, ModulusPowerOf2},
+        decomposer::DefaultDecomposer,
+        random::{DefaultSecureRng, NewWithSeed},
+        utils::{fill_random_ternary_secret_with_hamming_weight, WithLocal},
+        MatrixEntity, MatrixMut, Secret,
     };
 
-    use super::{
-        decrypt_lwe, encrypt_lwe, lwe_ksk_keygen, LweKeySwitchingKey, LweSecret,
-        SeededLweKeySwitchingKey,
-    };
+    use super::*;
 
     const K: usize = 50;
+
+    #[derive(Clone)]
+    struct LweSecret {
+        pub(crate) values: Vec<i32>,
+    }
+
+    impl Secret for LweSecret {
+        type Element = i32;
+        fn values(&self) -> &[Self::Element] {
+            &self.values
+        }
+    }
+
+    impl LweSecret {
+        fn random(hw: usize, n: usize) -> LweSecret {
+            DefaultSecureRng::with_local_mut(|rng| {
+                let mut out = vec![0i32; n];
+                fill_random_ternary_secret_with_hamming_weight(&mut out, hw, rng);
+
+                LweSecret { values: out }
+            })
+        }
+    }
+
+    struct LweKeySwitchingKey<M, R> {
+        data: M,
+        _phantom: PhantomData<R>,
+    }
+
+    impl<
+            M: MatrixMut + MatrixEntity,
+            R: NewWithSeed + RandomFillUniformInModulus<[M::MatElement], M::MatElement>,
+        > From<&(M::R, R::Seed, usize, M::MatElement)> for LweKeySwitchingKey<M, R>
+    where
+        M::R: RowMut,
+        R::Seed: Clone,
+        M::MatElement: Copy,
+    {
+        fn from(value: &(M::R, R::Seed, usize, M::MatElement)) -> Self {
+            let data_in = &value.0;
+            let seed = &value.1;
+            let to_lwe_n = value.2;
+            let modulus = value.3;
+
+            let mut p_rng = R::new_with_seed(seed.clone());
+            let mut data = M::zeros(data_in.as_ref().len(), to_lwe_n + 1);
+            izip!(data_in.as_ref().iter(), data.iter_rows_mut()).for_each(|(bi, lwe_i)| {
+                RandomFillUniformInModulus::random_fill(
+                    &mut p_rng,
+                    &modulus,
+                    &mut lwe_i.as_mut()[1..],
+                );
+                lwe_i.as_mut()[0] = *bi;
+            });
+            LweKeySwitchingKey {
+                data,
+                _phantom: PhantomData,
+            }
+        }
+    }
 
     #[test]
     fn encrypt_decrypt_works() {
@@ -315,14 +255,8 @@ mod tests {
         // encrypt
         for m in 0..1u64 << logp {
             let encoded_m = m << (logq - logp);
-            let mut lwe_ct = vec![0u64; lwe_n + 1];
-            encrypt_lwe(
-                &mut lwe_ct,
-                &encoded_m,
-                &lwe_sk.values(),
-                &modq_op,
-                &mut rng,
-            );
+            let lwe_ct =
+                encrypt_lwe::<Vec<u64>, _, _, _>(&encoded_m, &lwe_sk.values(), &modq_op, &mut rng);
             let encoded_m_back = decrypt_lwe(&lwe_ct, &lwe_sk.values(), &modq_op);
             let m_back = ((((encoded_m_back as f64) * ((1 << logp) as f64)) / q as f64).round()
                 as u64)
@@ -351,34 +285,26 @@ mod tests {
         for _ in 0..1 {
             let mut ksk_seed = [0u8; 32];
             rng.fill_bytes(&mut ksk_seed);
-            let mut seeded_ksk =
-                SeededLweKeySwitchingKey::empty(lwe_in_n, lwe_out_n, d_ks, ksk_seed, q);
             let mut p_rng = DefaultSecureRng::new_seeded(ksk_seed);
             let decomposer = DefaultDecomposer::new(q, logb, d_ks);
             let gadget = decomposer.gadget_vector();
-            lwe_ksk_keygen(
+            let seeded_ksk = seeded_lwe_ksk_keygen(
                 &lwe_sk_in.values(),
                 &lwe_sk_out.values(),
-                &mut seeded_ksk.data,
                 &gadget,
                 &modq_op,
                 &mut p_rng,
                 &mut rng,
             );
             // println!("{:?}", ksk);
-            let ksk = LweKeySwitchingKey::<Vec<Vec<u64>>, DefaultSecureRng>::from(&seeded_ksk);
+            let ksk = LweKeySwitchingKey::<Vec<Vec<u64>>, DefaultSecureRng>::from(&(
+                seeded_ksk, ksk_seed, lwe_out_n, q,
+            ));
 
             for m in 0..(1 << logp) {
                 // encrypt using lwe_sk_in
                 let encoded_m = m << (logq - logp);
-                let mut lwe_in_ct = vec![0u64; lwe_in_n + 1];
-                encrypt_lwe(
-                    &mut lwe_in_ct,
-                    &encoded_m,
-                    lwe_sk_in.values(),
-                    &modq_op,
-                    &mut rng,
-                );
+                let lwe_in_ct = encrypt_lwe(&encoded_m, lwe_sk_in.values(), &modq_op, &mut rng);
 
                 // key switch from lwe_sk_in to lwe_sk_out
                 let mut lwe_out_ct = vec![0u64; lwe_out_n + 1];
@@ -393,15 +319,17 @@ mod tests {
                 println!("Time: {:?}", now.elapsed());
 
                 // decrypt lwe_out_ct using lwe_sk_out
-                let encoded_m_back = decrypt_lwe(&lwe_out_ct, &lwe_sk_out.values(), &modq_op);
-                let m_back = ((((encoded_m_back as f64) * ((1 << logp) as f64)) / q as f64).round()
-                    as u64)
-                    % (1u64 << logp);
-                let noise =
-                    measure_noise_lwe(&lwe_out_ct, lwe_sk_out.values(), &modq_op, &encoded_m);
-                println!("Noise: {noise}");
-                // assert_eq!(m, m_back, "Expected {m} but got {m_back}");
-                // dbg!(m, m_back);
+                // TODO(Jay): Fix me
+                // let encoded_m_back = decrypt_lwe(&lwe_out_ct,
+                // &lwe_sk_out.values(), &modq_op); let m_back =
+                // ((((encoded_m_back as f64) * ((1 << logp) as f64)) / q as
+                // f64).round()     as u64)
+                //     % (1u64 << logp);
+                // let noise =
+                //     measure_noise_lwe(&lwe_out_ct, lwe_sk_out.values(),
+                // &modq_op, &encoded_m); println!("Noise:
+                // {noise}"); assert_eq!(m, m_back, "Expected
+                // {m} but got {m_back}"); dbg!(m, m_back);
                 // dbg!(encoded_m, encoded_m_back);
             }
         }

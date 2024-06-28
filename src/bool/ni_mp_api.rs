@@ -3,6 +3,7 @@ use std::{cell::RefCell, sync::OnceLock};
 use crate::{
     backend::ModulusPowerOf2,
     bool::parameters::ParameterVariant,
+    parameters::NI_4P,
     random::DefaultSecureRng,
     utils::{Global, WithLocal},
     ModularOpsU64, NttBackendU64,
@@ -38,9 +39,13 @@ static MULTI_PARTY_CRS: OnceLock<NonInteractiveMultiPartyCrs<[u8; 32]>> = OnceLo
 
 pub fn set_parameter_set(select: ParameterSelector) {
     match select {
-        ParameterSelector::NonInteractiveMultiPartyLessThanOrEqualTo16 => {
+        ParameterSelector::NonInteractiveLTE2Party => {
             BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_2P)));
         }
+        ParameterSelector::NonInteractiveLTE4Party => {
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_4P)));
+        }
+
         _ => {
             panic!("Paramerters not supported")
         }
@@ -160,6 +165,13 @@ impl Global for RuntimeServerKey {
     }
 }
 
+pub(super) struct NonInteractiveBatchedFheBools<C> {
+    data: Vec<C>,
+}
+pub(super) struct BatchedFheBools<C> {
+    pub(in super::super) data: Vec<C>,
+}
+
 /// Non interactive multi-party specfic encryptor decryptor routines
 mod impl_enc_dec {
     use crate::{
@@ -176,10 +188,6 @@ mod impl_enc_dec {
     use super::*;
 
     type Mat = Vec<Vec<u64>>;
-
-    pub(super) struct BatchedFheBools<C> {
-        pub(super) data: Vec<C>,
-    }
 
     impl<C: MatrixMut<MatElement = u64>> BatchedFheBools<C>
     where
@@ -200,10 +208,6 @@ mod impl_enc_dec {
                 lwe_out
             })
         }
-    }
-
-    pub(super) struct NonInteractiveBatchedFheBools<C> {
-        data: Vec<C>,
     }
 
     impl<M: MatrixEntity + MatrixMut<MatElement = u64>> From<&(Vec<M::R>, [u8; 32])>
@@ -349,10 +353,9 @@ mod impl_enc_dec {
 
 #[cfg(test)]
 mod tests {
-    use impl_enc_dec::NonInteractiveBatchedFheBools;
     use itertools::{izip, Itertools};
     use num_traits::{FromPrimitive, PrimInt, ToPrimitive, Zero};
-    use rand::{thread_rng, RngCore};
+    use rand::{thread_rng, Rng, RngCore};
 
     use crate::{
         backend::{GetModulus, Modulus},
@@ -374,7 +377,7 @@ mod tests {
 
     #[test]
     fn non_interactive_mp_bool_nand() {
-        set_parameter_set(ParameterSelector::NonInteractiveMultiPartyLessThanOrEqualTo16);
+        set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
         set_common_reference_seed(seed);
@@ -443,64 +446,5 @@ mod tests {
             ct1 = ct0;
             ct0 = ct_out;
         }
-    }
-
-    #[test]
-    fn trialtest() {
-        set_parameter_set(ParameterSelector::NonInteractiveMultiPartyLessThanOrEqualTo16);
-        set_common_reference_seed([2; 32]);
-
-        let parties = 2;
-
-        let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
-
-        let key_shares = cks
-            .iter()
-            .enumerate()
-            .map(|(user_index, ck)| gen_server_key_share(user_index, parties, ck))
-            .collect_vec();
-
-        let seeded_server_key = aggregate_server_key_shares(&key_shares);
-        seeded_server_key.set_server_key();
-
-        let m = vec![false, true];
-        let ct: NonInteractiveBatchedFheBools<_> = cks[0].encrypt(m.as_slice());
-        let ct = ct.key_switch(0);
-
-        let parameters = BoolEvaluator::with_local(|e| e.parameters().clone());
-        let nttop = NttBackendU64::new(parameters.rlwe_q(), parameters.rlwe_n().0);
-        let rlwe_q_modop = ModularOpsU64::new(*parameters.rlwe_q());
-
-        let mut ideal_rlwe_sk = vec![0i32; parameters.rlwe_n().0];
-        cks.iter().for_each(|k| {
-            let sk_rlwe = k.sk_rlwe();
-            izip!(ideal_rlwe_sk.iter_mut(), sk_rlwe.iter()).for_each(|(a, b)| {
-                *a = *a + b;
-            });
-        });
-
-        let message = m
-            .iter()
-            .map(|b| parameters.rlwe_q().encode(*b))
-            .collect_vec();
-
-        let mut m_out = vec![0u64; parameters.rlwe_n().0];
-        decrypt_rlwe(
-            &ct.data[0],
-            &ideal_rlwe_sk,
-            &mut m_out,
-            &nttop,
-            &rlwe_q_modop,
-        );
-
-        let mut diff = m_out;
-        rlwe_q_modop.elwise_sub_mut(diff.as_mut_slice(), message.as_ref());
-
-        let mut stats = Stats::new();
-        stats.add_more(&Vec::<i64>::try_convert_from(
-            diff.as_slice(),
-            parameters.rlwe_q(),
-        ));
-        println!("Noise: {}", stats.std_dev().abs().log2());
     }
 }
