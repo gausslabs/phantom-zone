@@ -25,8 +25,8 @@ use crate::{
         RandomFillUniformInModulus, RandomGaussianElementInModulus,
     },
     rgsw::{
-        decrypt_rlwe, galois_auto, generate_auto_map, public_key_encrypt_rgsw,
-        rgsw_by_rgsw_inplace, secret_key_encrypt_rgsw, seeded_auto_key_gen,
+        decrypt_rlwe, generate_auto_map, public_key_encrypt_rgsw, rgsw_by_rgsw_inplace, rlwe_auto,
+        secret_key_encrypt_rgsw, seeded_auto_key_gen,
     },
     utils::{
         encode_x_pow_si_with_emebedding_factor, fill_random_ternary_secret_with_hamming_weight,

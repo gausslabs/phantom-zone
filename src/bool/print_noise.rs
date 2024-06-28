@@ -10,7 +10,7 @@ use crate::{
     lwe::{decrypt_lwe, lwe_key_switch},
     parameters::{BoolParameters, CiphertextModulus},
     random::{DefaultSecureRng, RandomFillUniformInModulus},
-    rgsw::{decrypt_rlwe, galois_auto, IsTrivial, RlweCiphertext},
+    rgsw::{decrypt_rlwe, rlwe_auto, IsTrivial, RlweCiphertext},
     utils::{encode_x_pow_si_with_emebedding_factor, tests::Stats, TryConvertFrom1},
     ArithmeticOps, ClientKey, Decomposer, MatrixEntity, MatrixMut, ModInit, Ntt, NttInit,
     RowEntity, RowMut, VectorOps,
@@ -283,7 +283,7 @@ where
             rlwe.data.get_row_mut(0).copy_from_slice(m.as_ref());
             rlwe.set_not_trivial();
 
-            galois_auto(
+            rlwe_auto(
                 &mut rlwe,
                 server_key.galois_key_for_auto(*k),
                 &mut scratch_matrix,

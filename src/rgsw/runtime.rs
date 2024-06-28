@@ -10,7 +10,7 @@ use crate::{
 
 use super::IsTrivial;
 
-pub(crate) fn routine<R: RowMut, ModOp: VectorOps<Element = R::Element>>(
+pub(crate) fn poly_fma_routine<R: RowMut, ModOp: VectorOps<Element = R::Element>>(
     write_to_row: &mut [R::Element],
     matrix_a: &[R],
     matrix_b: &[R],
@@ -48,11 +48,18 @@ pub(crate) fn decompose_r<R: RowMut, D: Decomposer<Element = R::Element>>(
     }
 }
 
-/// Sends RLWE_{s}(X) -> RLWE_{s}(X^k) where k is some galois element
+/// Sends RLWE_{s(X)}(m(X)) -> RLWE_{s(X)}(m{X^k}) where k is some galois
+/// element
 ///
-/// - scratch_matrix: must have dimension at-least d+2 x ring_size. d rows to
-///   store decomposed polynomials and 2 for rlwe
-pub(crate) fn galois_auto<
+/// - rlwe_in: Input ciphertext RLWE_{s(X)}(m(X)).
+/// - ksk: Auto key switching key with polynomials in evaluation domain
+/// - auto_map_index: If automorphism sends i^th coefficient of m(X) to j^th
+///   coefficient of m(X^k) then auto_map_index[i] = j
+/// - auto_sign_index: With a = m(X)[i], if m(X^k)[auto_map_index[i]] = -a, then
+///   auto_sign_index[i] = false, else auto_sign_index[i] = true
+/// - scratch_matrix: must have dimension at-least d+2 x ring_size. `d` rows to
+///   store decomposed polynomials nad 2 rows to store out RLWE temporarily.
+pub(crate) fn rlwe_auto<
     MT: Matrix + IsTrivial + MatrixMut,
     Mmut: MatrixMut<MatElement = MT::MatElement>,
     ModOp: ArithmeticOps<Element = MT::MatElement> + VectorOps<Element = MT::MatElement>,
@@ -119,7 +126,7 @@ pub(crate) fn galois_auto<
         // key switch: (a * RLWE'(s(X^k)))
         let (ksk_a, ksk_b) = ksk.split_at_row(d);
         // a' = decomp<a> * RLWE'_A(s(X^k))
-        routine(
+        poly_fma_routine(
             tmp_rlwe_out[0].as_mut(),
             scratch_matrix_d_ring,
             ksk_a,
@@ -127,7 +134,7 @@ pub(crate) fn galois_auto<
         );
 
         // b' += decomp<a(X^k)> * RLWE'_B(s(X^k))
-        routine(
+        poly_fma_routine(
             tmp_rlwe_out[1].as_mut(),
             scratch_matrix_d_ring,
             ksk_b,
@@ -181,6 +188,12 @@ pub(crate) fn galois_auto<
         .copy_from_slice(tmp_rlwe_out[1].as_ref());
 }
 
+/// Sends RLWE_{s(X)}(m(X)) -> RLWE_{s(X)}(m{X^k}) where k is some galois
+/// element
+///
+/// This is same as `galois_auto` with the difference that alongside `ksk` with
+/// key switching polynomials in evaluation domain, shoup representation,
+/// `ksk_shoup`, of the polynomials in evaluation domain is also supplied.
 pub(crate) fn galois_auto_shoup<
     MT: Matrix + IsTrivial + MatrixMut,
     Mmut: MatrixMut<MatElement = MT::MatElement>,
@@ -309,14 +322,12 @@ pub(crate) fn galois_auto_shoup<
         .copy_from_slice(tmp_rlwe_out[1].as_ref());
 }
 
-/// Returns RLWE(m0m1) = RLWE(m0) x RGSW(m1). Mutates rlwe_in inplace to equal
-/// RLWE(m0m1)
+/// Inplace mutates RLWE(m0) to equal RLWE(m0m1) = RLWE(m0) x RGSW(m1).
 ///
 /// - rlwe_in: is RLWE(m0) with polynomials in coefficient domain
 /// - rgsw_in: is RGSW(m1) with polynomials in evaluation domain
-/// - scratch_matrix_d_ring: is a matrix with atleast max(d_a, d_b) rows and
-///   ring_size columns. It's used to store decomposed polynomials and out RLWE
-///   temoporarily
+/// - scratch_matrix: with dimension (max(d_a, d_b) + 2) x ring_size columns.
+///   It's used to store decomposed polynomials and out RLWE temporarily
 pub(crate) fn rlwe_by_rgsw<
     Mmut: MatrixMut,
     MT: Matrix<MatElement = Mmut::MatElement> + MatrixMut<MatElement = Mmut::MatElement> + IsTrivial,
@@ -365,14 +376,14 @@ pub(crate) fn rlwe_by_rgsw<
             .take(d_a)
             .for_each(|r| ntt_op.forward(r.as_mut()));
         // a_out += decomp<a_in> \cdot RLWE_A'(-sm)
-        routine(
+        poly_fma_routine(
             scratch_rlwe_out[0].as_mut(),
             &scratch_matrix_d_ring[..d_a],
             &rlwe_dash_nsm[..d_a],
             mod_op,
         );
         // b_out += decomp<a_in> \cdot RLWE_B'(-sm)
-        routine(
+        poly_fma_routine(
             scratch_rlwe_out[1].as_mut(),
             &scratch_matrix_d_ring[..d_a],
             &rlwe_dash_nsm[d_a..],
@@ -390,14 +401,14 @@ pub(crate) fn rlwe_by_rgsw<
         .take(d_b)
         .for_each(|r| ntt_op.forward(r.as_mut()));
     // a_out += decomp<b_in> \cdot RLWE_A'(m)
-    routine(
+    poly_fma_routine(
         scratch_rlwe_out[0].as_mut(),
         &scratch_matrix_d_ring[..d_b],
         &rlwe_dash_m[..d_b],
         mod_op,
     );
     // b_out += decomp<b_in> \cdot RLWE_B'(m)
-    routine(
+    poly_fma_routine(
         scratch_rlwe_out[1].as_mut(),
         &scratch_matrix_d_ring[..d_b],
         &rlwe_dash_m[d_b..],
@@ -418,6 +429,11 @@ pub(crate) fn rlwe_by_rgsw<
     rlwe_in.set_not_trivial();
 }
 
+/// Inplace mutates RLWE(m0) to equal RLWE(m0m1) = RLWE(m0) x RGSW(m1).
+///
+/// Same as `rlwe_by_rgsw` with the difference that alongside `rgsw_in` with
+/// polynomials in evaluation domain, shoup representation of polynomials in
+/// evaluation domain, `rgsw_in_shoup`, is also supplied.
 pub(crate) fn rlwe_by_rgsw_shoup<
     Mmut: MatrixMut,
     MT: Matrix<MatElement = Mmut::MatElement> + MatrixMut<MatElement = Mmut::MatElement> + IsTrivial,
@@ -528,27 +544,32 @@ pub(crate) fn rlwe_by_rgsw_shoup<
     rlwe_in.set_not_trivial();
 }
 
-/// Inplace mutates rlwe_0 to equal RGSW(m0m1) = RGSW(m0)xRGSW(m1)
-/// in evaluation domain
+/// Inplace mutates RGSW(m0) to equal RGSW(m0m1) = RGSW(m0)xRGSW(m1)
 ///
-/// Warning -
-/// Pass a fresh RGSW ciphertext as the second operand, i.e. as `rgsw_1`.
-/// This is to assure minimal error growth in the resulting RGSW ciphertext.
-/// RGSWxRGSW boils down to d_rgsw*2 RLWExRGSW multiplications. Hence, the noise
-/// growth in resulting ciphertext depends on the norm of second RGSW
-/// ciphertext, not the first. This is useful in cases where one is accumulating
-/// multiple RGSW ciphertexts into 1. In which case, pass the accumulating RGSW
-/// ciphertext as rlwe_0 (the one with higher noise) and subsequent RGSW
-/// ciphertexts, with lower noise, to be accumulated as second
-/// operand.
+/// RGSW x RGSW product requires multiple RLWE x RGSW products. For example,
+/// Define
 ///
-/// - rgsw_0: RGSW(m0)
-/// - rgsw_1_eval: RGSW(m1) in Evaluation domain
-/// - scratch_matrix_d_plus_rgsw_by_ring: scratch space matrix with rows
-///   (max(d_a, d_b) + d_a*2+d_b*2) and columns ring_size
+///     RGSW(m0) = [RLWE(-sm), RLWE(\beta -sm), ..., RLWE(\beta^{d-1} -sm)
+///                 RLWE(m), RLWE(\beta m), ..., RLWE(\beta^{d-1} m)]
+///     And RGSW(m1)
 ///
-/// ## Note:
-/// - We treat RGSW x RGSW as multiple RLWE x RGSW multiplications.  .
+/// Then RGSW(m0) x RGSW(m1) equals:
+///     RGSW(m0m1) = [
+///                     rlwe_x_rgsw(RLWE(-sm), RGSW(m1)),
+///                     ...,
+///                     rlwe_x_rgsw(RLWE(\beta^{d-1} -sm), RGSW(m1)),
+///                     rlwe_x_rgsw(RLWE(m), RGSW(m1)),
+///                     ...,
+///                     rlwe_x_rgsw(RLWE(\beta^{d-1} m), RGSW(m1)),
+///                  ]
+///
+/// Since noise growth in RLWE x RGSW depends on noise in RGSW ciphertext, it is
+/// clear to observe from above that noise in resulting RGSW(m0m1) equals noise
+/// accumulated in a single RLWE x RGSW and depends on noise in RGSW(m1) (i.e.
+/// rgsw_1_eval)
+///
+/// - rgsw_0: RGSW(m0) in coefficient domain
+/// - rgsw_1_eval: RGSW(m1) in evaluation domain
 pub(crate) fn rgsw_by_rgsw_inplace<
     Mmut: MatrixMut,
     D: RlweDecomposer<Element = Mmut::MatElement>,
@@ -620,13 +641,13 @@ pub(crate) fn rgsw_by_rgsw_inplace<
             .iter_mut()
             .take(d_a)
             .for_each(|ri| ntt_op.forward(ri.as_mut()));
-        routine(
+        poly_fma_routine(
             rlwe_out_a.as_mut(),
             &decomp_r_space[..d_a],
             &rgsw1_nsm[..d_a],
             mod_op,
         );
-        routine(
+        poly_fma_routine(
             rlwe_out_b.as_mut(),
             &decomp_r_space[..d_a],
             &rgsw1_nsm[d_a..],
@@ -639,13 +660,13 @@ pub(crate) fn rgsw_by_rgsw_inplace<
             .iter_mut()
             .take(d_b)
             .for_each(|ri| ntt_op.forward(ri.as_mut()));
-        routine(
+        poly_fma_routine(
             rlwe_out_a.as_mut(),
             &decomp_r_space[..d_b],
             &rgsw1_m[..d_b],
             mod_op,
         );
-        routine(
+        poly_fma_routine(
             rlwe_out_b.as_mut(),
             &decomp_r_space[..d_b],
             &rgsw1_m[d_b..],
@@ -663,7 +684,21 @@ pub(crate) fn rgsw_by_rgsw_inplace<
         .for_each(|ri| ntt_op.backward(ri.as_mut()));
 }
 
-pub(crate) fn key_switch<
+/// Key switches input RLWE_{s'}(m) -> RLWE_{s}(m)
+///
+/// Let RLWE_{s'}(m) = [a, b] s.t. m+e = b - as'
+///
+/// Given key switchin key Ksk(s' -> s) = RLWE'_{s}(s') = [RLWE_{s}(beta^i s')]
+/// = [a, a*s + e + beta^i s'] for i \in [0,d), key switching computes:
+/// 1. RLWE_{s}(-s'a) = \sum signed_decompose(-a)[i] RLWE_{s}(beta^i s')
+/// 2. RLWE_{s}(m) = (b, 0) + RLWE_{s}(-s'a)
+///
+/// - rlwe_in: Input rlwe ciphertext
+/// - ksk: Key switching key Ksk(s' -> s) with polynomials in evaluation domain
+/// - ksk_shoup: Key switching key Ksk(s' -> s) with polynomials in evaluation
+///   domain in shoup representation
+/// - decomposer: Decomposer used for key switching
+pub(crate) fn rlwe_key_switch<
     M: MatrixMut + MatrixEntity,
     ModOp: GetModulus<Element = M::MatElement> + ShoupMatrixFMA<M::R> + VectorOps<Element = M::MatElement>,
     NttOp: Ntt<Element = M::MatElement>,

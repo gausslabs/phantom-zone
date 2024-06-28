@@ -178,7 +178,7 @@ mod impl_enc_dec {
         bool::{evaluator::BoolEncoding, keys::NonInteractiveMultiPartyClientKey},
         pbs::{sample_extract, PbsInfo, WithShoupRepr},
         random::{NewWithSeed, RandomFillUniformInModulus},
-        rgsw::{key_switch, seeded_secret_key_encrypt_rlwe},
+        rgsw::{rlwe_key_switch, seeded_secret_key_encrypt_rlwe},
         utils::TryConvertFrom1,
         Encryptor, KeySwitchWithId, Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
     };
@@ -324,7 +324,7 @@ mod impl_enc_dec {
                 let decomposer = e.ni_ui_to_s_ks_decomposer().as_ref().unwrap();
 
                 // perform key switch
-                key_switch(
+                rlwe_key_switch(
                     self,
                     ksk.as_ref(),
                     ksk.shoup_repr(),

@@ -9,14 +9,11 @@ use std::{
 };
 
 use crate::{
-    backend::{ArithmeticOps, GetModulus, Modulus, VectorOps},
-    decomposer::{self, Decomposer, RlweDecomposer},
-    ntt::{self, Ntt, NttInit},
-    random::{
-        DefaultSecureRng, NewWithSeed, RandomElementInModulus, RandomFill,
-        RandomFillGaussianInModulus, RandomFillUniformInModulus,
-    },
-    utils::{fill_random_ternary_secret_with_hamming_weight, ToShoup, TryConvertFrom1, WithLocal},
+    backend::Modulus,
+    decomposer::{Decomposer, RlweDecomposer},
+    ntt::{Ntt, NttInit},
+    random::{DefaultSecureRng, NewWithSeed, RandomFillUniformInModulus},
+    utils::{fill_random_ternary_secret_with_hamming_weight, ToShoup, WithLocal},
     Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
 };
 
@@ -210,8 +207,6 @@ where
         });
 
         // sample A polynomials of RLWE'(m) - RLWE'A(m)
-        // TODO(Jay): Do we want to be generic over RandomGenerator used here? I think
-        // not.
         let mut p_rng = R::new_with_seed(value.seed.clone());
         izip!(data.iter_rows_mut().skip(value.d_a * 2).take(value.d_b * 1))
             .for_each(|ri| p_rng.random_fill(&value.modulus, ri.as_mut()));
@@ -528,7 +523,7 @@ pub(crate) mod tests {
             rlwe_public_key, secret_key_encrypt_rgsw, seeded_auto_key_gen,
             seeded_secret_key_encrypt_rlwe,
         },
-        runtime::{galois_auto, rgsw_by_rgsw_inplace, rlwe_by_rgsw},
+        runtime::{rgsw_by_rgsw_inplace, rlwe_auto, rlwe_by_rgsw},
         AutoKeyEvaluationDomain, RgswCiphertext, RgswCiphertextEvaluationDomain, RlweCiphertext,
         RlwePublicKey, RlweSecret, SeededAutoKey, SeededRgswCiphertext, SeededRlweCiphertext,
         SeededRlwePublicKey,
@@ -636,69 +631,6 @@ pub(crate) mod tests {
         seeded_rgsw_ct
     }
 
-    /// Prints noise in RGSW ciphertext RGSW(m).
-    ///
-    /// - rgsw_ct: RGSW ciphertext in coefficient domain
-    pub(crate) fn _measure_noise_rgsw<T: Modulus<Element = u64> + Clone>(
-        rgsw_ct: &[Vec<u64>],
-        m: &[u64],
-        s: &[i32],
-        decomposer: &(DefaultDecomposer<u64>, DefaultDecomposer<u64>),
-        q: &T,
-    ) {
-        let gadget_vector_a = decomposer.a().gadget_vector();
-        let gadget_vector_b = decomposer.b().gadget_vector();
-        let d_a = gadget_vector_a.len();
-        let d_b = gadget_vector_b.len();
-        let ring_size = s.len();
-        assert!(Matrix::dimension(&rgsw_ct) == (d_a * 2 + d_b * 2, ring_size));
-        assert!(m.len() == ring_size);
-
-        let mod_op = ModularOpsU64::new(q.clone());
-        let ntt_op = NttBackendU64::new(q, ring_size);
-
-        let mul_mod =
-            |a: &u64, b: &u64| ((*a as u128 * *b as u128) % q.q().unwrap() as u128) as u64;
-        let s_poly = Vec::<u64>::try_convert_from(s, q);
-        let mut neg_s = s_poly.clone();
-        mod_op.elwise_neg_mut(neg_s.as_mut());
-        let neg_sm0m1 = negacyclic_mul(&neg_s, &m, mul_mod, q.q().unwrap());
-
-        // RLWE(\beta^j -s * m)
-        for j in 0..d_a {
-            let ideal_m = {
-                // RLWE(\beta^j -s * m)
-                let mut beta_neg_sm0m1 = vec![0u64; ring_size as usize];
-                mod_op.elwise_scalar_mul(beta_neg_sm0m1.as_mut(), &neg_sm0m1, &gadget_vector_a[j]);
-                beta_neg_sm0m1
-            };
-
-            let mut rlwe = vec![vec![0u64; ring_size as usize]; 2];
-            rlwe[0].copy_from_slice(rgsw_ct.get_row_slice(j));
-            rlwe[1].copy_from_slice(rgsw_ct.get_row_slice(d_a + j));
-            let noise = measure_noise(&rlwe, &ideal_m, &ntt_op, &mod_op, s);
-
-            println!(r"Noise RLWE(\beta^{j} -sm0m1): {noise}");
-        }
-
-        // RLWE(\beta^j  m)
-        for j in 0..d_b {
-            let ideal_m = {
-                // RLWE(\beta^j  m)
-                let mut beta_m0m1 = vec![0u64; ring_size as usize];
-                mod_op.elwise_scalar_mul(beta_m0m1.as_mut(), &m, &gadget_vector_b[j]);
-                beta_m0m1
-            };
-
-            let mut rlwe = vec![vec![0u64; ring_size as usize]; 2];
-            rlwe[0].copy_from_slice(rgsw_ct.get_row_slice(d_a * 2 + j));
-            rlwe[1].copy_from_slice(rgsw_ct.get_row_slice(d_a * 2 + d_b + j));
-            let noise = measure_noise(&rlwe, &ideal_m, &ntt_op, &mod_op, s);
-
-            println!(r"Noise RLWE(\beta^{j} m0m1): {noise}");
-        }
-    }
-
     #[test]
     fn rlwe_encrypt_decryption() {
         let logq = 50;
@@ -742,9 +674,6 @@ pub(crate) mod tests {
             .map(|v| (((*v as f64 * p as f64) / q as f64).round() as u64) % p)
             .collect_vec();
         assert_eq!(m0, m_back);
-
-        // let noise = measure_noise(&rlwe_in_ct, &encoded_m, &ntt_op, &mod_op,
-        // s.values()); println!("Noise: {noise}");
     }
 
     #[test]
@@ -999,7 +928,7 @@ pub(crate) mod tests {
 
         // normal galois auto
         {
-            galois_auto(
+            rlwe_auto(
                 &mut rlwe_m,
                 &auto_key.data,
                 &mut scratch_space,
@@ -1104,7 +1033,7 @@ pub(crate) mod tests {
                 )
         ];
 
-        _measure_noise_rgsw(&rgsw_carrym, &carry_m, s.values(), &decomposer, &q);
+        // _measure_noise_rgsw(&rgsw_carrym, &carry_m, s.values(), &decomposer, &q);
 
         for i in 0..2 {
             let mut m = vec![0u64; ring_size as usize];
@@ -1127,7 +1056,8 @@ pub(crate) mod tests {
             // measure noise
             carry_m = negacyclic_mul(&carry_m, &m, mul_mod, q);
             println!("########### Noise RGSW(carrym) in {i}^th loop ###########");
-            _measure_noise_rgsw(&rgsw_carrym, &carry_m, s.values(), &decomposer, &q);
+            // _measure_noise_rgsw(&rgsw_carrym, &carry_m, s.values(),
+            // &decomposer, &q);
         }
         {
             // RLWE(m) x RGSW(carry_m)
