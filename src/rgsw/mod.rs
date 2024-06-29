@@ -762,11 +762,7 @@ pub(crate) mod tests {
 
         // rlwe x rgsw with additional RGSW ciphertexts in shoup repr
         let rlwe_in_ct_shoup = {
-            let mut rlwe_in_ct_shoup = RlweCiphertext::<_, DefaultSecureRng> {
-                data: rlwe_in_ct.data.clone(),
-                is_trivial: rlwe_in_ct.is_trivial,
-                _phatom: PhantomData::default(),
-            };
+            let mut rlwe_in_ct_shoup = rlwe_in_ct.data.clone();
 
             let rgsw_ct_shoup = ShoupRgswCiphertextEvaluationDomain::from(&rgsw_ct);
 
@@ -778,6 +774,7 @@ pub(crate) mod tests {
                 &decomposer,
                 &ntt_op,
                 &mod_op,
+                false,
             );
 
             rlwe_in_ct_shoup
@@ -797,7 +794,7 @@ pub(crate) mod tests {
 
         // output from both functions must be equal
         {
-            assert_eq!(rlwe_in_ct.data, rlwe_in_ct_shoup.data);
+            assert_eq!(rlwe_in_ct.data, rlwe_in_ct_shoup);
         }
 
         // Decrypt RLWE(m0m1)
@@ -907,11 +904,7 @@ pub(crate) mod tests {
         // galois auto with additional auto key in shoup repr
         let rlwe_m_shoup = {
             let auto_key_shoup = ShoupAutoKeyEvaluationDomain::from(&auto_key);
-            let mut rlwe_m_shoup = RlweCiphertext::<_, DefaultSecureRng> {
-                data: rlwe_m.data.clone(),
-                is_trivial: rlwe_m.is_trivial,
-                _phatom: PhantomData::default(),
-            };
+            let mut rlwe_m_shoup = rlwe_m.data.clone();
             galois_auto_shoup(
                 &mut rlwe_m_shoup,
                 &auto_key.data,
@@ -922,6 +915,7 @@ pub(crate) mod tests {
                 &mod_op,
                 &ntt_op,
                 &decomposer,
+                false,
             );
             rlwe_m_shoup
         };
@@ -941,7 +935,7 @@ pub(crate) mod tests {
         }
 
         // rlwe out from both functions must be same
-        assert_eq!(rlwe_m.data, rlwe_m_shoup.data);
+        assert_eq!(rlwe_m.data, rlwe_m_shoup);
 
         let rlwe_m_k = rlwe_m;
 

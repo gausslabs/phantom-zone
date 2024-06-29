@@ -155,11 +155,7 @@ pub(crate) fn pbs<
         gb_monomial_sign = false
     }
     // monomial mul
-    let mut trivial_rlwe_test_poly = RlweCiphertext::<_, DefaultSecureRng> {
-        data: M::zeros(2, rlwe_n),
-        is_trivial: true,
-        _phatom: PhantomData,
-    };
+    let mut trivial_rlwe_test_poly = M::zeros(2, rlwe_n);
     if pbs_info.embedding_factor() == 1 {
         monomial_mul(
             test_vec.as_ref(),
@@ -218,16 +214,15 @@ pub(crate) fn pbs<
 ///
 /// gk_to_si: [g^0, ..., g^{q/2-1}, -g^0, -g^1, .., -g^{q/2-1}]
 fn blind_rotation<
-    MT: IsTrivial + MatrixMut,
-    Mmut: MatrixMut<MatElement = MT::MatElement>,
-    D: Decomposer<Element = MT::MatElement>,
-    NttOp: Ntt<Element = MT::MatElement>,
-    ModOp: ArithmeticOps<Element = MT::MatElement> + ShoupMatrixFMA<Mmut::R>,
+    Mmut: MatrixMut,
+    D: Decomposer<Element = Mmut::MatElement>,
+    NttOp: Ntt<Element = Mmut::MatElement>,
+    ModOp: ArithmeticOps<Element = Mmut::MatElement> + ShoupMatrixFMA<Mmut::R>,
     MShoup: WithShoupRepr<M = Mmut>,
     K: PbsKey<RgswCt = MShoup, AutoKey = MShoup>,
     P: PbsInfo<M = Mmut>,
 >(
-    trivial_rlwe_test_poly: &mut MT,
+    trivial_rlwe_test_poly: &mut Mmut,
     scratch_matrix: &mut Mmut,
     _g: isize,
     w: usize,
@@ -242,8 +237,9 @@ fn blind_rotation<
 ) where
     <Mmut as Matrix>::R: RowMut,
     Mmut::MatElement: Copy + Zero,
-    <MT as Matrix>::R: RowMut,
 {
+    let mut is_trivial = true;
+
     let q_by_4 = q >> 2;
     let mut count = 0;
     // -(g^k)
@@ -263,7 +259,9 @@ fn blind_rotation<
                 rlwe_rgsw_decomposer,
                 ntt_op,
                 mod_op,
+                is_trivial,
             );
+            is_trivial = false;
             // println!("Rlwe x Rgsw time: {:?}", new.elapsed());
         });
         v += 1;
@@ -283,6 +281,7 @@ fn blind_rotation<
                 mod_op,
                 ntt_op,
                 auto_decomposer,
+                is_trivial,
             );
             // println!("Auto time: {:?}", now.elapsed());
 
@@ -303,7 +302,9 @@ fn blind_rotation<
                 rlwe_rgsw_decomposer,
                 ntt_op,
                 mod_op,
+                is_trivial,
             );
+            is_trivial = false;
         });
 
         let (auto_map_index, auto_map_sign) = parameters.rlwe_auto_map(0);
@@ -318,6 +319,7 @@ fn blind_rotation<
             mod_op,
             ntt_op,
             auto_decomposer,
+            is_trivial,
         );
         count += 1;
     }
@@ -336,7 +338,9 @@ fn blind_rotation<
                 rlwe_rgsw_decomposer,
                 ntt_op,
                 mod_op,
+                is_trivial,
             );
+            is_trivial = false;
         });
         v += 1;
 
@@ -353,6 +357,7 @@ fn blind_rotation<
                 mod_op,
                 ntt_op,
                 auto_decomposer,
+                is_trivial,
             );
             v = 0;
             count += 1;
@@ -370,7 +375,9 @@ fn blind_rotation<
             rlwe_rgsw_decomposer,
             ntt_op,
             mod_op,
+            is_trivial,
         );
+        is_trivial = false;
     });
     // println!("Auto count: {count}");
 }

@@ -195,15 +195,14 @@ pub(crate) fn rlwe_auto<
 /// key switching polynomials in evaluation domain, shoup representation,
 /// `ksk_shoup`, of the polynomials in evaluation domain is also supplied.
 pub(crate) fn galois_auto_shoup<
-    MT: Matrix + IsTrivial + MatrixMut,
-    Mmut: MatrixMut<MatElement = MT::MatElement>,
-    ModOp: ArithmeticOps<Element = MT::MatElement>
+    Mmut: MatrixMut,
+    ModOp: ArithmeticOps<Element = Mmut::MatElement>
         // + VectorOps<Element = MT::MatElement>
         + ShoupMatrixFMA<Mmut::R>,
-    NttOp: Ntt<Element = MT::MatElement>,
-    D: Decomposer<Element = MT::MatElement>,
+    NttOp: Ntt<Element = Mmut::MatElement>,
+    D: Decomposer<Element = Mmut::MatElement>,
 >(
-    rlwe_in: &mut MT,
+    rlwe_in: &mut Mmut,
     ksk: &Mmut,
     ksk_shoup: &Mmut,
     scratch_matrix: &mut Mmut,
@@ -212,10 +211,10 @@ pub(crate) fn galois_auto_shoup<
     mod_op: &ModOp,
     ntt_op: &NttOp,
     decomposer: &D,
+    is_trivial: bool,
 ) where
     <Mmut as Matrix>::R: RowMut,
-    <MT as Matrix>::R: RowMut,
-    MT::MatElement: Copy + Zero,
+    Mmut::MatElement: Copy + Zero,
 {
     let d = decomposer.decomposition_count();
     let ring_size = rlwe_in.dimension().1;
@@ -228,7 +227,7 @@ pub(crate) fn galois_auto_shoup<
     debug_assert!(tmp_rlwe_out.len() == 2);
     debug_assert!(scratch_matrix_d_ring.len() == d);
 
-    if !rlwe_in.is_trivial() {
+    if !is_trivial {
         tmp_rlwe_out.iter_mut().for_each(|r| {
             r.as_mut().fill(Mmut::MatElement::zero());
         });
@@ -436,22 +435,21 @@ pub(crate) fn rlwe_by_rgsw<
 /// evaluation domain, `rgsw_in_shoup`, is also supplied.
 pub(crate) fn rlwe_by_rgsw_shoup<
     Mmut: MatrixMut,
-    MT: Matrix<MatElement = Mmut::MatElement> + MatrixMut<MatElement = Mmut::MatElement> + IsTrivial,
     D: RlweDecomposer<Element = Mmut::MatElement>,
     ModOp: ShoupMatrixFMA<Mmut::R>,
     NttOp: Ntt<Element = Mmut::MatElement>,
 >(
-    rlwe_in: &mut MT,
+    rlwe_in: &mut Mmut,
     rgsw_in: &Mmut,
     rgsw_in_shoup: &Mmut,
     scratch_matrix: &mut Mmut,
     decomposer: &D,
     ntt_op: &NttOp,
     mod_op: &ModOp,
+    is_trivial: bool,
 ) where
     Mmut::MatElement: Copy + Zero,
     <Mmut as Matrix>::R: RowMut,
-    <MT as Matrix>::R: RowMut,
 {
     let decomposer_a = decomposer.a();
     let decomposer_b = decomposer.b();
@@ -472,7 +470,7 @@ pub(crate) fn rlwe_by_rgsw_shoup<
     scratch_rlwe_out[0].as_mut().fill(Mmut::MatElement::zero());
 
     // RLWE_in = a_in, b_in; RLWE_out = a_out, b_out
-    if !rlwe_in.is_trivial() {
+    if !is_trivial {
         // a_in = 0 when RLWE_in is trivial RLWE ciphertext
         // decomp<a_in>
         decompose_r(
@@ -541,7 +539,6 @@ pub(crate) fn rlwe_by_rgsw_shoup<
     rlwe_in
         .get_row_mut(1)
         .copy_from_slice(scratch_rlwe_out[1].as_mut());
-    rlwe_in.set_not_trivial();
 }
 
 /// Inplace mutates RGSW(m0) to equal RGSW(m0m1) = RGSW(m0)xRGSW(m1)
