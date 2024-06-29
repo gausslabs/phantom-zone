@@ -10,7 +10,10 @@ use crate::{
     lwe::{decrypt_lwe, lwe_key_switch},
     parameters::{BoolParameters, CiphertextModulus},
     random::{DefaultSecureRng, RandomFillUniformInModulus},
-    rgsw::{decrypt_rlwe, rlwe_auto, IsTrivial, RlweCiphertext},
+    rgsw::{
+        decrypt_rlwe, rlwe_auto, rlwe_auto_scratch_rows, RlweCiphertextMutRef, RlweKskRef,
+        RuntimeScratchMutRef,
+    },
     utils::{encode_x_pow_si_with_emebedding_factor, tests::Stats, TryConvertFrom1},
     ArithmeticOps, ClientKey, Decomposer, MatrixEntity, MatrixMut, ModInit, Ntt, NttInit,
     RowEntity, RowMut, VectorOps,
@@ -223,7 +226,8 @@ where
         let br_q = parameters.br_q();
         let g_dlogs = parameters.auto_element_dlogs();
         let auto_decomposer = parameters.auto_decomposer::<D>();
-        let mut scratch_matrix = M::zeros(auto_decomposer.decomposition_count() + 2, rlwe_n);
+        let mut scratch_matrix = M::zeros(rlwe_auto_scratch_rows(&auto_decomposer), rlwe_n);
+        let mut scratch_matrix_ref = RuntimeScratchMutRef::new(scratch_matrix.as_mut());
 
         g_dlogs.iter().for_each(|k| {
             let g_pow_k = if *k == 0 {
@@ -279,19 +283,22 @@ where
             // RLWE auto sends part A, A(X), of RLWE to A(X^{g^k}) and then multiplies it
             // with -s(X^{g^k}) using auto key. Deliberately set RLWE = (0, m(X))
             // (ie. m in part A) to get back RLWE(-m(X^{g^k})s(X^{g^k}))
-            let mut rlwe = RlweCiphertext::<_, DefaultSecureRng>::new_trivial(M::zeros(2, rlwe_n));
-            rlwe.data.get_row_mut(0).copy_from_slice(m.as_ref());
-            rlwe.set_not_trivial();
+            let mut rlwe = M::zeros(2, rlwe_n);
+            rlwe.get_row_mut(0).copy_from_slice(m.as_ref());
 
             rlwe_auto(
-                &mut rlwe,
-                server_key.galois_key_for_auto(*k),
-                &mut scratch_matrix,
+                &mut RlweCiphertextMutRef::new(rlwe.as_mut()),
+                &RlweKskRef::new(
+                    server_key.galois_key_for_auto(*k).as_ref(),
+                    auto_decomposer.decomposition_count(),
+                ),
+                &mut scratch_matrix_ref,
                 &auto_index_map,
                 &auto_sign_map,
                 &rlwe_modop,
                 &rlwe_nttop,
                 &auto_decomposer,
+                false,
             );
 
             // decrypt RLWE(-m(X)s(X^{g^k]}))
@@ -430,7 +437,7 @@ mod tests {
         set_parameter_set(crate::ParameterSelector::NonInteractiveLTE2Party);
         set_common_reference_seed(NonInteractiveMultiPartyCrs::random().seed);
         let parties = 2;
-        let cks = (0..parties).map(|i| gen_client_key()).collect_vec();
+        let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
         let server_key_shares = cks
             .iter()
             .enumerate()

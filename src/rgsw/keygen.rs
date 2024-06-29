@@ -624,16 +624,15 @@ pub(crate) fn decrypt_rlwe<
     mod_op.elwise_add_mut(m_out.as_mut(), rlwe_ct.get_row_slice(1));
 }
 
-// Measures noise in degree 1 RLWE ciphertext against encoded ideal message
-// encoded_m
-pub(crate) fn measure_noise<
+// Measures maximum noise in degree 1 RLWE ciphertext against message `want_m`
+pub(crate) fn measure_max_noise<
     Mmut: MatrixMut + Matrix,
     ModOp: VectorOps<Element = Mmut::MatElement> + GetModulus<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
     S,
 >(
     rlwe_ct: &Mmut,
-    encoded_m_ideal: &Mmut::R,
+    want_m: &Mmut::R,
     ntt_op: &NttOp,
     mod_op: &ModOp,
     s: &[S],
@@ -645,7 +644,7 @@ where
 {
     let ring_size = s.len();
     assert!(rlwe_ct.dimension() == (2, ring_size));
-    assert!(encoded_m_ideal.as_ref().len() == ring_size);
+    assert!(want_m.as_ref().len() == ring_size);
 
     // -(s * a)
     let q = mod_op.modulus();
@@ -663,11 +662,11 @@ where
     mod_op.elwise_add_mut(m_plus_e.as_mut(), rlwe_ct.get_row_slice(1));
 
     // difference
-    mod_op.elwise_sub_mut(m_plus_e.as_mut(), encoded_m_ideal.as_ref());
+    mod_op.elwise_sub_mut(m_plus_e.as_mut(), want_m.as_ref());
 
     let mut max_diff_bits = f64::MIN;
     m_plus_e.as_ref().iter().for_each(|v| {
-        let bits = (q.map_element_to_i64(v).to_f64().unwrap()).log2();
+        let bits = (q.map_element_to_i64(v).to_f64().unwrap().abs()).log2();
 
         if max_diff_bits < bits {
             max_diff_bits = bits;

@@ -4,7 +4,6 @@ use crate::{
     backend::{ModInit, VectorOps},
     pbs::WithShoupRepr,
     random::{NewWithSeed, RandomFillUniformInModulus},
-    rgsw::RlweSecret,
     utils::{ToShoup, WithLocal},
     Decryptor, Encryptor, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor, RowEntity, RowMut,
 };

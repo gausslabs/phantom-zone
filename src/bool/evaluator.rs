@@ -25,15 +25,15 @@ use crate::{
         RandomFillUniformInModulus, RandomGaussianElementInModulus,
     },
     rgsw::{
-        decrypt_rlwe, generate_auto_map, public_key_encrypt_rgsw, rgsw_by_rgsw_inplace, rlwe_auto,
-        secret_key_encrypt_rgsw, seeded_auto_key_gen,
+        decrypt_rlwe, generate_auto_map, public_key_encrypt_rgsw, rgsw_by_rgsw_inplace,
+        rgsw_x_rgsw_scratch_rows, rlwe_auto, secret_key_encrypt_rgsw, seeded_auto_key_gen,
+        RgswCiphertext, RgswCiphertextMutRef, RgswCiphertextRef, RuntimeScratchMutRef,
     },
     utils::{
         encode_x_pow_si_with_emebedding_factor, fill_random_ternary_secret_with_hamming_weight,
         generate_prime, mod_exponent, puncture_p_rng, Global, TryConvertFrom1, WithLocal,
     },
-    Decryptor, Encoder, Encryptor, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor, Row,
-    RowEntity, RowMut, Secret,
+    Encoder, Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
 };
 
 use super::{
@@ -45,10 +45,7 @@ use super::{
         SeededMultiPartyServerKey, SeededNonInteractiveMultiPartyServerKey,
         SeededSinglePartyServerKey, SinglePartyClientKey,
     },
-    parameters::{
-        BoolParameters, CiphertextModulus, DecompositionCount, DecompostionLogBase,
-        DoubleDecomposerParams,
-    },
+    parameters::{BoolParameters, CiphertextModulus, DecompositionCount, DoubleDecomposerParams},
 };
 
 /// Common reference seed used for Interactive multi-party,
@@ -1146,12 +1143,12 @@ where
 
         // rgsw ciphertext (most expensive part!)
         let rgsw_cts = {
-            let rgsw_by_rgsw_decomposer =
+            let rgsw_x_rgsw_decomposer =
                 parameters.rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
             let rlwe_x_rgsw_decomposer = self.pbs_info().rlwe_rgsw_decomposer();
             let rgsw_x_rgsw_dimension = (
-                rgsw_by_rgsw_decomposer.a().decomposition_count() * 2
-                    + rgsw_by_rgsw_decomposer.b().decomposition_count() * 2,
+                rgsw_x_rgsw_decomposer.a().decomposition_count() * 2
+                    + rgsw_x_rgsw_decomposer.b().decomposition_count() * 2,
                 rlwe_n,
             );
             let rlwe_x_rgsw_dimension = (
@@ -1159,11 +1156,9 @@ where
                     + rlwe_x_rgsw_decomposer.b().decomposition_count() * 2,
                 rlwe_n,
             );
-            let mut rgsw_x_rgsw_scratch_mat = M::zeros(
-                std::cmp::max(
-                    rgsw_by_rgsw_decomposer.a().decomposition_count(),
-                    rgsw_by_rgsw_decomposer.b().decomposition_count(),
-                ) + rlwe_x_rgsw_dimension.0,
+
+            let mut rgsw_x_rgsw_scratch = M::zeros(
+                rgsw_x_rgsw_scratch_rows(rlwe_x_rgsw_decomposer, &rgsw_x_rgsw_decomposer),
                 rlwe_n,
             );
 
@@ -1216,15 +1211,22 @@ where
                                     .for_each(|r| rlweq_nttop.forward(r.as_mut()));
 
                                 rgsw_by_rgsw_inplace(
-                                    &mut rgsw_i,
-                                    rlwe_x_rgsw_decomposer.a().decomposition_count(),
-                                    rlwe_x_rgsw_decomposer.b().decomposition_count(),
-                                    &other_rgsw_i,
-                                    &rgsw_by_rgsw_decomposer,
-                                    &mut rgsw_x_rgsw_scratch_mat,
+                                    &mut RgswCiphertextMutRef::new(
+                                        rgsw_i.as_mut(),
+                                        rlwe_x_rgsw_decomposer.a().decomposition_count(),
+                                        rlwe_x_rgsw_decomposer.b().decomposition_count(),
+                                    ),
+                                    &RgswCiphertextRef::new(
+                                        other_rgsw_i.as_ref(),
+                                        rgsw_x_rgsw_decomposer.a().decomposition_count(),
+                                        rgsw_x_rgsw_decomposer.b().decomposition_count(),
+                                    ),
+                                    rlwe_x_rgsw_decomposer,
+                                    &rgsw_x_rgsw_decomposer,
+                                    &mut RuntimeScratchMutRef::new(rgsw_x_rgsw_scratch.as_mut()),
                                     rlweq_nttop,
                                     rlweq_modop,
-                                )
+                                );
                             });
 
                         rgsw_cts.push(rgsw_i);
@@ -1370,11 +1372,7 @@ where
             };
 
             let mut scratch_rgsw_x_rgsw = M::zeros(
-                std::cmp::max(
-                    rgsw_x_rgsw_decomposer.a().decomposition_count(),
-                    rgsw_x_rgsw_decomposer.b().decomposition_count(),
-                ) + rlwe_x_rgsw_decomposer.a().decomposition_count() * 2
-                    + rlwe_x_rgsw_decomposer.b().decomposition_count() * 2,
+                rgsw_x_rgsw_scratch_rows(&rlwe_x_rgsw_decomposer, &rgsw_x_rgsw_decomposer),
                 self.parameters().rlwe_n().0,
             );
 
@@ -1534,7 +1532,7 @@ where
                             (0..total_users)
                                 .filter(|i| *i != user_id)
                                 .for_each(|other_user_id| {
-                                    let other_rgsw_i = produce_rgsw_ciphertext_from_ni_rgsw(
+                                    let mut other_rgsw_i = produce_rgsw_ciphertext_from_ni_rgsw(
                                         key_shares[other_user_id]
                                             .ni_rgsw_cts_for_self_not_leader_lwe_index(lwe_index),
                                         &ni_rgsw_zero_encs,
@@ -1551,12 +1549,21 @@ where
                                     );
 
                                     rgsw_by_rgsw_inplace(
-                                        &mut rgsw_i,
-                                        rlwe_x_rgsw_decomposer.a().decomposition_count(),
-                                        rlwe_x_rgsw_decomposer.b().decomposition_count(),
-                                        &other_rgsw_i,
+                                        &mut RgswCiphertextMutRef::new(
+                                            rgsw_i.as_mut(),
+                                            rlwe_x_rgsw_decomposer.a().decomposition_count(),
+                                            rlwe_x_rgsw_decomposer.b().decomposition_count(),
+                                        ),
+                                        &RgswCiphertextRef::new(
+                                            other_rgsw_i.as_ref(),
+                                            rgsw_x_rgsw_decomposer.a().decomposition_count(),
+                                            rgsw_x_rgsw_decomposer.b().decomposition_count(),
+                                        ),
+                                        &rlwe_x_rgsw_decomposer,
                                         &rgsw_x_rgsw_decomposer,
-                                        &mut scratch_rgsw_x_rgsw,
+                                        &mut RuntimeScratchMutRef::new(
+                                            scratch_rgsw_x_rgsw.as_mut(),
+                                        ),
                                         nttop,
                                         rlwe_modop,
                                     )
@@ -2096,9 +2103,7 @@ where
         });
 
         let e = DefaultSecureRng::with_local_mut(|rng| {
-            let mut e =
-                RandomGaussianElementInModulus::random(rng, self.pbs_info.parameters.rlwe_q());
-            e
+            RandomGaussianElementInModulus::random(rng, self.pbs_info.parameters.rlwe_q())
         });
         let share = modop.add(&neg_sa, &e);
 

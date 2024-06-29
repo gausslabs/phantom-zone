@@ -1,14 +1,16 @@
-use std::{fmt::Display, marker::PhantomData};
+use std::fmt::Display;
 
 use num_traits::{FromPrimitive, One, PrimInt, ToPrimitive, Zero};
 
 use crate::{
     backend::{ArithmeticOps, Modulus, ShoupMatrixFMA, VectorOps},
-    decomposer::Decomposer,
+    decomposer::{Decomposer, RlweDecomposer},
     lwe::lwe_key_switch,
     ntt::Ntt,
-    random::DefaultSecureRng,
-    rgsw::{galois_auto_shoup, rlwe_by_rgsw_shoup, IsTrivial, RlweCiphertext},
+    rgsw::{
+        rlwe_auto_shoup, rlwe_by_rgsw_shoup, RgswCiphertextRef, RlweCiphertextMutRef, RlweKskRef,
+        RuntimeScratchMutRef,
+    },
     Matrix, MatrixEntity, MatrixMut, RowMut,
 };
 pub(crate) trait PbsKey {
@@ -215,7 +217,8 @@ pub(crate) fn pbs<
 /// gk_to_si: [g^0, ..., g^{q/2-1}, -g^0, -g^1, .., -g^{q/2-1}]
 fn blind_rotation<
     Mmut: MatrixMut,
-    D: Decomposer<Element = Mmut::MatElement>,
+    RlweD: RlweDecomposer<Element = Mmut::MatElement>,
+    AutoD: Decomposer<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,
     ModOp: ArithmeticOps<Element = Mmut::MatElement> + ShoupMatrixFMA<Mmut::R>,
     MShoup: WithShoupRepr<M = Mmut>,
@@ -228,8 +231,8 @@ fn blind_rotation<
     w: usize,
     q: usize,
     gk_to_si: &[Vec<usize>],
-    rlwe_rgsw_decomposer: &(D, D),
-    auto_decomposer: &D,
+    rlwe_rgsw_decomposer: &RlweD,
+    auto_decomposer: &AutoD,
     ntt_op: &NttOp,
     mod_op: &ModOp,
     parameters: &P,
@@ -239,6 +242,11 @@ fn blind_rotation<
     Mmut::MatElement: Copy + Zero,
 {
     let mut is_trivial = true;
+    let mut scratch_matrix = RuntimeScratchMutRef::new(scratch_matrix.as_mut());
+    let mut rlwe = RlweCiphertextMutRef::new(trivial_rlwe_test_poly.as_mut());
+    let d_a = rlwe_rgsw_decomposer.a().decomposition_count();
+    let d_b = rlwe_rgsw_decomposer.b().decomposition_count();
+    let d_auto = auto_decomposer.decomposition_count();
 
     let q_by_4 = q >> 2;
     let mut count = 0;
@@ -252,10 +260,10 @@ fn blind_rotation<
             // let new = std::time::Instant::now();
             let ct = pbs_key.rgsw_ct_lwe_si(*s_index);
             rlwe_by_rgsw_shoup(
-                trivial_rlwe_test_poly,
-                ct.as_ref(),
-                ct.shoup_repr(),
-                scratch_matrix,
+                &mut rlwe,
+                &RgswCiphertextRef::new(ct.as_ref().as_ref(), d_a, d_b),
+                &RgswCiphertextRef::new(ct.shoup_repr().as_ref(), d_a, d_b),
+                &mut scratch_matrix,
                 rlwe_rgsw_decomposer,
                 ntt_op,
                 mod_op,
@@ -271,11 +279,11 @@ fn blind_rotation<
 
             // let now = std::time::Instant::now();
             let auto_key = pbs_key.galois_key_for_auto(v);
-            galois_auto_shoup(
-                trivial_rlwe_test_poly,
-                auto_key.as_ref(),
-                auto_key.shoup_repr(),
-                scratch_matrix,
+            rlwe_auto_shoup(
+                &mut rlwe,
+                &RlweKskRef::new(auto_key.as_ref().as_ref(), d_auto),
+                &RlweKskRef::new(auto_key.shoup_repr().as_ref(), d_auto),
+                &mut scratch_matrix,
                 &auto_map_index,
                 &auto_map_sign,
                 mod_op,
@@ -295,10 +303,10 @@ fn blind_rotation<
         gk_to_si[q_by_4].iter().for_each(|s_index| {
             let ct = pbs_key.rgsw_ct_lwe_si(*s_index);
             rlwe_by_rgsw_shoup(
-                trivial_rlwe_test_poly,
-                ct.as_ref(),
-                ct.shoup_repr(),
-                scratch_matrix,
+                &mut rlwe,
+                &RgswCiphertextRef::new(ct.as_ref().as_ref(), d_a, d_b),
+                &RgswCiphertextRef::new(ct.shoup_repr().as_ref(), d_a, d_b),
+                &mut scratch_matrix,
                 rlwe_rgsw_decomposer,
                 ntt_op,
                 mod_op,
@@ -309,11 +317,11 @@ fn blind_rotation<
 
         let (auto_map_index, auto_map_sign) = parameters.rlwe_auto_map(0);
         let auto_key = pbs_key.galois_key_for_auto(0);
-        galois_auto_shoup(
-            trivial_rlwe_test_poly,
-            auto_key.as_ref(),
-            auto_key.shoup_repr(),
-            scratch_matrix,
+        rlwe_auto_shoup(
+            &mut rlwe,
+            &RlweKskRef::new(auto_key.as_ref().as_ref(), d_auto),
+            &RlweKskRef::new(auto_key.shoup_repr().as_ref(), d_auto),
+            &mut scratch_matrix,
             &auto_map_index,
             &auto_map_sign,
             mod_op,
@@ -331,10 +339,10 @@ fn blind_rotation<
         s_indices.iter().for_each(|s_index| {
             let ct = pbs_key.rgsw_ct_lwe_si(*s_index);
             rlwe_by_rgsw_shoup(
-                trivial_rlwe_test_poly,
-                ct.as_ref(),
-                ct.shoup_repr(),
-                scratch_matrix,
+                &mut rlwe,
+                &RgswCiphertextRef::new(ct.as_ref().as_ref(), d_a, d_b),
+                &RgswCiphertextRef::new(ct.shoup_repr().as_ref(), d_a, d_b),
+                &mut scratch_matrix,
                 rlwe_rgsw_decomposer,
                 ntt_op,
                 mod_op,
@@ -347,11 +355,11 @@ fn blind_rotation<
         if gk_to_si[i - 1].len() != 0 || v == w || i == 1 {
             let (auto_map_index, auto_map_sign) = parameters.rlwe_auto_map(v);
             let auto_key = pbs_key.galois_key_for_auto(v);
-            galois_auto_shoup(
-                trivial_rlwe_test_poly,
-                auto_key.as_ref(),
-                auto_key.shoup_repr(),
-                scratch_matrix,
+            rlwe_auto_shoup(
+                &mut rlwe,
+                &RlweKskRef::new(auto_key.as_ref().as_ref(), d_auto),
+                &RlweKskRef::new(auto_key.shoup_repr().as_ref(), d_auto),
+                &mut scratch_matrix,
                 &auto_map_index,
                 &auto_map_sign,
                 mod_op,
@@ -368,10 +376,10 @@ fn blind_rotation<
     gk_to_si[0].iter().for_each(|s_index| {
         let ct = pbs_key.rgsw_ct_lwe_si(*s_index);
         rlwe_by_rgsw_shoup(
-            trivial_rlwe_test_poly,
-            ct.as_ref(),
-            ct.shoup_repr(),
-            scratch_matrix,
+            &mut rlwe,
+            &RgswCiphertextRef::new(ct.as_ref().as_ref(), d_a, d_b),
+            &RgswCiphertextRef::new(ct.shoup_repr().as_ref(), d_a, d_b),
+            &mut scratch_matrix,
             rlwe_rgsw_decomposer,
             ntt_op,
             mod_op,
