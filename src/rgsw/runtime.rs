@@ -30,21 +30,97 @@ pub(crate) trait RlweCiphertext {
 /// RGSW is a collection of RLWE' ciphertext which are collection degree 1 of
 /// RLWE ciphertexts
 ///
-/// Let
-/// RGSW = [RLWE'(-sm) || RLW'(m)] = [RW]
+/// RGSW = [RLWE'(-sm) || RLWE'(m)]
+///
+/// As usual we refer to decomposition count for RLWE_A in RLWE x RGSW
+/// multiplicaiton as `d_a` and decomposition count for RLWE_B in RLWE x RGDW
+/// multiplication as `d_b`.
 pub(crate) trait RgswCiphertext {
     type R: Row;
 
+    /// Splits RGSW ciphertext and returns references:
+    ///     (RLWE'_A(-sm), RLWE'_B(-sm)), (RLWE'_A(m), RLWE'_B(m))
     fn split(&self) -> ((&[Self::R], &[Self::R]), (&[Self::R], &[Self::R]));
 }
 
 pub(crate) trait RgswCiphertextMut: RgswCiphertext {
+    /// Splits RGSW ciphertext and returns mutable references:
+    ///     (RLWE'_A(-sm), RLWE'_B(-sm)), (RLWE'_A(m), RLWE'_B(m))
     fn split_mut(
         &mut self,
     ) -> (
         (&mut [Self::R], &mut [Self::R]),
         (&mut [Self::R], &mut [Self::R]),
     );
+}
+
+/// RLWE Key switching Key
+///
+/// Key switching key from s' -> s consists of multiple RLWE cipheretxts.
+/// For gadget vector: [1, beta, ..., beta^{d-1}]
+///     RLWE'_{s}(-s'm) = [RWLE_{s}(-s'm), ..., RLWE_{s}(beta^{d-1} -s'm)]
+pub(crate) trait RlweKsk {
+    type R: Row;
+    /// Returns reference to RLWE'_A(-s'm) polynomials
+    fn ksk_part_a(&self) -> &[Self::R];
+    /// Returns reference to RLWE'_B(-s'm) polynomials
+    fn ksk_part_b(&self) -> &[Self::R];
+}
+
+/// Scratch matrix used in several rlwe/rgsw runtime operations
+pub(crate) trait RuntimeScratchMatrix {
+    type R: RowMut;
+    type Rgsw: RgswCiphertext;
+
+    /// Returns scratch matrix for RLWE automorphism (not trivial case)
+    ///
+    /// RLWE auto requires scratch matric to store decomposed polynomials + 1
+    /// rlwe ciphertext temporarily.
+    ///
+    /// For example, if Auto decomposer has decompostion count `d` then the
+    /// scratch matrix must have dimension (d + 2, N) where N is the ring size.
+    fn scratch_for_rlwe_auto_and_zero_rlwe_space(
+        &mut self,
+        decompostion_count: usize,
+    ) -> (&mut [Self::R], &mut [Self::R]);
+
+    /// Returns scratch matrix for RLWE automorphism (trivial case)
+    ///
+    /// We refer to cases where RLWE(m) = [0, b] s.t. m = b as trivial cases. In
+    /// such a case  a single row of length N, N being the ring dimension, is
+    /// required as scratch buffer to store automorphism of polynomial `b`
+    /// temporarily.
+    fn scratch_for_rlwe_auto_trivial_case(&mut self) -> &mut Self::R;
+
+    /// Returns scratch matrix + zeroed RLWE ciphertext space for
+    /// RLWE x RGSW
+    ///
+    /// RLWE x RGSW product requires scratch space to store decomposed
+    /// polynomials for both cases: (1) SignedDecompose(RLWE_A) x RLWE'(-sm) and
+    /// (2) SignedDecompose(RLWE_B) x RLWE'(m). Hence, scratch space returned to
+    /// store decomposed polynomials must have MAX(d_a, d_b) rows.
+    ///
+    /// Additional scratch space is required to store 1 RLWE ciphertext
+    /// temporarily. The space must be zeroed.
+    fn scratch_for_rlwe_x_rgsw_and_zero_rlwe_space<D: RlweDecomposer>(
+        &mut self,
+        decomposer: &D,
+    ) -> (&mut [Self::R], &mut [Self::R]);
+
+    /// Returns scracth matrix + zeroed RGSW ciphertext space for RGSW0 x RGSW1
+    ///
+    /// RGSW0 x RGSW1 requires `d_{0,a} + d_{0,b}` RLWE x RGSW1 products where
+    /// d_{0, a/b} are decomposition counts corresponding to decmposer used for
+    /// RGSW0. Hence, scratch space required to store decomposed polynomial for
+    /// RLWE x RGSW1 product should have MAX(d_{1, a}, d_{1, b}) rows.
+    ///
+    /// Additional scravth space is required to store RGSW0 ciphertext
+    /// temporarily. The space must be zeroed.
+    fn scratch_for_rgsw_x_rgsw_and_zero_rgsw0_space<D: RlweDecomposer>(
+        &mut self,
+        d0: &D,
+        d1: &D,
+    ) -> (&mut [Self::R], &mut [Self::R]);
 }
 
 pub(crate) struct RlweCiphertextMutRef<'a, R> {
@@ -154,12 +230,6 @@ where
     }
 }
 
-pub(crate) trait RlweKsk {
-    type R: Row;
-    fn ksk_part_a(&self) -> &[Self::R];
-    fn ksk_part_b(&self) -> &[Self::R];
-}
-
 pub(crate) struct RlweKskRef<'a, R> {
     data: &'a [R],
     decomposition_count: usize,
@@ -185,29 +255,6 @@ impl<'a, R: Row> RlweKsk for RlweKskRef<'a, R> {
     }
 }
 
-pub(crate) trait RlweAutoScratch {
-    type R: RowMut;
-    type Rgsw: RgswCiphertext;
-
-    fn split_for_rlwe_auto_and_zero_rlwe_space(
-        &mut self,
-        decompostion_count: usize,
-    ) -> (&mut [Self::R], &mut [Self::R]);
-
-    fn split_for_rlwe_auto_trivial_case(&mut self) -> &mut Self::R;
-
-    fn split_for_rlwe_x_rgsw_and_zero_rlwe_space<D: RlweDecomposer>(
-        &mut self,
-        decomposer: &D,
-    ) -> (&mut [Self::R], &mut [Self::R]);
-
-    fn split_for_rgsw_x_rgsw_and_zero_rgsw0_space<D: RlweDecomposer>(
-        &mut self,
-        d0: &D,
-        d1: &D,
-    ) -> (&mut [Self::R], &mut [Self::R]);
-}
-
 pub(crate) struct RuntimeScratchMutRef<'a, R> {
     data: &'a mut [R],
 }
@@ -218,14 +265,14 @@ impl<'a, R> RuntimeScratchMutRef<'a, R> {
     }
 }
 
-impl<'a, R: RowMut> RlweAutoScratch for RuntimeScratchMutRef<'a, R>
+impl<'a, R: RowMut> RuntimeScratchMatrix for RuntimeScratchMutRef<'a, R>
 where
     R::Element: Zero + Clone,
 {
     type R = R;
     type Rgsw = RgswCiphertextRef<'a, R>;
 
-    fn split_for_rlwe_auto_and_zero_rlwe_space(
+    fn scratch_for_rlwe_auto_and_zero_rlwe_space(
         &mut self,
         decompostion_count: usize,
     ) -> (&mut [Self::R], &mut [Self::R]) {
@@ -239,11 +286,11 @@ where
         (decomp_poly, rlwe)
     }
 
-    fn split_for_rlwe_auto_trivial_case(&mut self) -> &mut Self::R {
+    fn scratch_for_rlwe_auto_trivial_case(&mut self) -> &mut Self::R {
         &mut self.data[0]
     }
 
-    fn split_for_rgsw_x_rgsw_and_zero_rgsw0_space<D: RlweDecomposer>(
+    fn scratch_for_rgsw_x_rgsw_and_zero_rgsw0_space<D: RlweDecomposer>(
         &mut self,
         rgsw0_decoposer: &D,
         rgsw1_decoposer: &D,
@@ -264,7 +311,7 @@ where
         (decomp_poly, rgsw)
     }
 
-    fn split_for_rlwe_x_rgsw_and_zero_rlwe_space<D: RlweDecomposer>(
+    fn scratch_for_rlwe_x_rgsw_and_zero_rlwe_space<D: RlweDecomposer>(
         &mut self,
         decomposer: &D,
     ) -> (&mut [Self::R], &mut [Self::R]) {
@@ -283,6 +330,7 @@ where
     }
 }
 
+/// Returns no. of rows in scratch space for RGSW0 x RGSW1 product
 pub(crate) fn rgsw_x_rgsw_scratch_rows<D: RlweDecomposer>(
     rgsw0_decomposer: &D,
     rgsw1_decomposer: &D,
@@ -294,13 +342,14 @@ pub(crate) fn rgsw_x_rgsw_scratch_rows<D: RlweDecomposer>(
         + rgsw0_decomposer.b().decomposition_count() * 2
 }
 
+/// Returns no. of rows in scratch space for RLWE x RGSW product
 pub(crate) fn rlwe_x_rgsw_scratch_rows<D: RlweDecomposer>(rgsw_decomposer: &D) -> usize {
     std::cmp::max(
         rgsw_decomposer.a().decomposition_count(),
         rgsw_decomposer.b().decomposition_count(),
     ) + 2
 }
-
+/// Returns no. of rows in scratch space for RLWE auto
 pub(crate) fn rlwe_auto_scratch_rows<D: Decomposer>(decomposer: &D) -> usize {
     decomposer.decomposition_count() + 2
 }
@@ -357,7 +406,7 @@ pub(crate) fn decompose_r<R: RowMut, D: Decomposer<Element = R::Element>>(
 pub(crate) fn rlwe_auto<
     Rlwe: RlweCiphertext,
     Ksk: RlweKsk<R = Rlwe::R>,
-    Sc: RlweAutoScratch<R = Rlwe::R>,
+    Sc: RuntimeScratchMatrix<R = Rlwe::R>,
     ModOp: ArithmeticOps<Element = <Rlwe::R as Row>::Element>
         + VectorOps<Element = <Rlwe::R as Row>::Element>,
     NttOp: Ntt<Element = <Rlwe::R as Row>::Element>,
@@ -381,7 +430,7 @@ pub(crate) fn rlwe_auto<
 
     if !is_trivial {
         let (decomp_poly_scratch, tmp_rlwe) = scratch_matrix
-            .split_for_rlwe_auto_and_zero_rlwe_space(decomposer.decomposition_count());
+            .scratch_for_rlwe_auto_and_zero_rlwe_space(decomposer.decomposition_count());
         let mut tmp_rlwe = RlweCiphertextMutRef::new(tmp_rlwe);
 
         // send a(X) -> a(X^k) and decompose a(X^k)
@@ -449,7 +498,7 @@ pub(crate) fn rlwe_auto<
     } else {
         // RLWE is trivial, a(X) is 0.
         // send b(X) -> b(X^k)
-        let tmp_row = scratch_matrix.split_for_rlwe_auto_trivial_case();
+        let tmp_row = scratch_matrix.scratch_for_rlwe_auto_trivial_case();
         izip!(
             rlwe_in.part_b(),
             auto_map_index.iter(),
@@ -475,7 +524,7 @@ pub(crate) fn rlwe_auto<
 pub(crate) fn rlwe_auto_shoup<
     Rlwe: RlweCiphertext,
     Ksk: RlweKsk<R = Rlwe::R>,
-    Sc: RlweAutoScratch<R = Rlwe::R>,
+    Sc: RuntimeScratchMatrix<R = Rlwe::R>,
     ModOp: ArithmeticOps<Element = <Rlwe::R as Row>::Element>
         // + VectorOps<Element = MT::MatElement>
         + ShoupMatrixFMA<Rlwe::R>,
@@ -502,7 +551,7 @@ pub(crate) fn rlwe_auto_shoup<
 
     if !is_trivial {
         let (decomp_poly_scratch, tmp_rlwe) = scratch_matrix
-            .split_for_rlwe_auto_and_zero_rlwe_space(decomposer.decomposition_count());
+            .scratch_for_rlwe_auto_and_zero_rlwe_space(decomposer.decomposition_count());
         let mut tmp_rlwe = RlweCiphertextMutRef::new(tmp_rlwe);
 
         // send a(X) -> a(X^k) and decompose a(X^k)
@@ -570,7 +619,7 @@ pub(crate) fn rlwe_auto_shoup<
     } else {
         // RLWE is trivial, a(X) is 0.
         // send b(X) -> b(X^k)
-        let row = scratch_matrix.split_for_rlwe_auto_trivial_case();
+        let row = scratch_matrix.scratch_for_rlwe_auto_trivial_case();
         izip!(
             rlwe_in.part_b(),
             auto_map_index.iter(),
@@ -596,7 +645,7 @@ pub(crate) fn rlwe_auto_shoup<
 pub(crate) fn rlwe_by_rgsw<
     Rlwe: RlweCiphertext,
     Rgsw: RgswCiphertext<R = Rlwe::R>,
-    Sc: RlweAutoScratch<R = Rlwe::R>,
+    Sc: RuntimeScratchMatrix<R = Rlwe::R>,
     D: RlweDecomposer<Element = <Rlwe::R as Row>::Element>,
     ModOp: VectorOps<Element = <Rlwe::R as Row>::Element>,
     NttOp: Ntt<Element = <Rlwe::R as Row>::Element>,
@@ -620,7 +669,7 @@ pub(crate) fn rlwe_by_rgsw<
         rgsw_in.split();
 
     let (decomposed_poly_scratch, tmp_rlwe) =
-        scratch_matrix.split_for_rlwe_x_rgsw_and_zero_rlwe_space(decomposer);
+        scratch_matrix.scratch_for_rlwe_x_rgsw_and_zero_rlwe_space(decomposer);
 
     // RLWE_in = a_in, b_in; RLWE_out = a_out, b_out
     if !is_trivial {
@@ -699,7 +748,7 @@ pub(crate) fn rlwe_by_rgsw<
 pub(crate) fn rlwe_by_rgsw_shoup<
     Rlwe: RlweCiphertext,
     Rgsw: RgswCiphertext<R = Rlwe::R>,
-    Sc: RlweAutoScratch<R = Rlwe::R>,
+    Sc: RuntimeScratchMatrix<R = Rlwe::R>,
     D: RlweDecomposer<Element = <Rlwe::R as Row>::Element>,
     ModOp: ShoupMatrixFMA<Rlwe::R>,
     NttOp: Ntt<Element = <Rlwe::R as Row>::Element>,
@@ -729,7 +778,7 @@ pub(crate) fn rlwe_by_rgsw_shoup<
     ) = rgsw_in_shoup.split();
 
     let (decomposed_poly_scratch, tmp_rlwe) =
-        scratch_matrix.split_for_rlwe_x_rgsw_and_zero_rlwe_space(decomposer);
+        scratch_matrix.scratch_for_rlwe_x_rgsw_and_zero_rlwe_space(decomposer);
 
     // RLWE_in = a_in, b_in; RLWE_out = a_out, b_out
     if !is_trivial {
@@ -828,7 +877,7 @@ pub(crate) fn rlwe_by_rgsw_shoup<
 pub(crate) fn rgsw_by_rgsw_inplace<
     Rgsw: RgswCiphertext,
     RgswMut: RgswCiphertextMut<R = Rgsw::R>,
-    Sc: RlweAutoScratch<R = Rgsw::R, Rgsw = Rgsw>,
+    Sc: RuntimeScratchMatrix<R = Rgsw::R, Rgsw = Rgsw>,
     D: RlweDecomposer<Element = <Rgsw::R as Row>::Element>,
     ModOp: VectorOps<Element = <Rgsw::R as Row>::Element>,
     NttOp: Ntt<Element = <Rgsw::R as Row>::Element>,
@@ -846,14 +895,8 @@ pub(crate) fn rgsw_by_rgsw_inplace<
     RgswMut::R: RowMut,
     // Rgsw: AsRef<[Rgsw::R]>,
 {
-    // let rgsw0_rows = rgsw0_da * 2 + rgsw0_db * 2;
-    // let ring_size = rgsw0.dimension().1;
-    // assert!(rgsw0.dimension().0 == rgsw0_rows);
-    // assert!(rgsw1_eval.dimension() == (rgsw1_rows, ring_size));
-    // assert!(scratch_matrix.fits(max_d + rgsw0_rows, ring_size));
-
     let (decomp_r_space, rgsw_space) = scratch_matrix
-        .split_for_rgsw_x_rgsw_and_zero_rgsw0_space(rgsw0_decomposer, rgsw1_decomposer);
+        .scratch_for_rgsw_x_rgsw_and_zero_rgsw0_space(rgsw0_decomposer, rgsw1_decomposer);
 
     let mut rgsw_space = RgswCiphertextMutRef::new(
         rgsw_space,

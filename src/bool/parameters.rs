@@ -69,19 +69,6 @@ impl SingleDecomposerParams for (DecompostionLogBase, DecompositionCount) {
     }
 }
 
-// impl DecomposerParams for (DecompostionLogBase, (DecompositionCount)) {
-//     type Base = DecompostionLogBase;
-//     type Count = DecompositionCount;
-
-//     fn decomposition_base(&self) -> Self::Base {
-//         self.0
-//     }
-
-//     fn decomposition_count(&self) -> Self::Count {
-//         self.1
-//     }
-// }
-
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum ParameterVariant {
     SingleParty,
