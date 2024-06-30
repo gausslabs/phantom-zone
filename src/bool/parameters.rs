@@ -1,22 +1,29 @@
+use std::ops::Deref;
+
 use num_traits::{ConstZero, FromPrimitive, PrimInt};
 
 use crate::{backend::Modulus, decomposer::Decomposer};
 
-pub(super) trait DoubleDecomposerParams {
+pub(crate) trait DoubleDecomposerCount {
+    type Count;
+    fn a(&self) -> Self::Count;
+    fn b(&self) -> Self::Count;
+}
+
+pub(crate) trait DoubleDecomposerParams {
     type Base;
     type Count;
 
-    fn new(base: Self::Base, count_a: Self::Count, count_b: Self::Count) -> Self;
     fn decomposition_base(&self) -> Self::Base;
     fn decomposition_count_a(&self) -> Self::Count;
     fn decomposition_count_b(&self) -> Self::Count;
 }
 
-trait SingleDecomposerParams {
+pub(crate) trait SingleDecomposerParams {
     type Base;
     type Count;
 
-    fn new(base: Self::Base, count: Self::Count) -> Self;
+    // fn new(base: Self::Base, count: Self::Count) -> Self;
     fn decomposition_base(&self) -> Self::Base;
     fn decomposition_count(&self) -> Self::Count;
 }
@@ -31,13 +38,13 @@ impl DoubleDecomposerParams
     type Base = DecompostionLogBase;
     type Count = DecompositionCount;
 
-    fn new(
-        base: DecompostionLogBase,
-        count_a: DecompositionCount,
-        count_b: DecompositionCount,
-    ) -> Self {
-        (base, (count_a, count_b))
-    }
+    // fn new(
+    //     base: DecompostionLogBase,
+    //     count_a: DecompositionCount,
+    //     count_b: DecompositionCount,
+    // ) -> Self {
+    //     (base, (count_a, count_b))
+    // }
 
     fn decomposition_base(&self) -> Self::Base {
         self.0
@@ -56,9 +63,9 @@ impl SingleDecomposerParams for (DecompostionLogBase, DecompositionCount) {
     type Base = DecompostionLogBase;
     type Count = DecompositionCount;
 
-    fn new(base: DecompostionLogBase, count: DecompositionCount) -> Self {
-        (base, count)
-    }
+    // fn new(base: DecompostionLogBase, count: DecompositionCount) -> Self {
+    //     (base, count)
+    // }
 
     fn decomposition_base(&self) -> Self::Base {
         self.0
@@ -132,11 +139,11 @@ impl<El> BoolParameters<El> {
 
     pub(crate) fn rlwe_by_rgsw_decomposition_params(
         &self,
-    ) -> (
+    ) -> &(
         DecompostionLogBase,
         (DecompositionCount, DecompositionCount),
     ) {
-        self.rlrg_decomposer_params
+        &self.rlrg_decomposer_params
     }
 
     pub(crate) fn rgsw_by_rgsw_decomposition_params(
@@ -165,6 +172,10 @@ impl<El> BoolParameters<El> {
             self.variant
         ));
         params.1
+    }
+
+    pub(crate) fn auto_decomposition_param(&self) -> &(DecompostionLogBase, DecompositionCount) {
+        &self.auto_decomposer_params
     }
 
     pub(crate) fn auto_decomposition_base(&self) -> DecompostionLogBase {
@@ -311,6 +322,7 @@ impl AsRef<usize> for DecompositionCount {
         &self.0
     }
 }
+
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) struct LweDimension(pub(crate) usize);
 #[derive(Clone, Copy, PartialEq)]

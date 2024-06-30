@@ -26,8 +26,9 @@ use crate::{
     },
     rgsw::{
         decrypt_rlwe, generate_auto_map, public_key_encrypt_rgsw, rgsw_by_rgsw_inplace,
-        rgsw_x_rgsw_scratch_rows, rlwe_auto, secret_key_encrypt_rgsw, seeded_auto_key_gen,
-        RgswCiphertext, RgswCiphertextMutRef, RgswCiphertextRef, RuntimeScratchMutRef,
+        rgsw_x_rgsw_scratch_rows, rlwe_auto, rlwe_auto_scratch_rows, rlwe_x_rgsw_scratch_rows,
+        secret_key_encrypt_rgsw, seeded_auto_key_gen, RgswCiphertext, RgswCiphertextMutRef,
+        RgswCiphertextRef, RuntimeScratchMutRef,
     },
     utils::{
         encode_x_pow_si_with_emebedding_factor, fill_random_ternary_secret_with_hamming_weight,
@@ -237,16 +238,17 @@ where
         // Vector to store LWE ciphertext with LWE dimesnion n
         let lwe_vector = M::R::zeros(parameters.lwe_n().0 + 1);
 
-        // Matrix to store decomposed polynomials
-        // Max decompistion count + space for temporary RLWE
-        let d = std::cmp::max(
-            parameters.auto_decomposition_count().0,
+        // PBS perform two operations at runtime: RLWE x RGW and RLWE auto. Since the
+        // operations are performed serially same scratch space can be used for both.
+        // Hence we create scratch space that contains maximum amount of rows that
+        // suffices for RLWE x RGSW and RLWE auto
+        let decomposition_matrix = M::zeros(
             std::cmp::max(
-                parameters.rlwe_rgsw_decomposition_count().0 .0,
-                parameters.rlwe_rgsw_decomposition_count().1 .0,
+                rlwe_x_rgsw_scratch_rows(parameters.rlwe_by_rgsw_decomposition_params()),
+                rlwe_auto_scratch_rows(parameters.auto_decomposition_param()),
             ),
-        ) + 2;
-        let decomposition_matrix = M::zeros(d, parameters.rlwe_n().0);
+            parameters.rlwe_n().0,
+        );
 
         Self {
             lwe_vector,
@@ -546,24 +548,30 @@ where
     <M as Matrix>::R: RowMut + Clone,
 {
     let max_decomposer =
-        if decomposer.a().decomposition_count() > decomposer.b().decomposition_count() {
+        if decomposer.a().decomposition_count().0 > decomposer.b().decomposition_count().0 {
             decomposer.a()
         } else {
             decomposer.b()
         };
 
     assert!(
-        ni_rgsw_ct.dimension() == (max_decomposer.decomposition_count(), parameters.rlwe_n().0)
+        ni_rgsw_ct.dimension()
+            == (
+                max_decomposer.decomposition_count().0,
+                parameters.rlwe_n().0
+            )
     );
-    assert!(aggregated_decomposed_ni_rgsw_zero_encs.len() == decomposer.a().decomposition_count(),);
-    assert!(decomposed_neg_ais.len() == decomposer.b().decomposition_count());
+    assert!(
+        aggregated_decomposed_ni_rgsw_zero_encs.len() == decomposer.a().decomposition_count().0,
+    );
+    assert!(decomposed_neg_ais.len() == decomposer.b().decomposition_count().0);
 
     let mut rgsw_i = M::zeros(
-        decomposer.a().decomposition_count() * 2 + decomposer.b().decomposition_count() * 2,
+        decomposer.a().decomposition_count().0 * 2 + decomposer.b().decomposition_count().0 * 2,
         parameters.rlwe_n().0,
     );
     let (rlwe_dash_nsm, rlwe_dash_m) =
-        rgsw_i.split_at_row_mut(decomposer.a().decomposition_count() * 2);
+        rgsw_i.split_at_row_mut(decomposer.a().decomposition_count().0 * 2);
 
     // RLWE'_{s}(-sm)
     // Key switch `s * a_{i, l} + e` using ksk(u_j -> s) to produce RLWE(s *
@@ -573,13 +581,13 @@ where
     // RLWE(s * u_{j=user_id} * a_{i, l})
     {
         let (rlwe_dash_nsm_parta, rlwe_dash_nsm_partb) =
-            rlwe_dash_nsm.split_at_mut(decomposer.a().decomposition_count());
+            rlwe_dash_nsm.split_at_mut(decomposer.a().decomposition_count().0);
         izip!(
             rlwe_dash_nsm_parta.iter_mut(),
             rlwe_dash_nsm_partb.iter_mut(),
-            ni_rgsw_ct
-                .iter_rows()
-                .skip(max_decomposer.decomposition_count() - decomposer.a().decomposition_count()),
+            ni_rgsw_ct.iter_rows().skip(
+                max_decomposer.decomposition_count().0 - decomposer.a().decomposition_count().0
+            ),
             aggregated_decomposed_ni_rgsw_zero_encs.iter()
         )
         .for_each(|(rlwe_a, rlwe_b, ni_rlwe_ct, decomp_zero_enc)| {
@@ -612,13 +620,13 @@ where
     // RLWE'_{s}(m)
     {
         let (rlwe_dash_m_parta, rlwe_dash_partb) =
-            rlwe_dash_m.split_at_mut(decomposer.b().decomposition_count());
+            rlwe_dash_m.split_at_mut(decomposer.b().decomposition_count().0);
         izip!(
             rlwe_dash_m_parta.iter_mut(),
             rlwe_dash_partb.iter_mut(),
-            ni_rgsw_ct
-                .iter_rows()
-                .skip(max_decomposer.decomposition_count() - decomposer.b().decomposition_count()),
+            ni_rgsw_ct.iter_rows().skip(
+                max_decomposer.decomposition_count().0 - decomposer.b().decomposition_count().0
+            ),
             decomposed_neg_ais.iter()
         )
         .for_each(|(rlwe_a, rlwe_b, ni_rlwe_ct, decomp_neg_ai)| {
@@ -860,7 +868,10 @@ where
                 } else {
                     (g.pow(i as u32) % br_q) as isize
                 };
-                let mut gk = M::zeros(self.pbs_info.auto_decomposer.decomposition_count(), rlwe_n);
+                let mut gk = M::zeros(
+                    self.pbs_info.auto_decomposer.decomposition_count().0,
+                    rlwe_n,
+                );
                 seeded_auto_key_gen(
                     &mut gk,
                     &sk_rlwe,
@@ -878,8 +889,8 @@ where
             let ring_size = self.pbs_info.parameters.rlwe_n().0;
             let rlwe_q = self.pbs_info.parameters.rlwe_q();
             let (rlrg_d_a, rlrg_d_b) = (
-                self.pbs_info.rlwe_rgsw_decomposer.0.decomposition_count(),
-                self.pbs_info.rlwe_rgsw_decomposer.1.decomposition_count(),
+                self.pbs_info.rlwe_rgsw_decomposer.0.decomposition_count().0,
+                self.pbs_info.rlwe_rgsw_decomposer.1.decomposition_count().0,
             );
             let rlrg_gadget_a = self.pbs_info.rlwe_rgsw_decomposer.0.gadget_vector();
             let rlrg_gadget_b = self.pbs_info.rlwe_rgsw_decomposer.1.gadget_vector();
@@ -997,7 +1008,7 @@ where
                     rlrg_decomposer.b().gadget_vector(),
                 );
                 for s_index in segment_start..segment_end {
-                    let mut out_rgsw = M::zeros(rlrg_d_a * 2 + rlrg_d_b * 2, ring_size);
+                    let mut out_rgsw = M::zeros(rlrg_d_a.0 * 2 + rlrg_d_b.0 * 2, ring_size);
                     public_key_encrypt_rgsw(
                         &mut out_rgsw,
                         &encode_x_pow_si_with_emebedding_factor::<
@@ -1039,7 +1050,7 @@ where
                 );
 
                 for s_index in (0..segment_start).chain(segment_end..self.parameters().lwe_n().0) {
-                    let mut out_rgsw = M::zeros(rgrg_d_a * 2 + rgrg_d_b * 2, ring_size);
+                    let mut out_rgsw = M::zeros(rgrg_d_a.0 * 2 + rgrg_d_b.0 * 2, ring_size);
                     public_key_encrypt_rgsw(
                         &mut out_rgsw,
                         &encode_x_pow_si_with_emebedding_factor::<
@@ -1147,13 +1158,13 @@ where
                 parameters.rgsw_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
             let rlwe_x_rgsw_decomposer = self.pbs_info().rlwe_rgsw_decomposer();
             let rgsw_x_rgsw_dimension = (
-                rgsw_x_rgsw_decomposer.a().decomposition_count() * 2
-                    + rgsw_x_rgsw_decomposer.b().decomposition_count() * 2,
+                rgsw_x_rgsw_decomposer.a().decomposition_count().0 * 2
+                    + rgsw_x_rgsw_decomposer.b().decomposition_count().0 * 2,
                 rlwe_n,
             );
             let rlwe_x_rgsw_dimension = (
-                rlwe_x_rgsw_decomposer.a().decomposition_count() * 2
-                    + rlwe_x_rgsw_decomposer.b().decomposition_count() * 2,
+                rlwe_x_rgsw_decomposer.a().decomposition_count().0 * 2
+                    + rlwe_x_rgsw_decomposer.b().decomposition_count().0 * 2,
                 rlwe_n,
             );
 
@@ -1213,13 +1224,13 @@ where
                                 rgsw_by_rgsw_inplace(
                                     &mut RgswCiphertextMutRef::new(
                                         rgsw_i.as_mut(),
-                                        rlwe_x_rgsw_decomposer.a().decomposition_count(),
-                                        rlwe_x_rgsw_decomposer.b().decomposition_count(),
+                                        rlwe_x_rgsw_decomposer.a().decomposition_count().0,
+                                        rlwe_x_rgsw_decomposer.b().decomposition_count().0,
                                     ),
                                     &RgswCiphertextRef::new(
                                         other_rgsw_i.as_ref(),
-                                        rgsw_x_rgsw_decomposer.a().decomposition_count(),
-                                        rgsw_x_rgsw_decomposer.b().decomposition_count(),
+                                        rgsw_x_rgsw_decomposer.a().decomposition_count().0,
+                                        rgsw_x_rgsw_decomposer.b().decomposition_count().0,
                                     ),
                                     rlwe_x_rgsw_decomposer,
                                     &rgsw_x_rgsw_decomposer,
@@ -1306,7 +1317,7 @@ where
                 let mut useri_ui_to_s_ksk = share.ui_to_s_ksk().clone();
                 assert!(
                     useri_ui_to_s_ksk.dimension()
-                        == (ni_uj_to_s_decomposer.decomposition_count(), ring_size)
+                        == (ni_uj_to_s_decomposer.decomposition_count().0, ring_size)
                 );
                 key_shares
                     .iter()
@@ -1315,7 +1326,7 @@ where
                         let op2 = other_share.ui_to_s_ksk_zero_encs_for_user_i(share.user_index());
                         assert!(
                             op2.dimension()
-                                == (ni_uj_to_s_decomposer.decomposition_count(), ring_size)
+                                == (ni_uj_to_s_decomposer.decomposition_count().0, ring_size)
                         );
                         izip!(useri_ui_to_s_ksk.iter_rows_mut(), op2.iter_rows()).for_each(
                             |(add_to, add_from)| {
@@ -1341,7 +1352,8 @@ where
                     let mut ksk_prng = DefaultSecureRng::new_seeded(
                         cr_seed.ui_to_s_ks_seed_for_user_i::<DefaultSecureRng>(share.user_index()),
                     );
-                    let mut ais = M::zeros(ni_uj_to_s_decomposer.decomposition_count(), ring_size);
+                    let mut ais =
+                        M::zeros(ni_uj_to_s_decomposer.decomposition_count().0, ring_size);
 
                     ais.iter_rows_mut().for_each(|r_ai| {
                         RandomFillUniformInModulus::random_fill(
@@ -1363,12 +1375,12 @@ where
                 .parameters()
                 .rlwe_rgsw_decomposer::<DefaultDecomposer<M::MatElement>>();
 
-            let d_max = if rgsw_x_rgsw_decomposer.a().decomposition_count()
-                > rgsw_x_rgsw_decomposer.b().decomposition_count()
+            let d_max = if rgsw_x_rgsw_decomposer.a().decomposition_count().0
+                > rgsw_x_rgsw_decomposer.b().decomposition_count().0
             {
-                rgsw_x_rgsw_decomposer.a().decomposition_count()
+                rgsw_x_rgsw_decomposer.a().decomposition_count().0
             } else {
-                rgsw_x_rgsw_decomposer.b().decomposition_count()
+                rgsw_x_rgsw_decomposer.b().decomposition_count().0
             };
 
             let mut scratch_rgsw_x_rgsw = M::zeros(
@@ -1416,19 +1428,19 @@ where
                             );
 
                             let mut scratch = M::R::zeros(self.parameters().rlwe_n().0);
-                            (0..d_max - rgsw_x_rgsw_decomposer.b().decomposition_count()).for_each(
-                                |_| {
+                            (0..d_max - rgsw_x_rgsw_decomposer.b().decomposition_count().0)
+                                .for_each(|_| {
                                     RandomFillUniformInModulus::random_fill(
                                         &mut a_prng,
                                         rlwe_q,
                                         scratch.as_mut(),
                                     );
-                                },
-                            );
+                                });
 
                             let decomp_neg_ais = (0..rgsw_x_rgsw_decomposer
                                 .b()
-                                .decomposition_count())
+                                .decomposition_count()
+                                .0)
                                 .map(|_| {
                                     RandomFillUniformInModulus::random_fill(
                                         &mut a_prng,
@@ -1438,7 +1450,7 @@ where
                                     rlwe_modop.elwise_neg_mut(scratch.as_mut());
 
                                     let mut decomp_neg_ai = M::zeros(
-                                        ni_uj_to_s_decomposer.decomposition_count(),
+                                        ni_uj_to_s_decomposer.decomposition_count().0,
                                         self.parameters().rlwe_n().0,
                                     );
                                     scratch.as_ref().iter().enumerate().for_each(|(index, el)| {
@@ -1468,7 +1480,8 @@ where
                             // prepare for key switching
                             let ni_rgsw_zero_encs = (0..rgsw_x_rgsw_decomposer
                                 .a()
-                                .decomposition_count())
+                                .decomposition_count()
+                                .0)
                                 .map(|i| {
                                     let mut sum = M::R::zeros(self.parameters().rlwe_n().0);
                                     key_shares.iter().for_each(|k| {
@@ -1481,7 +1494,7 @@ where
 
                                     // decompose
                                     let mut decomp_sum = M::zeros(
-                                        ni_uj_to_s_decomposer.decomposition_count(),
+                                        ni_uj_to_s_decomposer.decomposition_count().0,
                                         self.parameters().rlwe_n().0,
                                     );
                                     sum.as_ref().iter().enumerate().for_each(|(index, el)| {
@@ -1513,9 +1526,13 @@ where
                                 &ni_rgsw_zero_encs[rgsw_x_rgsw_decomposer
                                     .a()
                                     .decomposition_count()
-                                    - rlwe_x_rgsw_decomposer.a().decomposition_count()..],
-                                &decomp_neg_ais[rgsw_x_rgsw_decomposer.b().decomposition_count()
-                                    - rlwe_x_rgsw_decomposer.b().decomposition_count()..],
+                                    .0
+                                    - rlwe_x_rgsw_decomposer.a().decomposition_count().0..],
+                                &decomp_neg_ais[rgsw_x_rgsw_decomposer
+                                    .b()
+                                    .decomposition_count()
+                                    .0
+                                    - rlwe_x_rgsw_decomposer.b().decomposition_count().0..],
                                 &rlwe_x_rgsw_decomposer,
                                 self.parameters(),
                                 (&uj_to_s_ksks[user_id], &uj_to_s_ksks_part_a_eval[user_id]),
@@ -1551,13 +1568,13 @@ where
                                     rgsw_by_rgsw_inplace(
                                         &mut RgswCiphertextMutRef::new(
                                             rgsw_i.as_mut(),
-                                            rlwe_x_rgsw_decomposer.a().decomposition_count(),
-                                            rlwe_x_rgsw_decomposer.b().decomposition_count(),
+                                            rlwe_x_rgsw_decomposer.a().decomposition_count().0,
+                                            rlwe_x_rgsw_decomposer.b().decomposition_count().0,
                                         ),
                                         &RgswCiphertextRef::new(
                                             other_rgsw_i.as_ref(),
-                                            rgsw_x_rgsw_decomposer.a().decomposition_count(),
-                                            rgsw_x_rgsw_decomposer.b().decomposition_count(),
+                                            rgsw_x_rgsw_decomposer.a().decomposition_count().0,
+                                            rgsw_x_rgsw_decomposer.b().decomposition_count().0,
                                         ),
                                         &rlwe_x_rgsw_decomposer,
                                         &rgsw_x_rgsw_decomposer,
@@ -1719,12 +1736,12 @@ where
 
             // We assume that d_{a/b} for RGSW x RGSW are always < d'_{a/b} for RLWE x RGSW
             assert!(
-                rlwe_x_rgsw_decomposer.a().decomposition_count()
-                    < rgsw_x_rgsw_decomposer.a().decomposition_count()
+                rlwe_x_rgsw_decomposer.a().decomposition_count().0
+                    < rgsw_x_rgsw_decomposer.a().decomposition_count().0
             );
             assert!(
-                rlwe_x_rgsw_decomposer.b().decomposition_count()
-                    < rgsw_x_rgsw_decomposer.b().decomposition_count()
+                rlwe_x_rgsw_decomposer.b().decomposition_count().0
+                    < rgsw_x_rgsw_decomposer.b().decomposition_count().0
             );
 
             let sj_poly_eval = {
@@ -1733,8 +1750,8 @@ where
                 s
             };
 
-            let d_rgsw_a = rgsw_x_rgsw_decomposer.a().decomposition_count();
-            let d_rgsw_b = rgsw_x_rgsw_decomposer.b().decomposition_count();
+            let d_rgsw_a = rgsw_x_rgsw_decomposer.a().decomposition_count().0;
+            let d_rgsw_b = rgsw_x_rgsw_decomposer.b().decomposition_count().0;
             let d_max = std::cmp::max(d_rgsw_a, d_rgsw_b);
 
             // Zero encyptions for each LWE index. We generate d_a zero encryptions for each
@@ -1809,13 +1826,14 @@ where
             // RGSW multiplication. We refer to such indices as where user is
             // not the leader.
             let self_leader_ni_rgsw_cts = {
-                let max_rlwe_x_rgsw_decomposer = if rlwe_x_rgsw_decomposer.a().decomposition_count()
-                    > rlwe_x_rgsw_decomposer.b().decomposition_count()
-                {
-                    rlwe_x_rgsw_decomposer.a()
-                } else {
-                    rlwe_x_rgsw_decomposer.b()
-                };
+                let max_rlwe_x_rgsw_decomposer =
+                    if rlwe_x_rgsw_decomposer.a().decomposition_count().0
+                        > rlwe_x_rgsw_decomposer.b().decomposition_count().0
+                    {
+                        rlwe_x_rgsw_decomposer.a()
+                    } else {
+                        rlwe_x_rgsw_decomposer.b()
+                    };
 
                 let gadget_vec = max_rlwe_x_rgsw_decomposer.gadget_vector();
 
@@ -1828,7 +1846,7 @@ where
                         // puncture p_rng d_max - d'_max time to align with `a_{i, l}`s used to
                         // produce RGSW cts for RGSW x RGSW
                         let mut scratch = M::R::zeros(self.parameters().rlwe_n().0);
-                        (0..(d_max - max_rlwe_x_rgsw_decomposer.decomposition_count()))
+                        (0..(d_max - max_rlwe_x_rgsw_decomposer.decomposition_count().0))
                             .into_iter()
                             .for_each(|_| {
                                 RandomFillUniformInModulus::random_fill(
@@ -1839,7 +1857,7 @@ where
                             });
 
                         let mut ni_rgsw_cts = M::zeros(
-                            max_rlwe_x_rgsw_decomposer.decomposition_count(),
+                            max_rlwe_x_rgsw_decomposer.decomposition_count().0,
                             self.parameters().rlwe_n().0,
                         );
 
@@ -1891,13 +1909,14 @@ where
             };
 
             let not_self_leader_rgsw_cts = {
-                let max_rgsw_x_rgsw_decomposer = if rgsw_x_rgsw_decomposer.a().decomposition_count()
-                    > rgsw_x_rgsw_decomposer.b().decomposition_count()
-                {
-                    rgsw_x_rgsw_decomposer.a()
-                } else {
-                    rgsw_x_rgsw_decomposer.b()
-                };
+                let max_rgsw_x_rgsw_decomposer =
+                    if rgsw_x_rgsw_decomposer.a().decomposition_count().0
+                        > rgsw_x_rgsw_decomposer.b().decomposition_count().0
+                    {
+                        rgsw_x_rgsw_decomposer.a()
+                    } else {
+                        rgsw_x_rgsw_decomposer.b()
+                    };
                 let gadget_vec = max_rgsw_x_rgsw_decomposer.gadget_vector();
 
                 ((0..self_start_index).chain(self_end_index..self.parameters().lwe_n().0))
@@ -1906,7 +1925,7 @@ where
                             cr_seed.ni_rgsw_ct_seed_for_index::<DefaultSecureRng>(lwe_index),
                         );
                         let mut ni_rgsw_cts = M::zeros(
-                            max_rgsw_x_rgsw_decomposer.decomposition_count(),
+                            max_rgsw_x_rgsw_decomposer.decomposition_count().0,
                             self.parameters().rlwe_n().0,
                         );
                         let mut scratch = M::R::zeros(self.parameters().rlwe_n().0);
@@ -2014,7 +2033,7 @@ where
                 };
 
                 let mut ksk_out = M::zeros(
-                    self.pbs_info.auto_decomposer.decomposition_count(),
+                    self.pbs_info.auto_decomposer.decomposition_count().0,
                     ring_size,
                 );
                 seeded_auto_key_gen(

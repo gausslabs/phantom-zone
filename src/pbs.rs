@@ -244,9 +244,9 @@ fn blind_rotation<
     let mut is_trivial = true;
     let mut scratch_matrix = RuntimeScratchMutRef::new(scratch_matrix.as_mut());
     let mut rlwe = RlweCiphertextMutRef::new(trivial_rlwe_test_poly.as_mut());
-    let d_a = rlwe_rgsw_decomposer.a().decomposition_count();
-    let d_b = rlwe_rgsw_decomposer.b().decomposition_count();
-    let d_auto = auto_decomposer.decomposition_count();
+    let d_a = rlwe_rgsw_decomposer.a().decomposition_count().0;
+    let d_b = rlwe_rgsw_decomposer.b().decomposition_count().0;
+    let d_auto = auto_decomposer.decomposition_count().0;
 
     let q_by_4 = q >> 2;
     let mut count = 0;

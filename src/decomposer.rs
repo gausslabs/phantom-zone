@@ -1,8 +1,13 @@
-use itertools::{izip, Itertools};
+use itertools::{assert_equal, izip, Itertools};
 use num_traits::{FromPrimitive, PrimInt, ToPrimitive, WrappingAdd, WrappingSub};
 use std::fmt::{Debug, Display};
 
-use crate::backend::ArithmeticOps;
+use crate::{
+    backend::ArithmeticOps,
+    parameters::{
+        DecompositionCount, DecompostionLogBase, DoubleDecomposerParams, SingleDecomposerParams,
+    },
+};
 
 fn gadget_vector<T: PrimInt>(logq: usize, logb: usize, d: usize) -> Vec<T> {
     assert!(logq >= (logb * d));
@@ -38,6 +43,41 @@ where
     }
 }
 
+impl<D> DoubleDecomposerParams for D
+where
+    D: RlweDecomposer,
+{
+    type Base = DecompostionLogBase;
+    type Count = DecompositionCount;
+
+    fn decomposition_base(&self) -> Self::Base {
+        assert!(
+            Decomposer::decomposition_base(self.a()) == Decomposer::decomposition_base(self.b())
+        );
+        Decomposer::decomposition_base(self.a())
+    }
+    fn decomposition_count_a(&self) -> Self::Count {
+        Decomposer::decomposition_count(self.a())
+    }
+    fn decomposition_count_b(&self) -> Self::Count {
+        Decomposer::decomposition_count(self.b())
+    }
+}
+
+impl<D> SingleDecomposerParams for D
+where
+    D: Decomposer,
+{
+    type Base = DecompostionLogBase;
+    type Count = DecompositionCount;
+    fn decomposition_base(&self) -> Self::Base {
+        Decomposer::decomposition_base(self)
+    }
+    fn decomposition_count(&self) -> Self::Count {
+        Decomposer::decomposition_count(self)
+    }
+}
+
 pub trait Decomposer {
     type Element;
     type Iter: Iterator<Item = Self::Element>;
@@ -45,7 +85,8 @@ pub trait Decomposer {
 
     fn decompose_to_vec(&self, v: &Self::Element) -> Vec<Self::Element>;
     fn decompose_iter(&self, v: &Self::Element) -> Self::Iter;
-    fn decomposition_count(&self) -> usize;
+    fn decomposition_count(&self) -> DecompositionCount;
+    fn decomposition_base(&self) -> DecompostionLogBase;
     fn gadget_vector(&self) -> Vec<Self::Element>;
 }
 
@@ -169,8 +210,12 @@ impl<
         return out;
     }
 
-    fn decomposition_count(&self) -> usize {
-        self.d
+    fn decomposition_count(&self) -> DecompositionCount {
+        DecompositionCount(self.d)
+    }
+
+    fn decomposition_base(&self) -> DecompostionLogBase {
+        DecompostionLogBase(self.logb)
     }
 
     fn decompose_iter(&self, value: &T) -> DecomposerIter<T> {

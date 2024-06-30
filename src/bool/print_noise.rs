@@ -128,7 +128,7 @@ where
             rlwe_modop.elwise_neg_mut(neg_s_eval.as_mut());
             rlwe_nttop.forward(neg_s_eval.as_mut());
 
-            for j in 0..rlwe_x_rgsw_decomposer.a().decomposition_count() {
+            for j in 0..rlwe_x_rgsw_decomposer.a().decomposition_count().0 {
                 // RLWE(B^{j} * -s[X]*X^{s_lwe[i]})
 
                 // -s[X]*X^{s_lwe[i]}*B_j
@@ -144,7 +144,7 @@ where
                     .get_row_mut(0)
                     .copy_from_slice(rgsw_ct_i.get_row_slice(j));
                 rlwe_ct.get_row_mut(1).copy_from_slice(
-                    rgsw_ct_i.get_row_slice(j + rlwe_x_rgsw_decomposer.a().decomposition_count()),
+                    rgsw_ct_i.get_row_slice(j + rlwe_x_rgsw_decomposer.a().decomposition_count().0),
                 );
                 // RGSW ciphertexts are in eval domain. We put RLWE ciphertexts back in
                 // coefficient domain
@@ -170,7 +170,7 @@ where
             }
 
             // RLWE'(m)
-            for j in 0..rlwe_x_rgsw_decomposer.b().decomposition_count() {
+            for j in 0..rlwe_x_rgsw_decomposer.b().decomposition_count().0 {
                 // RLWE(B^{j} * X^{s_lwe[i]})
 
                 // X^{s_lwe[i]}*B_j
@@ -180,14 +180,15 @@ where
                 // RLWE(X^{s_lwe[i]}*B_j)
                 let mut rlwe_ct = M::zeros(2, rlwe_n);
                 rlwe_ct.get_row_mut(0).copy_from_slice(
-                    rgsw_ct_i
-                        .get_row_slice(j + (2 * rlwe_x_rgsw_decomposer.a().decomposition_count())),
+                    rgsw_ct_i.get_row_slice(
+                        j + (2 * rlwe_x_rgsw_decomposer.a().decomposition_count().0),
+                    ),
                 );
                 rlwe_ct
                     .get_row_mut(1)
                     .copy_from_slice(rgsw_ct_i.get_row_slice(
-                        j + (2 * rlwe_x_rgsw_decomposer.a().decomposition_count())
-                            + rlwe_x_rgsw_decomposer.b().decomposition_count(),
+                        j + (2 * rlwe_x_rgsw_decomposer.a().decomposition_count().0)
+                            + rlwe_x_rgsw_decomposer.b().decomposition_count().0,
                     ));
                 rlwe_ct
                     .iter_rows_mut()
@@ -290,7 +291,7 @@ where
                 &mut RlweCiphertextMutRef::new(rlwe.as_mut()),
                 &RlweKskRef::new(
                     server_key.galois_key_for_auto(*k).as_ref(),
-                    auto_decomposer.decomposition_count(),
+                    auto_decomposer.decomposition_count().0,
                 ),
                 &mut scratch_matrix_ref,
                 &auto_index_map,

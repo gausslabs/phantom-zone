@@ -54,7 +54,7 @@ pub(crate) mod tests {
             modulus: Mod,
         ) -> Self {
             SeededAutoKey {
-                data: M::zeros(auto_decomposer.decomposition_count(), ring_size),
+                data: M::zeros(auto_decomposer.decomposition_count().0, ring_size),
                 seed,
                 modulus,
             }
@@ -125,12 +125,12 @@ pub(crate) mod tests {
         ) -> RgswCiphertext<M, Mod> {
             RgswCiphertext {
                 data: M::zeros(
-                    decomposer.a().decomposition_count() * 2
-                        + decomposer.b().decomposition_count() * 2,
+                    decomposer.a().decomposition_count().0 * 2
+                        + decomposer.b().decomposition_count().0 * 2,
                     ring_size,
                 ),
-                d_a: decomposer.a().decomposition_count(),
-                d_b: decomposer.b().decomposition_count(),
+                d_a: decomposer.a().decomposition_count().0,
+                d_b: decomposer.b().decomposition_count().0,
                 modulus,
             }
         }
@@ -158,13 +158,14 @@ pub(crate) mod tests {
         ) -> SeededRgswCiphertext<M, S, Mod> {
             SeededRgswCiphertext {
                 data: M::zeros(
-                    decomposer.a().decomposition_count() * 2 + decomposer.b().decomposition_count(),
+                    decomposer.a().decomposition_count().0 * 2
+                        + decomposer.b().decomposition_count().0,
                     ring_size,
                 ),
                 seed,
                 modulus,
-                d_a: decomposer.a().decomposition_count(),
-                d_b: decomposer.b().decomposition_count(),
+                d_a: decomposer.a().decomposition_count().0,
+                d_b: decomposer.b().decomposition_count().0,
             }
         }
     }
@@ -613,13 +614,13 @@ pub(crate) mod tests {
                 &mut RlweCiphertextMutRef::new(rlwe_in_ct_shoup.as_mut()),
                 &RgswCiphertextRef::new(
                     rgsw_ct.data.as_ref(),
-                    decomposer.a().decomposition_count(),
-                    decomposer.b().decomposition_count(),
+                    decomposer.a().decomposition_count().0,
+                    decomposer.b().decomposition_count().0,
                 ),
                 &RgswCiphertextRef::new(
                     rgsw_ct_shoup.as_ref(),
-                    decomposer.a().decomposition_count(),
-                    decomposer.b().decomposition_count(),
+                    decomposer.a().decomposition_count().0,
+                    decomposer.b().decomposition_count().0,
                 ),
                 &mut RuntimeScratchMutRef::new(scratch_space.as_mut()),
                 &decomposer,
@@ -637,8 +638,8 @@ pub(crate) mod tests {
                 &mut RlweCiphertextMutRef::new(rlwe_in_ct.data.as_mut()),
                 &RgswCiphertextRef::new(
                     rgsw_ct.data.as_ref(),
-                    decomposer.a().decomposition_count(),
-                    decomposer.b().decomposition_count(),
+                    decomposer.a().decomposition_count().0,
+                    decomposer.b().decomposition_count().0,
                 ),
                 &mut RuntimeScratchMutRef::new(scratch_space.as_mut()),
                 &decomposer,
@@ -760,8 +761,8 @@ pub(crate) mod tests {
             let mut rlwe_m_shoup = rlwe_m.data.clone();
             rlwe_auto_shoup(
                 &mut RlweCiphertextMutRef::new(&mut rlwe_m_shoup),
-                &RlweKskRef::new(&auto_key.data, decomposer.decomposition_count()),
-                &RlweKskRef::new(&auto_key_shoup, decomposer.decomposition_count()),
+                &RlweKskRef::new(&auto_key.data, decomposer.decomposition_count().0),
+                &RlweKskRef::new(&auto_key_shoup, decomposer.decomposition_count().0),
                 &mut RuntimeScratchMutRef::new(&mut scratch_space),
                 &auto_map_index,
                 &auto_map_sign,
@@ -777,7 +778,7 @@ pub(crate) mod tests {
         {
             rlwe_auto(
                 &mut RlweCiphertextMutRef::new(rlwe_m.data.as_mut()),
-                &RlweKskRef::new(auto_key.data.as_ref(), decomposer.decomposition_count()),
+                &RlweKskRef::new(auto_key.data.as_ref(), decomposer.decomposition_count().0),
                 &mut RuntimeScratchMutRef::new(scratch_space.as_mut()),
                 &auto_map_index,
                 &auto_map_sign,
@@ -925,8 +926,8 @@ pub(crate) mod tests {
             DefaultDecomposer::new(q, logb, d_rgsw),
         );
 
-        let d_a = decomposer.a().decomposition_count();
-        let d_b = decomposer.b().decomposition_count();
+        let d_a = decomposer.a().decomposition_count().0;
+        let d_b = decomposer.b().decomposition_count().0;
 
         let mul_mod = |a: &u64, b: &u64| ((*a as u128 * *b as u128) % q as u128) as u64;
 
