@@ -27,13 +27,10 @@ static MULTI_PARTY_CRS: OnceLock<MultiPartyCrs<[u8; 32]>> = OnceLock::new();
 
 pub fn set_parameter_set(select: ParameterSelector) {
     match select {
-        ParameterSelector::MultiPartyLessThanOrEqualTo16 => {
-            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(SMALL_MP_BOOL_PARAMS)));
+        ParameterSelector::InteractiveLTE2Party => {
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(I_2P)));
         }
-        ParameterSelector::HighCommunicationButFast2Party => {
-            BOOL_EVALUATOR
-                .with_borrow_mut(|v| *v = Some(BoolEvaluator::new(OPTIMISED_SMALL_MP_BOOL_PARAMS)));
-        }
+
         _ => {
             panic!("Paramerters not supported")
         }
@@ -65,7 +62,7 @@ pub fn gen_mp_keys_phase2<R, ModOp>(
     user_id: usize,
     total_users: usize,
     pk: &PublicKey<Vec<Vec<u64>>, R, ModOp>,
-) -> CommonReferenceSeededMultiPartyServerKeyShare<
+) -> CommonReferenceSeededInteractiveMultiPartyServerKeyShare<
     Vec<Vec<u64>>,
     BoolParameters<u64>,
     MultiPartyCrs<[u8; 32]>,
@@ -93,17 +90,18 @@ pub fn aggregate_public_key_shares(
 }
 
 pub fn aggregate_server_key_shares(
-    shares: &[CommonReferenceSeededMultiPartyServerKeyShare<
+    shares: &[CommonReferenceSeededInteractiveMultiPartyServerKeyShare<
         Vec<Vec<u64>>,
         BoolParameters<u64>,
         MultiPartyCrs<[u8; 32]>,
     >],
-) -> SeededMultiPartyServerKey<Vec<Vec<u64>>, MultiPartyCrs<[u8; 32]>, BoolParameters<u64>> {
+) -> SeededInteractiveMultiPartyServerKey<Vec<Vec<u64>>, MultiPartyCrs<[u8; 32]>, BoolParameters<u64>>
+{
     BoolEvaluator::with_local(|e| e.aggregate_multi_party_server_key_shares(shares))
 }
 
 impl
-    SeededMultiPartyServerKey<
+    SeededInteractiveMultiPartyServerKey<
         Vec<Vec<u64>>,
         MultiPartyCrs<<DefaultSecureRng as NewWithSeed>::Seed>,
         BoolParameters<u64>,
@@ -256,7 +254,7 @@ mod tests {
 
     #[test]
     fn multi_party_bool_gates() {
-        set_parameter_set(ParameterSelector::HighCommunicationButFast2Party);
+        set_parameter_set(ParameterSelector::InteractiveLTE2Party);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
         set_mp_seed(seed);
@@ -349,7 +347,7 @@ mod tests {
 
         use crate::{
             backend::ModulusPowerOf2, evaluator::BoolEncoding, pbs::PbsInfo,
-            rgsw::secret_key_encrypt_rlwe, utils::WithLocal, Decryptor, ModularOpsU64,
+            rgsw::seeded_secret_key_encrypt_rlwe, utils::WithLocal, Decryptor, ModularOpsU64,
             NttBackendU64, SampleExtractor,
         };
 
@@ -441,8 +439,7 @@ mod tests {
 
                                 // encrypt message
                                 let mut rlwe_out = vec![0u64; parameters.rlwe_n().0];
-
-                                secret_key_encrypt_rlwe(
+                                seeded_secret_key_encrypt_rlwe(
                                     &message,
                                     &mut rlwe_out,
                                     &sk_u,

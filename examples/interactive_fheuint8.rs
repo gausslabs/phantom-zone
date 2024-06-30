@@ -11,8 +11,8 @@ fn fhe_circuit(fhe_a: &FheUint8, fhe_b: &FheUint8, fhe_c: &FheUint8) -> FheUint8
 }
 
 fn main() {
-    set_parameter_set(ParameterSelector::MultiPartyLessThanOrEqualTo16);
-    let no_of_parties = 8;
+    set_parameter_set(ParameterSelector::InteractiveLTE2Party);
+    let no_of_parties = 2;
     let client_keys = (0..no_of_parties)
         .into_iter()
         .map(|_| gen_client_key())

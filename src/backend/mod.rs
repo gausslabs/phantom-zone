@@ -1,6 +1,6 @@
 use num_traits::ToPrimitive;
 
-use crate::Row;
+use crate::{utils::log2, Row};
 
 mod modulus_u64;
 mod power_of_2;
@@ -13,6 +13,8 @@ pub trait Modulus {
     type Element;
     /// Modulus value if it fits in Element
     fn q(&self) -> Option<Self::Element>;
+    /// Log2 of `q`
+    fn log_q(&self) -> usize;
     /// Modulus value as f64 if it fits in f64
     fn q_as_f64(&self) -> Option<f64>;
     /// Is modulus native?
@@ -35,7 +37,7 @@ pub trait Modulus {
 impl Modulus for u64 {
     type Element = u64;
     fn is_native(&self) -> bool {
-        // q of size u64 can never be a naitve modulus
+        // q that fits in u64 can never be a native modulus
         false
     }
     fn largest_unsigned_value(&self) -> Self::Element {
@@ -56,21 +58,22 @@ impl Modulus for u64 {
         }
     }
     fn map_element_from_f64(&self, v: f64) -> Self::Element {
-        //FIXME (Jay): Before I check whether v is smaller than 0 with `let is_neg =
-        // o.is_sign_negative() && o != 0.0; I'm ocnfused why didn't I simply check <
-        // 0.0?
         let v = v.round();
+        let v_u64 = v.abs().to_u64().unwrap();
+        assert!(v_u64 <= self.largest_unsigned_value());
         if v < 0.0 {
-            self - v.abs().to_u64().unwrap()
+            self - v_u64
         } else {
-            v.to_u64().unwrap()
+            v_u64
         }
     }
     fn map_element_from_i64(&self, v: i64) -> Self::Element {
+        let v_u64 = v.abs().to_u64().unwrap();
+        assert!(v_u64 <= self.largest_unsigned_value());
         if v < 0 {
-            self - v.abs().to_u64().unwrap()
+            self - v_u64
         } else {
-            v.to_u64().unwrap()
+            v_u64
         }
     }
     fn q(&self) -> Option<Self::Element> {
@@ -78,6 +81,9 @@ impl Modulus for u64 {
     }
     fn q_as_f64(&self) -> Option<f64> {
         self.to_f64()
+    }
+    fn log_q(&self) -> usize {
+        log2(&self.q().unwrap())
     }
 }
 

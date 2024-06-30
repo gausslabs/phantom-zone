@@ -7,6 +7,7 @@ use crate::{
     parameters::{
         DecompositionCount, DecompostionLogBase, DoubleDecomposerParams, SingleDecomposerParams,
     },
+    utils::log2,
 };
 
 fn gadget_vector<T: PrimInt>(logq: usize, logb: usize, d: usize) -> Vec<T> {
@@ -156,12 +157,7 @@ impl<
 
     fn new(q: T, logb: usize, d: usize) -> DefaultDecomposer<T> {
         // if q is power of 2, then `BITS - leading_zeros` outputs logq + 1.
-        let logq = if q & (q - T::one()) == T::zero() {
-            (T::BITS - q.leading_zeros() - 1) as usize
-        } else {
-            (T::BITS - q.leading_zeros()) as usize
-        };
-
+        let logq = log2(&q);
         assert!(
             logq >= (logb * d),
             "Decomposer wants logq >= logb*d but got logq={logq}, logb={logb}, d={d}"

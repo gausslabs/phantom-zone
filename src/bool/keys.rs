@@ -1,17 +1,14 @@
-use std::{collections::HashMap, hash::Hash, marker::PhantomData};
+use std::{collections::HashMap, marker::PhantomData};
 
 use crate::{
     backend::{ModInit, VectorOps},
     pbs::WithShoupRepr,
     random::{NewWithSeed, RandomFillUniformInModulus},
-    utils::{ToShoup, WithLocal},
-    Decryptor, Encryptor, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor, RowEntity, RowMut,
+    utils::ToShoup,
+    Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut, SizeInBitsWithLogModulus,
 };
 
-use super::{
-    evaluator::BoolEvaluator,
-    parameters::{BoolParameters, CiphertextModulus},
-};
+use super::parameters::{BoolParameters, CiphertextModulus};
 
 pub(crate) trait SinglePartyClientKey {
     type Element;
@@ -48,7 +45,7 @@ pub(crate) trait NonInteractiveMultiPartyClientKey {
 ///                   interactive/non-interactive multi-party
 ///
 ///     Puncture 3 -> Seed of RLWE secret used as `u` in
-///                   interactive/non-interactive multi-party.
+///                   non-interactive multi-party.
 #[derive(Clone)]
 pub struct ClientKey<S, E> {
     seed: S,
@@ -143,8 +140,6 @@ pub struct PublicKey<M, Rng, ModOp> {
 }
 
 pub(super) mod impl_pk {
-    use crate::evaluator::MultiPartyCrs;
-
     use super::*;
 
     impl<M, R, Mo> PublicKey<M, R, Mo> {
@@ -296,8 +291,11 @@ mod impl_seeded_pk {
 
 /// CRS seeded collective public key share
 pub struct CommonReferenceSeededCollectivePublicKeyShare<Ro, S, P> {
+    /// Public key share polynomial
     share: Ro,
+    /// Common reference seed
     cr_seed: S,
+    /// Parameters
     parameters: P,
 }
 impl<Ro, S, P> CommonReferenceSeededCollectivePublicKeyShare<Ro, S, P> {
@@ -310,21 +308,36 @@ impl<Ro, S, P> CommonReferenceSeededCollectivePublicKeyShare<Ro, S, P> {
     }
 }
 
-/// CRS seeded Multi-party server key share
-pub struct CommonReferenceSeededMultiPartyServerKeyShare<M: Matrix, P, S> {
+/// Common reference seed seeded interactive multi-party server key share
+pub struct CommonReferenceSeededInteractiveMultiPartyServerKeyShare<M: Matrix, P, S> {
+    /// Public key encrypted RGSW(m = X^{s[i]}) ciphertexts for LWE secret
+    /// indices for which `Self` is the leader. Note that when `Self` is
+    /// leader RGSW ciphertext is encrypted using RLWE x RGSW decomposer
     self_leader_rgsws: Vec<M>,
+    /// Public key encrypted RGSW(m = X^{s[i]}) ciphertext for LWE secret
+    /// indices for which `Self` is `not` the leader. Note that when `Self`
+    /// is not the leader RGSW ciphertext is encrypted using RGSW1
+    /// decomposer for RGSW0 x RGSW1
     not_self_leader_rgsws: Vec<M>,
-    /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
-    /// to -g is at 0
+    /// Auto key shares for auto elements [g^{-1}, g, g^2, .., g^{w}] where `w`
+    /// is the window size parameter. Share corresponding to auto element g^{-1}
+    /// is stored at key `0` and share corresponding to auto element g^{k} is
+    /// stored at key `k`.
     auto_keys: HashMap<usize, M>,
+    /// LWE key switching key share to key switching ciphertext LWE_{q, s}(m) to
+    /// LWE_{q, z}(m) where q is LWE ciphertext modulus, `s` is the ideal RLWE
+    /// secret with dimension N, and `z` is the ideal LWE secret of dimension n.
     lwe_ksk: M::R,
     /// Common reference seed
     cr_seed: S,
     parameters: P,
+    /// User id assigned by the server.
+    ///
+    /// User id must be unique and  a number in range [0, total_users)
     user_id: usize,
 }
 
-impl<M: Matrix, P, S> CommonReferenceSeededMultiPartyServerKeyShare<M, P, S> {
+impl<M: Matrix, P, S> CommonReferenceSeededInteractiveMultiPartyServerKeyShare<M, P, S> {
     pub(super) fn new(
         self_leader_rgsws: Vec<M>,
         not_self_leader_rgsws: Vec<M>,
@@ -334,7 +347,7 @@ impl<M: Matrix, P, S> CommonReferenceSeededMultiPartyServerKeyShare<M, P, S> {
         parameters: P,
         user_id: usize,
     ) -> Self {
-        CommonReferenceSeededMultiPartyServerKeyShare {
+        CommonReferenceSeededInteractiveMultiPartyServerKeyShare {
             self_leader_rgsws,
             not_self_leader_rgsws,
             auto_keys,
@@ -374,18 +387,26 @@ impl<M: Matrix, P, S> CommonReferenceSeededMultiPartyServerKeyShare<M, P, S> {
     }
 }
 
-/// CRS seeded MultiParty server key
-pub struct SeededMultiPartyServerKey<M: Matrix, S, P> {
+/// Common reference seeded interactive multi-party server key
+pub struct SeededInteractiveMultiPartyServerKey<M: Matrix, S, P> {
+    /// RGSW ciphertexts RGSW(X^{s[i]}) encrypted under ideal RLWE secret key
+    /// where `s` is ideal LWE secret key for each LWE secret dimension.
     rgsw_cts: Vec<M>,
-    /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
-    /// to -g is at 0
+    /// Seeded auto keys under ideal RLWE secret for RLWE automorphisms with
+    /// auto elements [g^-1, g, g^2,..., g^{w}]. Auto key corresponidng to
+    /// auto element g^{-1} is stored at key `0` and key corresponding to auto
+    /// element g^{k} is stored at key `k`
     auto_keys: HashMap<usize, M>,
+    /// Seeded LWE key switching key under ideal LWE secret to switch LWE_{q,
+    /// s}(m) to LWE_{q, z}(m) where s is ideal RLWE secret and z is ideal LWE
+    /// secret.
     lwe_ksk: M::R,
+    /// Common reference seed
     cr_seed: S,
     parameters: P,
 }
 
-impl<M: Matrix, S, P> SeededMultiPartyServerKey<M, S, P> {
+impl<M: Matrix, S, P> SeededInteractiveMultiPartyServerKey<M, S, P> {
     pub(super) fn new(
         rgsw_cts: Vec<M>,
         auto_keys: HashMap<usize, M>,
@@ -393,7 +414,7 @@ impl<M: Matrix, S, P> SeededMultiPartyServerKey<M, S, P> {
         cr_seed: S,
         parameters: P,
     ) -> Self {
-        SeededMultiPartyServerKey {
+        SeededInteractiveMultiPartyServerKey {
             rgsw_cts,
             auto_keys,
             lwe_ksk,
@@ -461,12 +482,12 @@ impl<M: Matrix, S> SeededSinglePartyServerKey<M, BoolParameters<M::MatElement>, 
 
 /// Server key in evaluation domain
 pub(crate) struct ServerKeyEvaluationDomain<M, P, R, N> {
-    /// Rgsw cts of LWE secret elements
+    /// RGSW ciphertext RGSW(X^{s[i]}) for each LWE index in evaluation domain
     rgsw_cts: Vec<M>,
-    /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
-    /// to -g is at 0
+    /// Auto keys for all auto elements [g^{-1}, g, g^2,..., g^w] in evaluation
+    /// domain
     galois_keys: HashMap<usize, M>,
-    /// LWE ksk to key switching LWE ciphertext from RLWE secret to LWE secret
+    /// LWE key switching key to key switch LWE_{q, s}(m) to LWE_{q, z}(m)
     lwe_ksk: M,
     parameters: P,
     _phanton: PhantomData<(R, N)>,
@@ -627,8 +648,13 @@ pub(super) mod impl_server_key_eval_domain {
             Rng: NewWithSeed,
             N: NttInit<CiphertextModulus<M::MatElement>> + Ntt<Element = M::MatElement>,
         >
-        From<&SeededMultiPartyServerKey<M, MultiPartyCrs<Rng::Seed>, BoolParameters<M::MatElement>>>
-        for ServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, Rng, N>
+        From<
+            &SeededInteractiveMultiPartyServerKey<
+                M,
+                MultiPartyCrs<Rng::Seed>,
+                BoolParameters<M::MatElement>,
+            >,
+        > for ServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, Rng, N>
     where
         <M as Matrix>::R: RowMut,
         Rng::Seed: Copy + Default,
@@ -637,7 +663,7 @@ pub(super) mod impl_server_key_eval_domain {
         M::MatElement: Copy,
     {
         fn from(
-            value: &SeededMultiPartyServerKey<
+            value: &SeededInteractiveMultiPartyServerKey<
                 M,
                 MultiPartyCrs<Rng::Seed>,
                 BoolParameters<M::MatElement>,
@@ -767,15 +793,21 @@ pub(super) mod impl_server_key_eval_domain {
     }
 }
 
+/// Non-interactive multi-party server key in evaluation domain.
+///
+/// The key is derived from Seeded non-interactive mmulti-party server key
+/// `SeededNonInteractiveMultiPartyServerKey`.
 pub(crate) struct NonInteractiveServerKeyEvaluationDomain<M, P, R, N> {
-    /// RGSW ciphertexts ideal lwe secret key elements under ideal rlwe secret
+    /// RGSW ciphertexts RGSW(X^{s[i]}) under ideal RLWE secret key in
+    /// evaluation domain
     rgsw_cts: Vec<M>,
-    /// Automorphism keys under ideal rlwe secret
+    /// Auto keys for all auto elements [g^{-1}, g, g^2, g^w] in evaluation
+    /// domain
     auto_keys: HashMap<usize, M>,
-    /// LWE key switching key from Q -> Q_{ks}
+    /// LWE key switching key to key switch LWE_{q, s}(m) to LWE_{q, z}(m)
     lwe_ksk: M,
-    /// Key switching key from user j to ideal secret key s. User j's ksk is at
-    /// j'th element
+    /// Key switching key from user j's secret u_j to ideal RLWE secret key `s`
+    /// in evaluation domain. User j's key switching key is at j'th index.
     ui_to_s_ksks: Vec<M>,
     parameters: P,
     _phanton: PhantomData<(R, N)>,
@@ -967,14 +999,22 @@ pub(super) mod impl_non_interactive_server_key_eval_domain {
     }
 }
 
+/// Seeded non-interactive multi-party server key.
+///
+/// Given common reference seeded non-interactive multi-party key shares of each
+/// users with unique user-ids, seeded non-interactive can be generated using
+/// `BoolEvaluator::aggregate_non_interactive_multi_party_key_share`
 pub struct SeededNonInteractiveMultiPartyServerKey<M: Matrix, S, P> {
-    /// u_i to s key switching keys in random order. Key switchin key for user j
-    /// is stored at j^th index
+    /// Key switching key from user j's secret u_j to ideal RLWE secret key `s`.
+    /// User j's key switching key is at j'th index.
     ui_to_s_ksks: Vec<M>,
-    /// RGSW ciphertets
+    /// RGSW ciphertexts RGSW(X^{s[i]}) under ideal RLWE secret key
     rgsw_cts: Vec<M>,
+    /// Auto keys for all auto elements [g^{-1}, g, g^2, g^w]
     auto_keys: HashMap<usize, M>,
+    /// LWE key switching key to key switch LWE_{q, s}(m) to LWE_{q, z}(m)
     lwe_ksk: M::R,
+    /// Common reference seed
     cr_seed: S,
     parameters: P,
 }
@@ -982,7 +1022,6 @@ pub struct SeededNonInteractiveMultiPartyServerKey<M: Matrix, S, P> {
 impl<M: Matrix, S, P> SeededNonInteractiveMultiPartyServerKey<M, S, P> {
     pub(super) fn new(
         ui_to_s_ksks: Vec<M>,
-
         rgsw_cts: Vec<M>,
         auto_keys: HashMap<usize, M>,
         lwe_ksk: M::R,
@@ -1001,15 +1040,13 @@ impl<M: Matrix, S, P> SeededNonInteractiveMultiPartyServerKey<M, S, P> {
     }
 }
 
+/// This key is equivalent to NonInteractiveServerKeyEvaluationDomain with the
+/// addition that each polynomial in evaluation domain has a corresponding shoup
+/// representation suitable for shoup multiplication.
 pub(crate) struct ShoupNonInteractiveServerKeyEvaluationDomain<M> {
-    /// RGSW ciphertexts ideal lwe secret key elements under ideal rlwe secret
     rgsw_cts: Vec<NormalAndShoup<M>>,
-    /// Automorphism keys under ideal rlwe secret
     auto_keys: HashMap<usize, NormalAndShoup<M>>,
-    /// LWE key switching key from Q -> Q_{ks}
     lwe_ksk: M,
-    /// Key switching key from user j to ideal secret key s. User j's ksk is at
-    /// j'th element
     ui_to_s_ksks: Vec<NormalAndShoup<M>>,
 }
 
@@ -1018,7 +1055,7 @@ mod impl_shoup_non_interactive_server_key_eval_domain {
     use num_traits::{FromPrimitive, PrimInt, ToPrimitive};
 
     use super::*;
-    use crate::{backend::Modulus, pbs::PbsKey};
+    use crate::{backend::Modulus, decomposer::NumInfo, pbs::PbsKey};
 
     impl<M> ShoupNonInteractiveServerKeyEvaluationDomain<M> {
         pub(in super::super) fn ui_to_s_ksk(&self, user_id: usize) -> &NormalAndShoup<M> {
@@ -1030,7 +1067,7 @@ mod impl_shoup_non_interactive_server_key_eval_domain {
         From<NonInteractiveServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, R, N>>
         for ShoupNonInteractiveServerKeyEvaluationDomain<M>
     where
-        M::MatElement: FromPrimitive + ToPrimitive + PrimInt,
+        M::MatElement: FromPrimitive + ToPrimitive + PrimInt + NumInfo,
     {
         fn from(
             value: NonInteractiveServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, R, N>,
@@ -1114,14 +1151,12 @@ mod impl_shoup_non_interactive_server_key_eval_domain {
     }
 }
 
-/// Server key in evaluation domain with Shoup representations
+/// This is equivalent to ServerKeyEvaluationDomain with the addition that each
+/// polynomial in evaluation domain has corresponding shoup representation
+/// suitable for shoup multiplication.
 pub(crate) struct ShoupServerKeyEvaluationDomain<M> {
-    /// Rgsw cts of LWE secret elements
     rgsw_cts: Vec<NormalAndShoup<M>>,
-    /// Auto keys. Key corresponding to g^{k} is at index `k`. Key corresponding
-    /// to -g is at 0
     galois_keys: HashMap<usize, NormalAndShoup<M>>,
-    /// LWE ksk to key switching LWE ciphertext from RLWE secret to LWE secret
     lwe_ksk: M,
 }
 
@@ -1129,7 +1164,7 @@ mod shoup_server_key_eval_domain {
     use itertools::{izip, Itertools};
     use num_traits::{FromPrimitive, PrimInt};
 
-    use crate::{backend::Modulus, pbs::PbsKey};
+    use crate::{backend::Modulus, decomposer::NumInfo, pbs::PbsKey};
 
     use super::*;
 
@@ -1138,7 +1173,7 @@ mod shoup_server_key_eval_domain {
         for ShoupServerKeyEvaluationDomain<M>
     where
         <M as Matrix>::R: RowMut,
-        M::MatElement: PrimInt + FromPrimitive,
+        M::MatElement: PrimInt + FromPrimitive + NumInfo,
     {
         fn from(value: ServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, R, N>) -> Self {
             let q = value.parameters.rlwe_q().q().unwrap();
@@ -1180,27 +1215,56 @@ mod shoup_server_key_eval_domain {
     }
 }
 
-pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix, S> {
-    /// Non-interactive RGSW ciphertexts for secret indices for which user is
-    /// the leader
+pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix, P, S> {
+    /// Non-interactive RGSW ciphertexts for LWE secret indices for which user
+    /// is the leader
     self_leader_ni_rgsw_cts: Vec<M>,
-    /// Non-interactive RGSW ciphertexts for secret indices for which user is
-    /// not the leader
+    /// Non-interactive RGSW ciphertexts for LWE secret indices for which user
+    /// is not the leader
     not_self_leader_ni_rgsw_cts: Vec<M>,
-    /// Zero encryptions for RGSW ciphertexts for all indicces
+    /// Zero encryptions for RGSW ciphertexts for all indices
     ni_rgsw_zero_encs: Vec<M>,
 
-    /// (ak*si + e + \beta ui, ak*si + e)
+    /// Key switching key from u_j to s where u_j is user j's RLWE secret `u`
+    /// and `s` is ideal RLWE secret. Note that in server key share the key
+    /// switching key is encrypted under user j's RLWE secret `s_j`. It is
+    /// then switched to ideal RLWE secret after adding zero encryptions
+    /// generated using same `a_k`s from other users.
+    ///
+    /// That is the key share has the following key switching key:
+    ///      (a_k*s_j + e + \beta u_j, a_k*s_j + e)
     ui_to_s_ksk: M,
+    /// Zero encryptions to switch user l's key switching key u_l to s from
+    /// user l's RLWE secret s_l to ideal RLWE secret `s`.
+    ///
+    /// If there are P total parties then zero encryption sets are generated for
+    /// each party l \in [0, P) and l != j where j self's user_id.
+    ///
+    /// Zero encryption set for user `l` is stored at index l is l < j otherwise
+    /// it is stored at index l - 1, where j is self's user_id
     ksk_zero_encs_for_others: Vec<M>,
 
+    /// RLWE auto key shares for auto elements [g^{-1}, g, g^2, g^{w}] where `w`
+    /// is the window size. Auto key share corresponding to auto element g^{-1}
+    /// is stored at key 0 and key share corresponding to auto element g^{k} is
+    /// stored at key `k`
     auto_keys_share: HashMap<usize, M>,
+    /// LWE key switching key share to key switching LWE_{q, s}(m) to LWE_{q,
+    /// z}(m)
     lwe_ksk_share: M::R,
 
-    user_index: usize,
+    /// User's id.
+    ///
+    /// If there are P total parties, then user id must be inque and in range
+    /// [0, P)
+    user_id: usize,
+    /// Total users participating in multi-party compute
     total_users: usize,
+    /// LWE dimension
     lwe_n: usize,
+    /// Common reference seed
     cr_seed: S,
+    parameters: P,
 }
 
 mod impl_common_ref_non_interactive_multi_party_server_share {
@@ -1208,7 +1272,7 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
 
     use super::*;
 
-    impl<M: Matrix, S> CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M, S> {
+    impl<M: Matrix, P, S> CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M, P, S> {
         pub(in super::super) fn new(
             self_leader_ni_rgsw_cts: Vec<M>,
             not_self_leader_ni_rgsw_cts: Vec<M>,
@@ -1221,6 +1285,7 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
             total_users: usize,
             lwe_n: usize,
             cr_seed: S,
+            parameters: P,
         ) -> Self {
             Self {
                 self_leader_ni_rgsw_cts,
@@ -1230,10 +1295,11 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
                 ksk_zero_encs_for_others,
                 auto_keys_share,
                 lwe_ksk_share,
-                user_index,
+                user_id: user_index,
                 total_users,
                 lwe_n,
                 cr_seed,
+                parameters,
             }
         }
 
@@ -1242,7 +1308,7 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
             lwe_index: usize,
         ) -> &M {
             let self_segment = interactive_mult_party_user_id_lwe_segment(
-                self.user_index,
+                self.user_id,
                 self.total_users,
                 self.lwe_n,
             );
@@ -1255,7 +1321,7 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
             lwe_index: usize,
         ) -> &M {
             let self_segment = interactive_mult_party_user_id_lwe_segment(
-                self.user_index,
+                self.user_id,
                 self.total_users,
                 self.lwe_n,
             );
@@ -1281,7 +1347,7 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
         }
 
         pub(in super::super) fn user_index(&self) -> usize {
-            self.user_index
+            self.user_id
         }
 
         pub(in super::super) fn auto_keys_share(&self) -> &HashMap<usize, M> {
@@ -1293,8 +1359,8 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
         }
 
         pub(in super::super) fn ui_to_s_ksk_zero_encs_for_user_i(&self, user_i: usize) -> &M {
-            assert!(user_i != self.user_index);
-            if user_i < self.user_index {
+            assert!(user_i != self.user_id);
+            if user_i < self.user_id {
                 &self.ksk_zero_encs_for_others[user_i]
             } else {
                 &self.ksk_zero_encs_for_others[user_i - 1]
@@ -1303,7 +1369,11 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
     }
 }
 
-/// Stores normal and shoup representation of Matrix elements (Normal, Shoup)
+/// Stores both normal and shoup representation of elements in the container
+/// (for ex, a matrix).
+///
+/// To access normal representation borrow self as a `self.as_ref()`. To access
+/// shoup representation call `self.shoup_repr()`
 pub(crate) struct NormalAndShoup<M>(M, M);
 
 impl<M: ToShoup> NormalAndShoup<M> {
@@ -1326,6 +1396,83 @@ impl<M> WithShoupRepr for NormalAndShoup<M> {
     }
 }
 
+#[cfg(test)]
+pub(crate) mod key_size {
+    use num_traits::{FromPrimitive, PrimInt};
+
+    use crate::{backend::Modulus, decomposer::NumInfo};
+
+    use super::*;
+
+    /// Size of the Key in Bits
+    pub(crate) trait KeySize {
+        /// Returns size of the key in bits
+        fn size(&self) -> usize;
+    }
+
+    impl<M: Matrix, El, S> KeySize
+        for CommonReferenceSeededInteractiveMultiPartyServerKeyShare<M, BoolParameters<El>, S>
+    where
+        M: SizeInBitsWithLogModulus,
+        M::R: SizeInBitsWithLogModulus,
+        El: PrimInt + NumInfo + FromPrimitive,
+    {
+        fn size(&self) -> usize {
+            let mut total = 0;
+
+            let log_rlweq = self.parameters().rlwe_q().log_q();
+            self.self_leader_rgsws
+                .iter()
+                .for_each(|v| total += v.size(log_rlweq));
+            self.not_self_leader_rgsws
+                .iter()
+                .for_each(|v| total += v.size(log_rlweq));
+            self.auto_keys
+                .values()
+                .for_each(|v| total += v.size(log_rlweq));
+
+            let log_lweq = self.parameters().lwe_q().log_q();
+            total += self.lwe_ksk.size(log_lweq);
+            total
+        }
+    }
+
+    impl<M: Matrix, El, S> KeySize
+        for CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M, BoolParameters<El>, S>
+    where
+        M: SizeInBitsWithLogModulus,
+        M::R: SizeInBitsWithLogModulus,
+        El: PrimInt + NumInfo + FromPrimitive,
+    {
+        fn size(&self) -> usize {
+            let mut total = 0;
+
+            let log_rlweq = self.parameters.rlwe_q().log_q();
+            self.self_leader_ni_rgsw_cts
+                .iter()
+                .for_each(|v| total += v.size(log_rlweq));
+            self.not_self_leader_ni_rgsw_cts
+                .iter()
+                .for_each(|v| total += v.size(log_rlweq));
+            self.ni_rgsw_zero_encs
+                .iter()
+                .for_each(|v| total += v.size(log_rlweq));
+            total += self.ui_to_s_ksk.size(log_rlweq);
+            self.ksk_zero_encs_for_others
+                .iter()
+                .for_each(|v| total += v.size(log_rlweq));
+            self.auto_keys_share
+                .values()
+                .for_each(|v| total += v.size(log_rlweq));
+
+            let log_lweq = self.parameters.lwe_q().log_q();
+            total += self.lwe_ksk_share.size(log_lweq);
+
+            total
+        }
+    }
+}
+
 pub(super) mod tests {
     use itertools::izip;
     use num_traits::{FromPrimitive, PrimInt, ToPrimitive, Zero};
@@ -1333,6 +1480,7 @@ pub(super) mod tests {
     use crate::{
         backend::{GetModulus, Modulus},
         bool::ClientKey,
+        decomposer::NumInfo,
         lwe::decrypt_lwe,
         parameters::CiphertextModulus,
         utils::TryConvertFrom1,
@@ -1376,7 +1524,7 @@ pub(super) mod tests {
     ) -> f64
     where
         R: TryConvertFrom1<[S], CiphertextModulus<R::Element>>,
-        R::Element: Zero + FromPrimitive + PrimInt,
+        R::Element: Zero + FromPrimitive + PrimInt + NumInfo,
     {
         let noisy_m = decrypt_lwe(lwe_ct, &sk, modop);
         let noise = modop.sub(&m_expected, &noisy_m);

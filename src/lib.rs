@@ -24,9 +24,10 @@ pub use backend::{
 // gen_mp_keys_phase1,     gen_mp_keys_phase2, set_mp_seed, set_parameter_set,
 // ParameterSelector, };
 pub use bool::*;
-pub use decomposer::{Decomposer, DecomposerIter, DefaultDecomposer};
 pub use ntt::{Ntt, NttBackendU64, NttInit};
 pub use shortint::FheUint8;
+
+pub use decomposer::{Decomposer, DecomposerIter, DefaultDecomposer};
 
 pub trait Matrix: AsRef<[Self::R]> {
     type MatElement;
@@ -192,4 +193,23 @@ pub trait SampleExtractor<R> {
 
 trait Encoder<F, T> {
     fn encode(&self, v: F) -> T;
+}
+
+trait SizeInBitsWithLogModulus {
+    /// Returns size of `Self` containing several elements mod Q where
+    /// 2^{log_modulus-1} < Q <= `2^log_modulus`
+    fn size(&self, log_modulus: usize) -> usize;
+}
+impl SizeInBitsWithLogModulus for Vec<Vec<u64>> {
+    fn size(&self, log_modulus: usize) -> usize {
+        let mut total = 0;
+        self.iter().for_each(|r| total += log_modulus * r.len());
+        total
+    }
+}
+
+impl SizeInBitsWithLogModulus for Vec<u64> {
+    fn size(&self, log_modulus: usize) -> usize {
+        self.len() * log_modulus
+    }
 }

@@ -6,7 +6,7 @@ use std::{
 };
 
 use itertools::{izip, Itertools};
-use num_traits::{FromPrimitive, One, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero};
+use num_traits::{FromPrimitive, Num, One, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero};
 use rand_distr::uniform::SampleUniform;
 
 use crate::{
@@ -18,21 +18,20 @@ use crate::{
         non_interactive_ksk_gen, non_interactive_ksk_zero_encryptions_for_other_party_i,
         public_key_share,
     },
-    ntt::{self, Ntt, NttBackendU64, NttInit},
+    ntt::{Ntt, NttInit},
     pbs::{pbs, sample_extract, PbsInfo, PbsKey, WithShoupRepr},
     random::{
         DefaultSecureRng, NewWithSeed, RandomFill, RandomFillGaussianInModulus,
         RandomFillUniformInModulus, RandomGaussianElementInModulus,
     },
     rgsw::{
-        decrypt_rlwe, generate_auto_map, public_key_encrypt_rgsw, rgsw_by_rgsw_inplace,
-        rgsw_x_rgsw_scratch_rows, rlwe_auto, rlwe_auto_scratch_rows, rlwe_x_rgsw_scratch_rows,
-        secret_key_encrypt_rgsw, seeded_auto_key_gen, RgswCiphertext, RgswCiphertextMutRef,
-        RgswCiphertextRef, RuntimeScratchMutRef,
+        generate_auto_map, public_key_encrypt_rgsw, rgsw_by_rgsw_inplace, rgsw_x_rgsw_scratch_rows,
+        rlwe_auto_scratch_rows, rlwe_x_rgsw_scratch_rows, secret_key_encrypt_rgsw,
+        seeded_auto_key_gen, RgswCiphertextMutRef, RgswCiphertextRef, RuntimeScratchMutRef,
     },
     utils::{
         encode_x_pow_si_with_emebedding_factor, fill_random_ternary_secret_with_hamming_weight,
-        generate_prime, mod_exponent, puncture_p_rng, Global, TryConvertFrom1, WithLocal,
+        mod_exponent, puncture_p_rng, TryConvertFrom1, WithLocal,
     },
     Encoder, Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
 };
@@ -40,10 +39,10 @@ use crate::{
 use super::{
     keys::{
         ClientKey, CommonReferenceSeededCollectivePublicKeyShare,
-        CommonReferenceSeededMultiPartyServerKeyShare,
+        CommonReferenceSeededInteractiveMultiPartyServerKeyShare,
         CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare,
         InteractiveMultiPartyClientKey, NonInteractiveMultiPartyClientKey,
-        SeededMultiPartyServerKey, SeededNonInteractiveMultiPartyServerKey,
+        SeededInteractiveMultiPartyServerKey, SeededNonInteractiveMultiPartyServerKey,
         SeededSinglePartyServerKey, SinglePartyClientKey,
     },
     parameters::{BoolParameters, CiphertextModulus, DecompositionCount, DoubleDecomposerParams},
@@ -268,13 +267,13 @@ pub(super) trait BoolEncoding {
 impl<T> BoolEncoding for CiphertextModulus<T>
 where
     CiphertextModulus<T>: Modulus<Element = T>,
-    T: PrimInt,
+    T: PrimInt + NumInfo,
 {
     type Element = T;
 
     fn qby4(&self) -> Self::Element {
         if self.is_native() {
-            T::one() << (CiphertextModulus::<T>::_bits() - 2)
+            T::one() << ((T::BITS as usize) - 2)
         } else {
             self.q().unwrap() >> 2
         }
@@ -282,7 +281,7 @@ where
     /// Q/8
     fn true_el(&self) -> Self::Element {
         if self.is_native() {
-            T::one() << (CiphertextModulus::<T>::_bits() - 3)
+            T::one() << ((T::BITS as usize) - 3)
         } else {
             self.q().unwrap() >> 3
         }
@@ -954,7 +953,7 @@ where
         cr_seed: &MultiPartyCrs<[u8; 32]>,
         collective_pk: &M,
         client_key: &K,
-    ) -> CommonReferenceSeededMultiPartyServerKeyShare<
+    ) -> CommonReferenceSeededInteractiveMultiPartyServerKeyShare<
         M,
         BoolParameters<M::MatElement>,
         MultiPartyCrs<[u8; 32]>,
@@ -1085,7 +1084,7 @@ where
             &sk_lwe,
         );
 
-        CommonReferenceSeededMultiPartyServerKeyShare::new(
+        CommonReferenceSeededInteractiveMultiPartyServerKeyShare::new(
             self_leader_rgsws,
             not_self_leader_rgsws,
             auto_keys,
@@ -1098,12 +1097,12 @@ where
 
     pub(super) fn aggregate_multi_party_server_key_shares<S>(
         &self,
-        shares: &[CommonReferenceSeededMultiPartyServerKeyShare<
+        shares: &[CommonReferenceSeededInteractiveMultiPartyServerKeyShare<
             M,
             BoolParameters<M::MatElement>,
             MultiPartyCrs<S>,
         >],
-    ) -> SeededMultiPartyServerKey<M, MultiPartyCrs<S>, BoolParameters<M::MatElement>>
+    ) -> SeededInteractiveMultiPartyServerKey<M, MultiPartyCrs<S>, BoolParameters<M::MatElement>>
     where
         S: PartialEq + Clone,
         M: Clone,
@@ -1255,7 +1254,13 @@ where
             lweq_modop.elwise_add_mut(lwe_ksk.as_mut(), si.lwe_ksk().as_ref())
         });
 
-        SeededMultiPartyServerKey::new(rgsw_cts, auto_keys, lwe_ksk, cr_seed.clone(), parameters)
+        SeededInteractiveMultiPartyServerKey::new(
+            rgsw_cts,
+            auto_keys,
+            lwe_ksk,
+            cr_seed.clone(),
+            parameters,
+        )
     }
 
     pub(super) fn aggregate_non_interactive_multi_party_key_share(
@@ -1264,6 +1269,7 @@ where
         total_users: usize,
         key_shares: &[CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
             M,
+            BoolParameters<M::MatElement>,
             NonInteractiveMultiPartyCrs<[u8; 32]>,
         >],
     ) -> SeededNonInteractiveMultiPartyServerKey<
@@ -1279,6 +1285,8 @@ where
             self.parameters().variant(),
             &ParameterVariant::NonInteractiveMultiParty
         );
+
+        // TODO: Check parameters are equivalent!
 
         let total_users = key_shares.len();
         let key_shares = (0..total_users)
@@ -1662,6 +1670,7 @@ where
         client_key: &K,
     ) -> CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
         M,
+        BoolParameters<M::MatElement>,
         NonInteractiveMultiPartyCrs<[u8; 32]>,
     > {
         assert_eq!(
@@ -2004,6 +2013,7 @@ where
             total_users,
             self.parameters().lwe_n().0,
             cr_seed.clone(),
+            self.parameters().clone(),
         )
     }
 

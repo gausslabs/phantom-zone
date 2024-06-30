@@ -5,6 +5,7 @@ use num_traits::{One, PrimInt, Signed};
 
 use crate::{
     backend::Modulus,
+    decomposer::NumInfo,
     random::{RandomElementInModulus, RandomFill},
     Matrix, RowEntity, RowMut,
 };
@@ -224,6 +225,15 @@ pub(crate) fn puncture_p_rng<S: Default + Copy, R: RandomFill<S>>(
         RandomFill::<S>::random_fill(p_rng, &mut out);
     }
     return out;
+}
+
+pub(crate) fn log2<T: PrimInt + NumInfo>(v: &T) -> usize {
+    if (*v & (*v - T::one())) == T::zero() {
+        // value is power of 2
+        (T::BITS - v.leading_zeros() - 1) as usize
+    } else {
+        (T::BITS - v.leading_zeros()) as usize
+    }
 }
 
 pub trait TryConvertFrom1<T: ?Sized, P> {

@@ -1,8 +1,10 @@
-use std::ops::Deref;
-
 use num_traits::{ConstZero, FromPrimitive, PrimInt};
 
-use crate::{backend::Modulus, decomposer::Decomposer};
+use crate::{
+    backend::Modulus,
+    decomposer::{Decomposer, NumInfo},
+    utils::log2,
+};
 
 pub(crate) trait DoubleDecomposerCount {
     type Count;
@@ -84,27 +86,69 @@ pub(crate) enum ParameterVariant {
 }
 #[derive(Clone, PartialEq)]
 pub struct BoolParameters<El> {
+    /// RLWE ciphertext modulus Q
     rlwe_q: CiphertextModulus<El>,
+    /// LWE ciphertext modulus q (usually referred to as Q_{ks})
     lwe_q: CiphertextModulus<El>,
+    /// Blind rotation modulus. It is the modulus to which we switch before
+    /// blind rotation.
+    ///
+    /// Since blind rotation decrypts LWE ciphertext in the exponent  of a ring
+    /// polynomial, which is a ring mod 2N, blind rotation modulus is
+    /// always <= 2N.
     br_q: usize,
+    /// Ring dimension `N` for 2N^{th} cyclotomic polynomial ring
     rlwe_n: PolynomialSize,
+    /// LWE dimension `n`
     lwe_n: LweDimension,
+    /// LWE key switch decompositon params
     lwe_decomposer_params: (DecompostionLogBase, DecompositionCount),
-    /// RLWE x RGSW decomposition count for (part A, part B)
+    /// Decompostion parameters for RLWE x RGSW.
+    ///
+    /// We restrict decomposition for RLWE'(-sm) and RLWE'(m) to have same base
+    /// but can have different decomposition count. We refer to this
+    /// DoubleDecomposer / RlweDecomposer
+    ///
+    /// Decomposition count `d_a` (i.e. for SignedDecompose(RLWE_A(m)) x
+    /// RLWE'(-sm)) and `d_b` (i.e. for SignedDecompose(RLWE_B(m)) x RLWE'(m))
+    /// are always stored as `(d_a, d_b)`
     rlrg_decomposer_params: (
         DecompostionLogBase,
         (DecompositionCount, DecompositionCount),
     ),
+    /// Decomposition parameters for RLWE automorphism
     auto_decomposer_params: (DecompostionLogBase, DecompositionCount),
-    /// RGSW x RGSW decomposition count for (part A, part B)
+    /// Decomposition parameters for RGSW0 x RGSW1
+    ///
+    /// `0` and `1` indicate that RGSW0 and RGSW1 may not use same decomposition
+    /// parameters.
+    ///
+    /// In RGSW0 x RGSW1, decomposition parameters for RGSW1 are required.
+    /// Hence, the parameters we store are decomposition parameters of RGSW1.
+    ///
+    /// Like RLWE x RGSW decomposition parameters (1) we restrict to same base
+    /// but can have different decomposition counts `d_a` and `d_b` and (2)
+    /// decomposition count `d_a` and `d_b` are always stored as `(d_a, d_b)`
+    ///
+    /// RGSW0 x RGSW1 are optional because they only necessary to be supplied in
+    /// multi-party setting.
     rgrg_decomposer_params: Option<(
         DecompostionLogBase,
         (DecompositionCount, DecompositionCount),
     )>,
+    /// Decomposition parameters for non-interactive key switching from u_j to
+    /// s, hwere u_j is RLWE secret `u` of party `j` and `s` is the ideal RLWE
+    /// secret key.
+    ///
+    /// Decomposition parameters for non-interactive key switching are optional
+    /// and must be supplied only for non-interactive multi-party
     non_interactive_ui_to_s_key_switch_decomposer:
         Option<(DecompostionLogBase, DecompositionCount)>,
+    /// Group generator for Z^*_{2N}
     g: usize,
+    /// Window size parameter for LMKC++ blind rotation
     w: usize,
+    /// Parameter variant
     variant: ParameterVariant,
 }
 
@@ -347,10 +391,10 @@ impl<T: ConstZero> CiphertextModulus<T> {
 
 impl<T> CiphertextModulus<T>
 where
-    T: PrimInt,
+    T: PrimInt + NumInfo,
 {
-    pub(crate) fn _bits() -> usize {
-        std::mem::size_of::<T>() as usize * 8
+    fn _bits() -> usize {
+        T::BITS as usize
     }
 
     fn _native(&self) -> bool {
@@ -376,7 +420,7 @@ where
 
 impl<T> Modulus for CiphertextModulus<T>
 where
-    T: PrimInt + FromPrimitive,
+    T: PrimInt + FromPrimitive + NumInfo,
 {
     type Element = T;
     fn is_native(&self) -> bool {
@@ -403,6 +447,7 @@ where
     }
 
     fn map_element_to_i64(&self, v: &Self::Element) -> i64 {
+        assert!(*v <= self.largest_unsigned_value());
         if *v > self._half_q() {
             -((self.largest_unsigned_value() - *v) + T::one())
                 .to_i64()
@@ -414,18 +459,24 @@ where
 
     fn map_element_from_f64(&self, v: f64) -> Self::Element {
         let v = v.round();
+
+        let v_el = T::from_f64(v.abs()).unwrap();
+        assert!(v_el <= self.largest_unsigned_value());
+
         if v < 0.0 {
-            self.largest_unsigned_value() - T::from_f64(v.abs()).unwrap() + T::one()
+            self.largest_unsigned_value() - v_el + T::one()
         } else {
-            T::from_f64(v.abs()).unwrap()
+            v_el
         }
     }
 
     fn map_element_from_i64(&self, v: i64) -> Self::Element {
+        let v_el = T::from_i64(v.abs()).unwrap();
+        assert!(v_el <= self.largest_unsigned_value());
         if v < 0 {
-            self.largest_unsigned_value() - T::from_i64(v.abs()).unwrap() + T::one()
+            self.largest_unsigned_value() - v_el + T::one()
         } else {
-            T::from_i64(v.abs()).unwrap()
+            v_el
         }
     }
 
@@ -438,6 +489,14 @@ where
             Some(T::max_value().to_f64().unwrap() + 1.0)
         } else {
             self.0.to_f64()
+        }
+    }
+
+    fn log_q(&self) -> usize {
+        if self.is_native() {
+            Self::_bits()
+        } else {
+            log2(&self.q().unwrap())
         }
     }
 }
@@ -491,7 +550,7 @@ pub(crate) const I_2P: BoolParameters<u64> = BoolParameters::<u64> {
     lwe_q: CiphertextModulus::new_non_native(1 << 15),
     br_q: 1 << 11,
     rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(500),
+    lwe_n: LweDimension(480),
     lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(11)),
     rlrg_decomposer_params: (
         DecompostionLogBase(16),

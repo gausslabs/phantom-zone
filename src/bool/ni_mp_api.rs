@@ -79,6 +79,7 @@ pub fn gen_server_key_share(
     client_key: &ClientKey,
 ) -> CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
     Vec<Vec<u64>>,
+    BoolParameters<u64>,
     NonInteractiveMultiPartyCrs<[u8; 32]>,
 > {
     BoolEvaluator::with_local(|e| {
@@ -90,6 +91,7 @@ pub fn gen_server_key_share(
 pub fn aggregate_server_key_shares(
     shares: &[CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
         Vec<Vec<u64>>,
+        BoolParameters<u64>,
         NonInteractiveMultiPartyCrs<[u8; 32]>,
     >],
 ) -> SeededNonInteractiveMultiPartyServerKey<

@@ -6,7 +6,7 @@ use rand_distr::uniform::SampleUniform;
 
 use crate::{
     backend::{GetModulus, Modulus},
-    decomposer::RlweDecomposer,
+    decomposer::{Decomposer, NumInfo, RlweDecomposer},
     lwe::{decrypt_lwe, lwe_key_switch},
     parameters::{BoolParameters, CiphertextModulus},
     random::{DefaultSecureRng, RandomFillUniformInModulus},
@@ -15,8 +15,8 @@ use crate::{
         RuntimeScratchMutRef,
     },
     utils::{encode_x_pow_si_with_emebedding_factor, tests::Stats, TryConvertFrom1},
-    ArithmeticOps, ClientKey, Decomposer, MatrixEntity, MatrixMut, ModInit, Ntt, NttInit,
-    RowEntity, RowMut, VectorOps,
+    ArithmeticOps, ClientKey, MatrixEntity, MatrixMut, ModInit, Ntt, NttInit, RowEntity, RowMut,
+    VectorOps,
 };
 
 use super::keys::tests::{ideal_sk_lwe, ideal_sk_rlwe};
@@ -84,7 +84,7 @@ fn collect_server_key_stats<
 ) -> ServerKeyStats<i64>
 where
     M::R: RowMut + RowEntity + TryConvertFrom1<[i32], CiphertextModulus<M::MatElement>> + Clone,
-    M::MatElement: Copy + PrimInt + FromPrimitive + SampleUniform + Zero + Debug,
+    M::MatElement: Copy + PrimInt + FromPrimitive + SampleUniform + Zero + Debug + NumInfo,
 {
     let ideal_sk_rlwe = ideal_sk_rlwe(client_keys);
     let ideal_sk_lwe = ideal_sk_lwe(client_keys);
@@ -370,27 +370,30 @@ mod tests {
     fn qwerty() {
         use crate::{
             aggregate_public_key_shares, aggregate_server_key_shares,
-            bool::keys::ServerKeyEvaluationDomain,
+            bool::keys::{key_size::KeySize, ServerKeyEvaluationDomain},
             evaluator::MultiPartyCrs,
             gen_client_key, gen_mp_keys_phase1, gen_mp_keys_phase2,
-            parameters::{BoolParameters, CiphertextModulus},
+            parameters::CiphertextModulus,
             random::DefaultSecureRng,
             set_mp_seed, set_parameter_set,
             utils::WithLocal,
             BoolEvaluator, DefaultDecomposer, ModularOpsU64, Ntt, NttBackendU64,
         };
 
-        set_parameter_set(crate::ParameterSelector::HighCommunicationButFast2Party);
+        set_parameter_set(crate::ParameterSelector::InteractiveLTE2Party);
         set_mp_seed(MultiPartyCrs::random().seed);
         let parties = 2;
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
         let pk_shares = cks.iter().map(|k| gen_mp_keys_phase1(k)).collect_vec();
+
         let pk = aggregate_public_key_shares(&pk_shares);
         let server_key_shares = cks
             .iter()
             .enumerate()
             .map(|(index, k)| gen_mp_keys_phase2(k, index, parties, &pk))
             .collect_vec();
+
+        println!("Size: {}", server_key_shares[0].size());
         let seeded_server_key = aggregate_server_key_shares(&server_key_shares);
         let server_key_eval =
             ServerKeyEvaluationDomain::<_, _, DefaultSecureRng, NttBackendU64>::from(
@@ -428,11 +431,16 @@ mod tests {
     #[cfg(feature = "non_interactive_mp")]
     fn querty2() {
         use crate::{
-            aggregate_server_key_shares, bool::keys::NonInteractiveServerKeyEvaluationDomain,
-            evaluator::NonInteractiveMultiPartyCrs, gen_client_key, gen_server_key_share,
-            parameters::CiphertextModulus, random::DefaultSecureRng, set_common_reference_seed,
-            set_parameter_set, utils::WithLocal, BoolEvaluator, DefaultDecomposer, ModularOpsU64,
-            NttBackendU64,
+            aggregate_server_key_shares,
+            bool::keys::{key_size::KeySize, NonInteractiveServerKeyEvaluationDomain},
+            decomposer::DefaultDecomposer,
+            evaluator::NonInteractiveMultiPartyCrs,
+            gen_client_key, gen_server_key_share,
+            parameters::CiphertextModulus,
+            random::DefaultSecureRng,
+            set_common_reference_seed, set_parameter_set,
+            utils::WithLocal,
+            BoolEvaluator, ModularOpsU64, NttBackendU64,
         };
 
         set_parameter_set(crate::ParameterSelector::NonInteractiveLTE2Party);
@@ -444,6 +452,7 @@ mod tests {
             .enumerate()
             .map(|(user_id, k)| gen_server_key_share(user_id, parties, k))
             .collect_vec();
+        println!("Size: {}", server_key_shares[0].size());
         let server_key = aggregate_server_key_shares(&server_key_shares);
 
         let server_key_eval =

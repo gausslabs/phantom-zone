@@ -20,8 +20,7 @@ pub use mp_api::*;
 pub type ClientKey = keys::ClientKey<[u8; 32], u64>;
 
 pub enum ParameterSelector {
-    HighCommunicationButFast2Party,
-    MultiPartyLessThanOrEqualTo16,
+    InteractiveLTE2Party,
     NonInteractiveLTE2Party,
     NonInteractiveLTE4Party,
 }
