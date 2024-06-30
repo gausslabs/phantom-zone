@@ -144,7 +144,7 @@ pub struct BoolParameters<El> {
     /// and must be supplied only for non-interactive multi-party
     non_interactive_ui_to_s_key_switch_decomposer:
         Option<(DecompostionLogBase, DecompositionCount)>,
-    /// Group generator for Z^*_{2N}
+    /// Group generator for Z^*_{br_q}
     g: usize,
     /// Window size parameter for LMKC++ blind rotation
     w: usize,
@@ -353,14 +353,14 @@ impl<El> BoolParameters<El> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub(crate) struct DecompostionLogBase(pub(crate) usize);
+pub struct DecompostionLogBase(pub(crate) usize);
 impl AsRef<usize> for DecompostionLogBase {
     fn as_ref(&self) -> &usize {
         &self.0
     }
 }
 #[derive(Clone, Copy, PartialEq)]
-pub(crate) struct DecompositionCount(pub(crate) usize);
+pub struct DecompositionCount(pub(crate) usize);
 impl AsRef<usize> for DecompositionCount {
     fn as_ref(&self) -> &usize {
         &self.0

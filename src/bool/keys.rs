@@ -5,7 +5,7 @@ use crate::{
     pbs::WithShoupRepr,
     random::{NewWithSeed, RandomFillUniformInModulus},
     utils::ToShoup,
-    Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut, SizeInBitsWithLogModulus,
+    Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
 };
 
 use super::parameters::{BoolParameters, CiphertextModulus};
@@ -319,8 +319,8 @@ pub struct CommonReferenceSeededInteractiveMultiPartyServerKeyShare<M: Matrix, P
     /// is not the leader RGSW ciphertext is encrypted using RGSW1
     /// decomposer for RGSW0 x RGSW1
     not_self_leader_rgsws: Vec<M>,
-    /// Auto key shares for auto elements [g^{-1}, g, g^2, .., g^{w}] where `w`
-    /// is the window size parameter. Share corresponding to auto element g^{-1}
+    /// Auto key shares for auto elements [-g, g, g^2, .., g^{w}] where `w`
+    /// is the window size parameter. Share corresponding to auto element -g
     /// is stored at key `0` and share corresponding to auto element g^{k} is
     /// stored at key `k`.
     auto_keys: HashMap<usize, M>,
@@ -393,8 +393,8 @@ pub struct SeededInteractiveMultiPartyServerKey<M: Matrix, S, P> {
     /// where `s` is ideal LWE secret key for each LWE secret dimension.
     rgsw_cts: Vec<M>,
     /// Seeded auto keys under ideal RLWE secret for RLWE automorphisms with
-    /// auto elements [g^-1, g, g^2,..., g^{w}]. Auto key corresponidng to
-    /// auto element g^{-1} is stored at key `0` and key corresponding to auto
+    /// auto elements [-g, g, g^2,..., g^{w}]. Auto key corresponidng to
+    /// auto element -g is stored at key `0` and key corresponding to auto
     /// element g^{k} is stored at key `k`
     auto_keys: HashMap<usize, M>,
     /// Seeded LWE key switching key under ideal LWE secret to switch LWE_{q,
@@ -484,7 +484,7 @@ impl<M: Matrix, S> SeededSinglePartyServerKey<M, BoolParameters<M::MatElement>, 
 pub(crate) struct ServerKeyEvaluationDomain<M, P, R, N> {
     /// RGSW ciphertext RGSW(X^{s[i]}) for each LWE index in evaluation domain
     rgsw_cts: Vec<M>,
-    /// Auto keys for all auto elements [g^{-1}, g, g^2,..., g^w] in evaluation
+    /// Auto keys for all auto elements [-g, g, g^2,..., g^w] in evaluation
     /// domain
     galois_keys: HashMap<usize, M>,
     /// LWE key switching key to key switch LWE_{q, s}(m) to LWE_{q, z}(m)
@@ -801,7 +801,7 @@ pub(crate) struct NonInteractiveServerKeyEvaluationDomain<M, P, R, N> {
     /// RGSW ciphertexts RGSW(X^{s[i]}) under ideal RLWE secret key in
     /// evaluation domain
     rgsw_cts: Vec<M>,
-    /// Auto keys for all auto elements [g^{-1}, g, g^2, g^w] in evaluation
+    /// Auto keys for all auto elements [-g, g, g^2, g^w] in evaluation
     /// domain
     auto_keys: HashMap<usize, M>,
     /// LWE key switching key to key switch LWE_{q, s}(m) to LWE_{q, z}(m)
@@ -1010,7 +1010,7 @@ pub struct SeededNonInteractiveMultiPartyServerKey<M: Matrix, S, P> {
     ui_to_s_ksks: Vec<M>,
     /// RGSW ciphertexts RGSW(X^{s[i]}) under ideal RLWE secret key
     rgsw_cts: Vec<M>,
-    /// Auto keys for all auto elements [g^{-1}, g, g^2, g^w]
+    /// Auto keys for all auto elements [-g, g, g^2, g^w]
     auto_keys: HashMap<usize, M>,
     /// LWE key switching key to key switch LWE_{q, s}(m) to LWE_{q, z}(m)
     lwe_ksk: M::R,
@@ -1244,8 +1244,8 @@ pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix
     /// it is stored at index l - 1, where j is self's user_id
     ksk_zero_encs_for_others: Vec<M>,
 
-    /// RLWE auto key shares for auto elements [g^{-1}, g, g^2, g^{w}] where `w`
-    /// is the window size. Auto key share corresponding to auto element g^{-1}
+    /// RLWE auto key shares for auto elements [-g, g, g^2, g^{w}] where `w`
+    /// is the window size. Auto key share corresponding to auto element -g
     /// is stored at key 0 and key share corresponding to auto element g^{k} is
     /// stored at key `k`
     auto_keys_share: HashMap<usize, M>,
@@ -1400,7 +1400,7 @@ impl<M> WithShoupRepr for NormalAndShoup<M> {
 pub(crate) mod key_size {
     use num_traits::{FromPrimitive, PrimInt};
 
-    use crate::{backend::Modulus, decomposer::NumInfo};
+    use crate::{backend::Modulus, decomposer::NumInfo, SizeInBitsWithLogModulus};
 
     use super::*;
 

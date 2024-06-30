@@ -32,48 +32,68 @@ pub(crate) trait WithShoupRepr: AsRef<Self::M> {
 }
 
 pub(crate) trait PbsInfo {
+    /// Type of Matrix
     type M: Matrix;
+    /// Type of Ciphertext modulus
     type Modulus: Modulus<Element = <Self::M as Matrix>::MatElement>;
+    /// Type of Ntt Operator for Ring polynomials
     type NttOp: Ntt<Element = <Self::M as Matrix>::MatElement>;
+    /// Type of Signed Decomposer
     type D: Decomposer<Element = <Self::M as Matrix>::MatElement>;
 
-    // Although both types have same bounds, they can be different types. For ex,
-    // type RlweModOp may only support native modulus, where LweModOp may only
-    // support prime modulus, etc.
+    // Although both `RlweModOp` and `LweModOp` types have same bounds, they can be
+    // different types. For ex, type RlweModOp may only support native modulus,
+    // where LweModOp may only support prime modulus, etc.
+
+    /// Type of RLWE Modulus Operator
     type RlweModOp: ArithmeticOps<Element = <Self::M as Matrix>::MatElement>
         + ShoupMatrixFMA<<Self::M as Matrix>::R>;
+    /// Type of LWE Modulus Operator
     type LweModOp: VectorOps<Element = <Self::M as Matrix>::MatElement>
         + ArithmeticOps<Element = <Self::M as Matrix>::MatElement>;
 
+    /// RLWE ciphertext modulus
     fn rlwe_q(&self) -> &Self::Modulus;
+    /// LWE ciphertext modulus
     fn lwe_q(&self) -> &Self::Modulus;
+    /// Blind rotation modulus. It is the modulus to which we switch for blind
+    /// rotation. Since blind rotation decrypts LWE ciphetext in the exponent of
+    /// ring polynmial (which is a ring mod 2N), `br_q <= 2N`
     fn br_q(&self) -> usize;
+    /// Ring polynomial size `N`
     fn rlwe_n(&self) -> usize;
+    /// LWE dimension `n`
     fn lwe_n(&self) -> usize;
     /// Embedding fator for ring X^{q}+1 inside
     fn embedding_factor(&self) -> usize;
-    /// Window size
+    /// Window size parameter LKMC++ blind rotaiton
     fn w(&self) -> usize;
-    /// generator g
+    /// generator `g` for group Z^*_{br_q}
     fn g(&self) -> isize;
-    /// Decomposers
+    /// LWE key switching decomposer
     fn lwe_decomposer(&self) -> &Self::D;
+    /// RLWE x RGSW decoposer
     fn rlwe_rgsw_decomposer(&self) -> &(Self::D, Self::D);
+    /// RLWE auto decomposer
     fn auto_decomposer(&self) -> &Self::D;
 
-    /// Modulus operators
+    /// LWE modulus operator
     fn modop_lweq(&self) -> &Self::LweModOp;
+    /// RLWE modulus operator
     fn modop_rlweq(&self) -> &Self::RlweModOp;
 
     /// Ntt operators
     fn nttop_rlweq(&self) -> &Self::NttOp;
 
-    /// Maps a \in Z^*_{q} to discrete log k, with generator g (i.e. g^k =
-    /// a). Returned vector is of size q that stores dlog of a at `vec[a]`.
-    /// For any a, if k is s.t. a = g^{k}, then k is expressed as k. If k is s.t
-    /// a = -g^{k}, then k is expressed as k=k+q/4
+    /// Maps a \in Z^*_{br_q} to discrete log k, with generator g (i.e. g^k =
+    /// a). Returned vector is of size q that stores dlog of `a` at `vec[a]`.
+    ///
+    /// For any `a`, if k is s.t. `a = g^{k} % br_q`, then `k` is expressed as
+    /// k. If `k` is s.t `a = -g^{k} % br_q`, then `k` is expressed as
+    /// k=k+q/4
     fn g_k_dlog_map(&self) -> &[usize];
-    /// Returns auto map and index vector for g^k. For -g use k == 0.
+    /// Returns auto map and index vector for auto element g^k. For auto element
+    /// -g set k = 0.
     fn rlwe_auto_map(&self, k: usize) -> &(Vec<usize>, Vec<bool>);
 }
 
@@ -123,7 +143,7 @@ pub(crate) fn pbs<
     );
     // println!("Time: {:?}", now.elapsed());
 
-    // odd mowdown Q_ks -> q
+    // odd moddown Q_ks -> q
     let g_k_dlog_map = pbs_info.g_k_dlog_map();
     let mut g_k_si = vec![vec![]; br_q >> 1];
     scratch_lwe_vec
@@ -214,7 +234,9 @@ pub(crate) fn pbs<
 
 /// LMKCY+ Blind rotation
 ///
-/// gk_to_si: [g^0, ..., g^{q/2-1}, -g^0, -g^1, .., -g^{q/2-1}]
+/// - gk_to_si: Contains LWE secret index `i` in array of secret indices at k^th
+///   index if a_i = g^k if k < q/4 or a_i = -g^k if k > q/4. [g^0, ...,
+///   g^{q/2-1}, -g^0, -g^1, .., -g^{q/2-1}]
 fn blind_rotation<
     Mmut: MatrixMut,
     RlweD: RlweDecomposer<Element = Mmut::MatElement>,

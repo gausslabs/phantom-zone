@@ -167,9 +167,26 @@ impl Global for RuntimeServerKey {
     }
 }
 
+/// Batch of bool ciphertexts stored as vector of RLWE ciphertext under user j's
+/// RLWE secret `u_j`
+///
+/// To use the bool ciphertexts in multi-party protocol first key switch the
+/// ciphertexts from u_j to ideal RLWE secret `s` with
+/// `self.key_switch(user_id)` where `user_id` is user j's id. Key switch
+/// returns `BatchedFheBools` that stored key vector of key switched RLWE
+/// ciphertext.
 pub(super) struct NonInteractiveBatchedFheBools<C> {
     data: Vec<C>,
 }
+
+/// Batch of Bool cipphertexts stored as vector of RLWE ciphertexts under the
+/// ideal RLWE secret key `s` of the protocol
+///
+/// Bool ciphertext at `index` can be extracted from the coefficient at `index %
+/// N` of `index / N`th RLWE ciphertext.
+///
+/// To extract bool ciphertext at `index` as LWE ciphertext use
+/// `self.extract(index)`
 pub(super) struct BatchedFheBools<C> {
     pub(in super::super) data: Vec<C>,
 }
@@ -191,6 +208,8 @@ mod impl_enc_dec {
 
     type Mat = Vec<Vec<u64>>;
 
+    // Implement `extract` to extract Bool LWE ciphertext at `index` from
+    // `BatchedFheBools`
     impl<C: MatrixMut<MatElement = u64>> BatchedFheBools<C>
     where
         C::R: RowEntity + RowMut,
@@ -217,6 +236,11 @@ mod impl_enc_dec {
     where
         <M as Matrix>::R: RowMut,
     {
+        /// Derive `NonInteractiveBatchedFheBools` from a vector seeded RLWE
+        /// ciphertexts (Vec<RLWE>, Seed)
+        ///
+        /// Unseed the RLWE ciphertexts and store them as vector RLWE
+        /// ciphertexts in `NonInteractiveBatchedFheBools`
         fn from(value: &(Vec<M::R>, [u8; 32])) -> Self {
             BoolEvaluator::with_local(|e| {
                 let parameters = e.parameters();
@@ -252,17 +276,21 @@ mod impl_enc_dec {
     where
         K: Encryptor<[bool], (Mat, [u8; 32])>,
     {
+        /// Encrypt a vector bool of arbitrary length as vector of unseeded RLWE
+        /// ciphertexts in `NonInteractiveBatchedFheBools`
         fn encrypt(&self, m: &[bool]) -> NonInteractiveBatchedFheBools<Mat> {
             NonInteractiveBatchedFheBools::from(&K::encrypt(&self, m))
         }
     }
 
-    impl<K> Encryptor<[bool], (Mat, [u8; 32])> for K
+    impl<K> Encryptor<[bool], (Vec<<Mat as Matrix>::R>, [u8; 32])> for K
     where
         K: NonInteractiveMultiPartyClientKey,
         <Mat as Matrix>::R:
             TryConvertFrom1<[K::Element], CiphertextModulus<<Mat as Matrix>::MatElement>>,
     {
+        /// Encrypt a vector of bool of arbitrary length as vector of seeded
+        /// RLWE ciphertexts and returns (Vec<RLWE>, Seed)
         fn encrypt(&self, m: &[bool]) -> (Mat, [u8; 32]) {
             BoolEvaluator::with_local(|e| {
                 DefaultSecureRng::with_local_mut(|rng| {
@@ -319,8 +347,13 @@ mod impl_enc_dec {
     }
 
     impl KeySwitchWithId<Mat> for Mat {
+        /// Key switch RLWE ciphertext `Self` from user j's RLWE secret u_j
+        /// to ideal RLWE secret `s` of non-interactive multi-party protocol.
+        ///
+        /// - user_id: user j's user_id in the protocol
         fn key_switch(&self, user_id: usize) -> Mat {
             BoolEvaluator::with_local(|e| {
+                assert!(self.dimension() == (2, e.parameters().rlwe_n().0));
                 let server_key = BOOL_SERVER_KEY.get().unwrap();
                 let ksk = server_key.ui_to_s_ksk(user_id);
                 let decomposer = e.ni_ui_to_s_ks_decomposer().as_ref().unwrap();
@@ -342,6 +375,14 @@ mod impl_enc_dec {
     where
         C: KeySwitchWithId<C>,
     {
+        /// Key switch `Self`'s vector of RLWE ciphertexts from user j's RLWE
+        /// secret u_j to ideal RLWE secret `s` of non-interactive
+        /// multi-party protocol.
+        ///
+        /// Returns vector of key switched RLWE ciphertext as `BatchedFheBools`
+        /// which can then be used to extract individual Bool LWE ciphertexts.
+        ///
+        /// - user_id: user j's user_id in the protocol
         fn key_switch(&self, user_id: usize) -> BatchedFheBools<C> {
             let data = self
                 .data
@@ -355,24 +396,15 @@ mod impl_enc_dec {
 
 #[cfg(test)]
 mod tests {
-    use itertools::{izip, Itertools};
-    use num_traits::{FromPrimitive, PrimInt, ToPrimitive, Zero};
-    use rand::{thread_rng, Rng, RngCore};
+    use itertools::Itertools;
+    use rand::{thread_rng, RngCore};
 
     use crate::{
-        backend::{GetModulus, Modulus},
         bool::{
             evaluator::BooleanGates,
-            keys::{
-                tests::{ideal_sk_rlwe, measure_noise_lwe},
-                SinglePartyClientKey,
-            },
+            keys::tests::{ideal_sk_rlwe, measure_noise_lwe},
         },
-        lwe::decrypt_lwe,
-        rgsw::decrypt_rlwe,
-        utils::{tests::Stats, TryConvertFrom1},
-        ArithmeticOps, Encoder, Encryptor, KeySwitchWithId, ModInit, MultiPartyDecryptor, NttInit,
-        Row, VectorOps,
+        Encoder, Encryptor, KeySwitchWithId, MultiPartyDecryptor,
     };
 
     use super::*;

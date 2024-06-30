@@ -393,7 +393,7 @@ mod tests {
             .map(|(index, k)| gen_mp_keys_phase2(k, index, parties, &pk))
             .collect_vec();
 
-        println!("Size: {}", server_key_shares[0].size());
+        // println!("Size: {}", server_key_shares[0].size());
         let seeded_server_key = aggregate_server_key_shares(&server_key_shares);
         let server_key_eval =
             ServerKeyEvaluationDomain::<_, _, DefaultSecureRng, NttBackendU64>::from(
@@ -452,7 +452,7 @@ mod tests {
             .enumerate()
             .map(|(user_id, k)| gen_server_key_share(user_id, parties, k))
             .collect_vec();
-        println!("Size: {}", server_key_shares[0].size());
+
         let server_key = aggregate_server_key_shares(&server_key_shares);
 
         let server_key_eval =
@@ -469,6 +469,10 @@ mod tests {
             _,
         >(parameters, &cks, &server_key_eval);
 
+        println!(
+            "Common reference seeded server key share key size size: {} Bits",
+            server_key_shares[0].size()
+        );
         println!(
             "Rgsw nsm std log2 {}",
             server_key_stats.brk_rgsw_cts.0.std_dev().abs().log2()

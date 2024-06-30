@@ -49,7 +49,7 @@ fn benchmark_decomposer(c: &mut Criterion) {
                     "decompose",
                     format!(
                         "q={prime}/N={ring_size}/logB={logb}/d={}",
-                        decomposer.decomposition_count()
+                        *decomposer.decomposition_count().as_ref()
                     ),
                 ),
                 |b| {
@@ -57,7 +57,10 @@ fn benchmark_decomposer(c: &mut Criterion) {
                         || {
                             (
                                 a.clone(),
-                                vec![vec![0u64; ring_size]; decomposer.decomposition_count()],
+                                vec![
+                                    vec![0u64; ring_size];
+                                    *decomposer.decomposition_count().as_ref()
+                                ],
                             )
                         },
                         |(r, decomp_r)| (decompose_r(r, decomp_r, &decomposer)),

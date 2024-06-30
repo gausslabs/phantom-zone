@@ -27,6 +27,9 @@ impl<C> FheUint8<C> {
     }
 }
 
+/// Stored a batch of Fhe Uint8 ciphertext as collection of RLWE ciphertexts
+///
+/// To extract Fhe Uint8 ciphertext at `index` call `self.extract(index)`
 pub struct BatchedFheUint8<C> {
     data: Vec<C>,
 }
@@ -35,6 +38,13 @@ impl<C, R> SampleExtractor<FheUint8<R>> for BatchedFheUint8<C>
 where
     C: SampleExtractor<R>,
 {
+    /// Extract Fhe Uint8 ciphertext at `index`
+    ///
+    /// `Self` stores batch of Fhe uint8 ciphertext as vector of RLWE
+    /// ciphertexts. Since Fhe uint8 ciphertext is collection of 8 bool
+    /// ciphertexts, Fhe uint8 ciphertext at index `i` is stored in coefficients
+    /// `i*8...(i+1)*8`. To extract Fhe uint8 at index `i`, sample extract bool
+    /// ciphertext at indices `[i*8, ..., (i+1)*8)`
     fn extract(&self, index: usize) -> FheUint8<R> {
         BoolEvaluator::with_local(|e| {
             let ring_size = e.parameters().rlwe_n().0;
@@ -58,6 +68,8 @@ impl<M: MatrixEntity + MatrixMut<MatElement = u64>> From<&SeededBatchedFheUint8<
 where
     <M as Matrix>::R: RowMut,
 {
+    /// Unseeds collection of seeded RLWE ciphertext in SeededBatchedFheUint8
+    /// and returns as `Self`
     fn from(value: &SeededBatchedFheUint8<M::R, [u8; 32]>) -> Self {
         BoolEvaluator::with_local(|e| {
             let parameters = e.parameters();
@@ -104,6 +116,7 @@ impl<K, C, S> Encryptor<[u8], SeededBatchedFheUint8<C, S>> for K
 where
     K: Encryptor<[bool], (Vec<C>, S)>,
 {
+    /// Encrypt a slice of u8s of arbitray length as `SeededBatchedFheUint8`
     fn encrypt(&self, m: &[u8]) -> SeededBatchedFheUint8<C, S> {
         // convert vector of u8s to vector bools
         let m = m
@@ -138,6 +151,10 @@ impl<C> KeySwitchWithId<BatchedFheUint8<C>> for BatchedFheUint8<C>
 where
     C: KeySwitchWithId<C>,
 {
+    /// Key switching collection of RLWE ciphertexts in `BatchedFheUint8` from
+    /// user j's RLWE secret u_j to ideal RLWE secret key `s` of the protocol.
+    ///
+    /// - user_id: user id of user j
     fn key_switch(&self, user_id: usize) -> BatchedFheUint8<C> {
         let data = self
             .data
