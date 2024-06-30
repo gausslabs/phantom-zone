@@ -196,7 +196,7 @@ where
     let n = a.len();
     let neg_b = b.iter().map(|v| evaluator.not(v)).collect_vec();
 
-    // Both remainder and quotient are initially stored in Big-endian in contract to
+    // Both remainder and quotient are initially stored in Big-endian in contrast to
     // the usual little endian we use. This is more friendly to vec pushes in
     // division. After computing remainder and quotient, we simply reverse the
     // vectors.

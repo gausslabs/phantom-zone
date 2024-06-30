@@ -6,7 +6,7 @@ use std::{
 };
 
 use itertools::{izip, Itertools};
-use num_traits::{FromPrimitive, Num, One, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero};
+use num_traits::{FromPrimitive, One, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero};
 use rand_distr::uniform::SampleUniform;
 
 use crate::{
@@ -19,7 +19,7 @@ use crate::{
         public_key_share,
     },
     ntt::{Ntt, NttInit},
-    pbs::{pbs, sample_extract, PbsInfo, PbsKey, WithShoupRepr},
+    pbs::{pbs, PbsInfo, PbsKey, WithShoupRepr},
     random::{
         DefaultSecureRng, NewWithSeed, RandomFill, RandomFillGaussianInModulus,
         RandomFillUniformInModulus, RandomGaussianElementInModulus,
@@ -30,8 +30,8 @@ use crate::{
         seeded_auto_key_gen, RgswCiphertextMutRef, RgswCiphertextRef, RuntimeScratchMutRef,
     },
     utils::{
-        encode_x_pow_si_with_emebedding_factor, fill_random_ternary_secret_with_hamming_weight,
-        mod_exponent, puncture_p_rng, TryConvertFrom1, WithLocal,
+        encode_x_pow_si_with_emebedding_factor, mod_exponent, puncture_p_rng, TryConvertFrom1,
+        WithLocal,
     },
     Encoder, Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
 };
@@ -61,11 +61,11 @@ use super::{
 ///             Puncture 1 -> Auto keys cipertexts seed
 ///             Puncture 2 -> LWE ksk seed
 #[derive(Clone, PartialEq)]
-pub struct MultiPartyCrs<S> {
+pub struct InteractiveMultiPartyCrs<S> {
     pub(super) seed: S,
 }
 
-impl MultiPartyCrs<[u8; 32]> {
+impl InteractiveMultiPartyCrs<[u8; 32]> {
     pub(super) fn random() -> Self {
         DefaultSecureRng::with_local_mut(|rng| {
             let mut seed = [0u8; 32];
@@ -74,7 +74,8 @@ impl MultiPartyCrs<[u8; 32]> {
         })
     }
 }
-impl<S: Default + Copy> MultiPartyCrs<S> {
+
+impl<S: Default + Copy> InteractiveMultiPartyCrs<S> {
     /// Seed to generate public key share
     fn public_key_share_seed<Rng: NewWithSeed<Seed = S> + RandomFill<S>>(&self) -> S {
         let mut prng = Rng::new_with_seed(self.seed);
@@ -110,7 +111,7 @@ impl<S: Default + Copy> MultiPartyCrs<S> {
 ///         Puncture 3 -> Lwe key switching key seed
 ///     Puncture 2 -> user specific seed for u_j to s ksk
 ///         Punture j+1 -> user j's seed    
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct NonInteractiveMultiPartyCrs<S> {
     pub(super) seed: S,
 }
@@ -660,7 +661,7 @@ where
 /// Assigns user with user_id segement of LWE secret indices for which they
 /// generate RGSW(X^{s[i]}) as the leader (i.e. for RLWExRGSW). If returned
 /// tuple is (start, end), user's segment is [start, end)
-pub(super) fn interactive_mult_party_user_id_lwe_segment(
+pub(super) fn multi_party_user_id_lwe_segment(
     user_id: usize,
     total_users: usize,
     lwe_n: usize,
@@ -946,17 +947,19 @@ where
         })
     }
 
-    pub(super) fn multi_party_server_key_share<K: InteractiveMultiPartyClientKey<Element = i32>>(
+    pub(super) fn gen_interactive_multi_party_server_key_share<
+        K: InteractiveMultiPartyClientKey<Element = i32>,
+    >(
         &self,
         user_id: usize,
         total_users: usize,
-        cr_seed: &MultiPartyCrs<[u8; 32]>,
+        cr_seed: &InteractiveMultiPartyCrs<[u8; 32]>,
         collective_pk: &M,
         client_key: &K,
     ) -> CommonReferenceSeededInteractiveMultiPartyServerKeyShare<
         M,
         BoolParameters<M::MatElement>,
-        MultiPartyCrs<[u8; 32]>,
+        InteractiveMultiPartyCrs<[u8; 32]>,
     > {
         assert_eq!(self.parameters().variant(), &ParameterVariant::MultiParty);
         assert!(user_id < total_users);
@@ -987,11 +990,8 @@ where
             let mut self_leader_rgsw = vec![];
             let mut not_self_leader_rgsws = vec![];
 
-            let (segment_start, segment_end) = interactive_mult_party_user_id_lwe_segment(
-                user_id,
-                total_users,
-                self.pbs_info().lwe_n(),
-            );
+            let (segment_start, segment_end) =
+                multi_party_user_id_lwe_segment(user_id, total_users, self.pbs_info().lwe_n());
 
             // self LWE secret indices
             {
@@ -1095,14 +1095,18 @@ where
         )
     }
 
-    pub(super) fn aggregate_multi_party_server_key_shares<S>(
+    pub(super) fn aggregate_interactive_multi_party_server_key_shares<S>(
         &self,
         shares: &[CommonReferenceSeededInteractiveMultiPartyServerKeyShare<
             M,
             BoolParameters<M::MatElement>,
-            MultiPartyCrs<S>,
+            InteractiveMultiPartyCrs<S>,
         >],
-    ) -> SeededInteractiveMultiPartyServerKey<M, MultiPartyCrs<S>, BoolParameters<M::MatElement>>
+    ) -> SeededInteractiveMultiPartyServerKey<
+        M,
+        InteractiveMultiPartyCrs<S>,
+        BoolParameters<M::MatElement>,
+    >
     where
         S: PartialEq + Clone,
         M: Clone,
@@ -1116,9 +1120,6 @@ where
         let cr_seed = shares[0].cr_seed();
 
         let rlwe_n = parameters.rlwe_n().0;
-        let g = parameters.g() as isize;
-        let rlwe_q = parameters.rlwe_q();
-        let lwe_q = parameters.lwe_q();
 
         // sanity checks
         shares.iter().skip(1).for_each(|s| {
@@ -1181,7 +1182,7 @@ where
                 ..total_users)
                 .map(|(user_id)| {
                     let (start_index, end_index) =
-                        interactive_mult_party_user_id_lwe_segment(user_id, total_users, lwe_n);
+                        multi_party_user_id_lwe_segment(user_id, total_users, lwe_n);
                     ((start_index, end_index), end_index - start_index)
                 })
                 .unzip();
@@ -1263,10 +1264,9 @@ where
         )
     }
 
-    pub(super) fn aggregate_non_interactive_multi_party_key_share(
+    pub(super) fn aggregate_non_interactive_multi_party_server_key_shares(
         &self,
         cr_seed: &NonInteractiveMultiPartyCrs<[u8; 32]>,
-        total_users: usize,
         key_shares: &[CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
             M,
             BoolParameters<M::MatElement>,
@@ -1286,8 +1286,6 @@ where
             &ParameterVariant::NonInteractiveMultiParty
         );
 
-        // TODO: Check parameters are equivalent!
-
         let total_users = key_shares.len();
         let key_shares = (0..total_users)
             .map(|user_id| {
@@ -1298,6 +1296,14 @@ where
                     .expect(&format!("Key Share for user_id={user_id} missing"))
             })
             .collect_vec();
+
+        // check parameters and cr seed are equal
+        {
+            key_shares.iter().for_each(|k| {
+                assert!(k.parameters() == self.parameters());
+                assert!(k.cr_seed() == cr_seed);
+            });
+        }
 
         let rlwe_modop = &self.pbs_info().rlwe_modop;
         let nttop = &self.pbs_info().rlwe_nttop;
@@ -1410,7 +1416,7 @@ where
             // a_{i, l} * s + e = \sum_{j \in P} a_{i, l} * s_{j} + e
             let user_segments = (0..total_users)
                 .map(|user_id| {
-                    interactive_mult_party_user_id_lwe_segment(
+                    multi_party_user_id_lwe_segment(
                         user_id,
                         total_users,
                         self.parameters().lwe_n().0,
@@ -1660,7 +1666,7 @@ where
         )
     }
 
-    pub(super) fn non_interactive_multi_party_key_share<
+    pub(super) fn gen_non_interactive_multi_party_key_share<
         K: NonInteractiveMultiPartyClientKey<Element = i32>,
     >(
         &self,
@@ -1822,7 +1828,7 @@ where
 
             // Generate non-interactive RGSW ciphertexts a_{i, l} u_j + e + \beta X^{s_j[l]}
             // for i \in (0, d_max]
-            let (self_start_index, self_end_index) = interactive_mult_party_user_id_lwe_segment(
+            let (self_start_index, self_end_index) = multi_party_user_id_lwe_segment(
                 self_index,
                 total_users,
                 self.parameters().lwe_n().0,
@@ -2086,7 +2092,7 @@ where
 
     pub(super) fn multi_party_public_key_share<K: InteractiveMultiPartyClientKey<Element = i32>>(
         &self,
-        cr_seed: &MultiPartyCrs<[u8; 32]>,
+        cr_seed: &InteractiveMultiPartyCrs<[u8; 32]>,
         client_key: &K,
     ) -> CommonReferenceSeededCollectivePublicKeyShare<
         <M as Matrix>::R,
@@ -2148,94 +2154,6 @@ where
 
         let encoded_m = modop.add(&lwe_ct.as_ref()[0], &sum_a);
         self.pbs_info.parameters.rlwe_q().decode(encoded_m)
-    }
-
-    pub(crate) fn pk_encrypt(&self, pk: &M, m: bool) -> M::R {
-        self.pk_encrypt_batched(pk, &vec![m]).remove(0)
-    }
-
-    /// Encrypts a batch booleans as multiple LWE ciphertexts.
-    ///
-    /// For public key encryption we first encrypt `m` as a RLWE ciphertext and
-    /// then sample extract LWE samples at required indices.
-    ///
-    /// - TODO(Jay:) Communication can be improved by not sample exctracting and
-    ///   instead just truncate degree 0 values (part Bs)
-    pub(crate) fn pk_encrypt_batched(&self, pk: &M, m: &[bool]) -> Vec<M::R> {
-        DefaultSecureRng::with_local_mut(|rng| {
-            let ring_size = self.pbs_info.parameters.rlwe_n().0;
-            assert!(
-                m.len() <= ring_size,
-                "Cannot batch encrypt > ring_size{ring_size} elements at once"
-            );
-
-            let modop = &self.pbs_info.rlwe_modop;
-            let nttop = &self.pbs_info.rlwe_nttop;
-
-            // RLWE(0)
-            // sample ephemeral key u
-            let mut u = vec![0i32; ring_size];
-            fill_random_ternary_secret_with_hamming_weight(u.as_mut(), ring_size >> 1, rng);
-            let mut u = M::R::try_convert_from(&u, &self.pbs_info.parameters.rlwe_q());
-            nttop.forward(u.as_mut());
-
-            let mut ua = M::R::zeros(ring_size);
-            ua.as_mut().copy_from_slice(pk.get_row_slice(0));
-            let mut ub = M::R::zeros(ring_size);
-            ub.as_mut().copy_from_slice(pk.get_row_slice(1));
-
-            // a*u
-            nttop.forward(ua.as_mut());
-            modop.elwise_mul_mut(ua.as_mut(), u.as_ref());
-            nttop.backward(ua.as_mut());
-
-            // b*u
-            nttop.forward(ub.as_mut());
-            modop.elwise_mul_mut(ub.as_mut(), u.as_ref());
-            nttop.backward(ub.as_mut());
-
-            let mut rlwe = M::zeros(2, ring_size);
-            // sample error
-            rlwe.iter_rows_mut().for_each(|ri| {
-                RandomFillGaussianInModulus::<[M::MatElement], CiphertextModulus<M::MatElement>>::random_fill(
-                    rng,
-                    &self.pbs_info.parameters.rlwe_q(),
-                    ri.as_mut(),
-                );
-            });
-
-            // a*u + e0
-            modop.elwise_add_mut(rlwe.get_row_mut(0), ua.as_ref());
-            // b*u + e1
-            modop.elwise_add_mut(rlwe.get_row_mut(1), ub.as_ref());
-
-            //FIXME(Jay): Figure out a way to get Q/8 form modulus
-            let mut m_vec = M::R::zeros(ring_size);
-            izip!(m_vec.as_mut().iter_mut(), m.iter()).for_each(|(m_el, m_bool)| {
-                if *m_bool {
-                    // Q/8
-                    *m_el = self.pbs_info.rlwe_q().true_el()
-                } else {
-                    // -Q/8
-                    *m_el = self.pbs_info.rlwe_q().false_el()
-                }
-            });
-
-            // b*u + e1 + m
-            modop.elwise_add_mut(rlwe.get_row_mut(1), m_vec.as_ref());
-            // rlwe.set(1, 0, modop.add(rlwe.get(1, 0), &m));
-
-            // sample extract index required indices
-            let samples = m.len();
-            (0..samples)
-                .into_iter()
-                .map(|i| {
-                    let mut lwe_out = M::R::zeros(ring_size + 1);
-                    sample_extract(&mut lwe_out, &rlwe, modop, i);
-                    lwe_out
-                })
-                .collect_vec()
-        })
     }
 
     pub fn sk_encrypt<K: SinglePartyClientKey<Element = i32>>(

@@ -371,7 +371,7 @@ mod tests {
         use crate::{
             aggregate_public_key_shares, aggregate_server_key_shares,
             bool::keys::{key_size::KeySize, ServerKeyEvaluationDomain},
-            evaluator::MultiPartyCrs,
+            evaluator::InteractiveMultiPartyCrs,
             gen_client_key, gen_mp_keys_phase1, gen_mp_keys_phase2,
             parameters::CiphertextModulus,
             random::DefaultSecureRng,
@@ -381,7 +381,7 @@ mod tests {
         };
 
         set_parameter_set(crate::ParameterSelector::InteractiveLTE2Party);
-        set_mp_seed(MultiPartyCrs::random().seed);
+        set_mp_seed(InteractiveMultiPartyCrs::random().seed);
         let parties = 2;
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
         let pk_shares = cks.iter().map(|k| gen_mp_keys_phase1(k)).collect_vec();

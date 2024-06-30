@@ -43,7 +43,7 @@ pub(crate) fn lwe_key_switch<
     lwe_out.as_mut()[0] = out_b;
 }
 
-pub fn seeded_lwe_ksk_keygen<
+pub(crate) fn seeded_lwe_ksk_keygen<
     Ro: RowMut + RowEntity,
     S,
     Op: VectorOps<Element = Ro::Element>
@@ -101,7 +101,7 @@ where
 }
 
 /// Encrypts encoded message m as LWE ciphertext
-pub fn encrypt_lwe<
+pub(crate) fn encrypt_lwe<
     Ro: RowMut + RowEntity,
     Op: ArithmeticOps<Element = Ro::Element> + GetModulus<Element = Ro::Element>,
     R: RandomGaussianElementInModulus<Ro::Element, Op::M>

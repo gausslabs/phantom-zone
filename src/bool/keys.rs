@@ -497,7 +497,7 @@ pub(super) mod impl_server_key_eval_domain {
     use itertools::{izip, Itertools};
 
     use crate::{
-        evaluator::MultiPartyCrs,
+        evaluator::InteractiveMultiPartyCrs,
         ntt::{Ntt, NttInit},
         pbs::PbsKey,
         random::RandomFill,
@@ -651,7 +651,7 @@ pub(super) mod impl_server_key_eval_domain {
         From<
             &SeededInteractiveMultiPartyServerKey<
                 M,
-                MultiPartyCrs<Rng::Seed>,
+                InteractiveMultiPartyCrs<Rng::Seed>,
                 BoolParameters<M::MatElement>,
             >,
         > for ServerKeyEvaluationDomain<M, BoolParameters<M::MatElement>, Rng, N>
@@ -665,7 +665,7 @@ pub(super) mod impl_server_key_eval_domain {
         fn from(
             value: &SeededInteractiveMultiPartyServerKey<
                 M,
-                MultiPartyCrs<Rng::Seed>,
+                InteractiveMultiPartyCrs<Rng::Seed>,
                 BoolParameters<M::MatElement>,
             >,
         ) -> Self {
@@ -1268,7 +1268,7 @@ pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix
 }
 
 mod impl_common_ref_non_interactive_multi_party_server_share {
-    use crate::evaluator::interactive_mult_party_user_id_lwe_segment;
+    use crate::evaluator::multi_party_user_id_lwe_segment;
 
     use super::*;
 
@@ -1307,11 +1307,8 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
             &self,
             lwe_index: usize,
         ) -> &M {
-            let self_segment = interactive_mult_party_user_id_lwe_segment(
-                self.user_id,
-                self.total_users,
-                self.lwe_n,
-            );
+            let self_segment =
+                multi_party_user_id_lwe_segment(self.user_id, self.total_users, self.lwe_n);
             assert!(lwe_index >= self_segment.0 && lwe_index < self_segment.1);
             &self.self_leader_ni_rgsw_cts[lwe_index - self_segment.0]
         }
@@ -1320,11 +1317,8 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
             &self,
             lwe_index: usize,
         ) -> &M {
-            let self_segment = interactive_mult_party_user_id_lwe_segment(
-                self.user_id,
-                self.total_users,
-                self.lwe_n,
-            );
+            let self_segment =
+                multi_party_user_id_lwe_segment(self.user_id, self.total_users, self.lwe_n);
             // Non-interactive RGSW cts when self is not leader are stored in
             // sorted-order. For ex, if self is the leader for indices (5, 6]
             // then self stores NI-RGSW cts for rest of indices like [0, 1, 2,
@@ -1365,6 +1359,14 @@ mod impl_common_ref_non_interactive_multi_party_server_share {
             } else {
                 &self.ksk_zero_encs_for_others[user_i - 1]
             }
+        }
+
+        pub(in super::super) fn cr_seed(&self) -> &S {
+            &self.cr_seed
+        }
+
+        pub(in super::super) fn parameters(&self) -> &P {
+            &self.parameters
         }
     }
 }

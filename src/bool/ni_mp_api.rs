@@ -17,7 +17,7 @@ use super::{
         ShoupNonInteractiveServerKeyEvaluationDomain,
     },
     parameters::{BoolParameters, CiphertextModulus, NI_2P},
-    ClientKey, ParameterSelector,
+    ClientKey,
 };
 
 pub(crate) type BoolEvaluator = super::evaluator::BoolEvaluator<
@@ -36,6 +36,11 @@ static BOOL_SERVER_KEY: OnceLock<ShoupNonInteractiveServerKeyEvaluationDomain<Ve
     OnceLock::new();
 
 static MULTI_PARTY_CRS: OnceLock<NonInteractiveMultiPartyCrs<[u8; 32]>> = OnceLock::new();
+
+pub enum ParameterSelector {
+    NonInteractiveLTE2Party,
+    NonInteractiveLTE4Party,
+}
 
 pub fn set_parameter_set(select: ParameterSelector) {
     match select {
@@ -84,7 +89,7 @@ pub fn gen_server_key_share(
 > {
     BoolEvaluator::with_local(|e| {
         let cr_seed = NonInteractiveMultiPartyCrs::global();
-        e.non_interactive_multi_party_key_share(cr_seed, user_id, total_users, client_key)
+        e.gen_non_interactive_multi_party_key_share(cr_seed, user_id, total_users, client_key)
     })
 }
 
@@ -101,7 +106,7 @@ pub fn aggregate_server_key_shares(
 > {
     BoolEvaluator::with_local(|e| {
         let cr_seed = NonInteractiveMultiPartyCrs::global();
-        e.aggregate_non_interactive_multi_party_key_share(cr_seed, shares.len(), shares)
+        e.aggregate_non_interactive_multi_party_server_key_shares(cr_seed, shares)
     })
 }
 
@@ -411,12 +416,12 @@ mod tests {
 
     #[test]
     fn non_interactive_mp_bool_nand() {
-        set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
+        set_parameter_set(ParameterSelector::NonInteractiveLTE4Party);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
         set_common_reference_seed(seed);
 
-        let parties = 2;
+        let parties = 3;
 
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
 

@@ -1,10 +1,6 @@
 pub(crate) mod evaluator;
 mod keys;
-mod noise;
 pub(crate) mod parameters;
-
-use keys::tests;
-pub(crate) use keys::PublicKey;
 
 #[cfg(feature = "interactive_mp")]
 mod mp_api;
@@ -18,12 +14,6 @@ pub use ni_mp_api::*;
 pub use mp_api::*;
 
 pub type ClientKey = keys::ClientKey<[u8; 32], u64>;
-
-pub enum ParameterSelector {
-    InteractiveLTE2Party,
-    NonInteractiveLTE2Party,
-    NonInteractiveLTE4Party,
-}
 
 mod common_mp_enc_dec {
     use super::BoolEvaluator;

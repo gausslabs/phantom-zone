@@ -7,7 +7,7 @@ use crate::{
     utils::{Global, WithLocal},
 };
 
-use super::{evaluator::MultiPartyCrs, keys::*, parameters::*, ClientKey, ParameterSelector};
+use super::{evaluator::InteractiveMultiPartyCrs, keys::*, parameters::*, ClientKey};
 
 pub(crate) type BoolEvaluator = super::evaluator::BoolEvaluator<
     Vec<Vec<u64>>,
@@ -23,8 +23,13 @@ thread_local! {
 }
 static BOOL_SERVER_KEY: OnceLock<ShoupServerKeyEvaluationDomain<Vec<Vec<u64>>>> = OnceLock::new();
 
-static MULTI_PARTY_CRS: OnceLock<MultiPartyCrs<[u8; 32]>> = OnceLock::new();
+static MULTI_PARTY_CRS: OnceLock<InteractiveMultiPartyCrs<[u8; 32]>> = OnceLock::new();
 
+pub enum ParameterSelector {
+    InteractiveLTE2Party,
+}
+
+/// Select Interactive multi-party parameter variant
 pub fn set_parameter_set(select: ParameterSelector) {
     match select {
         ParameterSelector::InteractiveLTE2Party => {
@@ -32,31 +37,39 @@ pub fn set_parameter_set(select: ParameterSelector) {
         }
 
         _ => {
-            panic!("Paramerters not supported")
+            panic!("Paramerter not supported")
         }
     }
 }
 
+/// Set application specific interactive multi-party common reference string
 pub fn set_mp_seed(seed: [u8; 32]) {
     assert!(
-        MULTI_PARTY_CRS.set(MultiPartyCrs { seed: seed }).is_ok(),
+        MULTI_PARTY_CRS
+            .set(InteractiveMultiPartyCrs { seed: seed })
+            .is_ok(),
         "Attempted to set MP SEED twice."
     )
 }
 
+/// Generate client key for interactive multi-party protocol
 pub fn gen_client_key() -> ClientKey {
     BoolEvaluator::with_local(|e| e.client_key())
 }
 
+/// Generate client's share for collective public key, i.e round 1, of the
+/// protocol
 pub fn gen_mp_keys_phase1(
     ck: &ClientKey,
 ) -> CommonReferenceSeededCollectivePublicKeyShare<Vec<u64>, [u8; 32], BoolParameters<u64>> {
     BoolEvaluator::with_local(|e| {
-        let pk_share = e.multi_party_public_key_share(MultiPartyCrs::global(), ck);
+        let pk_share = e.multi_party_public_key_share(InteractiveMultiPartyCrs::global(), ck);
         pk_share
     })
 }
 
+/// Generate clients share for collective server key, i.e. round 2, of the
+/// protocol
 pub fn gen_mp_keys_phase2<R, ModOp>(
     ck: &ClientKey,
     user_id: usize,
@@ -65,13 +78,13 @@ pub fn gen_mp_keys_phase2<R, ModOp>(
 ) -> CommonReferenceSeededInteractiveMultiPartyServerKeyShare<
     Vec<Vec<u64>>,
     BoolParameters<u64>,
-    MultiPartyCrs<[u8; 32]>,
+    InteractiveMultiPartyCrs<[u8; 32]>,
 > {
     BoolEvaluator::with_local_mut(|e| {
-        let server_key_share = e.multi_party_server_key_share(
+        let server_key_share = e.gen_interactive_multi_party_server_key_share(
             user_id,
             total_users,
-            MultiPartyCrs::global(),
+            InteractiveMultiPartyCrs::global(),
             pk.key(),
             ck,
         );
@@ -79,6 +92,10 @@ pub fn gen_mp_keys_phase2<R, ModOp>(
     })
 }
 
+/// Aggregate public key shares from all parties.
+///
+/// Public key shares are generated per client in round 1. Aggregation of public
+/// key shares marks the end of round 1.
 pub fn aggregate_public_key_shares(
     shares: &[CommonReferenceSeededCollectivePublicKeyShare<
         Vec<u64>,
@@ -89,24 +106,29 @@ pub fn aggregate_public_key_shares(
     PublicKey::from(shares)
 }
 
+/// Aggregate server key shares
 pub fn aggregate_server_key_shares(
     shares: &[CommonReferenceSeededInteractiveMultiPartyServerKeyShare<
         Vec<Vec<u64>>,
         BoolParameters<u64>,
-        MultiPartyCrs<[u8; 32]>,
+        InteractiveMultiPartyCrs<[u8; 32]>,
     >],
-) -> SeededInteractiveMultiPartyServerKey<Vec<Vec<u64>>, MultiPartyCrs<[u8; 32]>, BoolParameters<u64>>
-{
-    BoolEvaluator::with_local(|e| e.aggregate_multi_party_server_key_shares(shares))
+) -> SeededInteractiveMultiPartyServerKey<
+    Vec<Vec<u64>>,
+    InteractiveMultiPartyCrs<[u8; 32]>,
+    BoolParameters<u64>,
+> {
+    BoolEvaluator::with_local(|e| e.aggregate_interactive_multi_party_server_key_shares(shares))
 }
 
 impl
     SeededInteractiveMultiPartyServerKey<
         Vec<Vec<u64>>,
-        MultiPartyCrs<<DefaultSecureRng as NewWithSeed>::Seed>,
+        InteractiveMultiPartyCrs<<DefaultSecureRng as NewWithSeed>::Seed>,
         BoolParameters<u64>,
     >
 {
+    /// Sets the server key as a global reference for circuit evaluation
     pub fn set_server_key(&self) {
         assert!(
             BOOL_SERVER_KEY
@@ -120,7 +142,7 @@ impl
 }
 
 //  MULTIPARTY CRS  //
-impl Global for MultiPartyCrs<[u8; 32]> {
+impl Global for InteractiveMultiPartyCrs<[u8; 32]> {
     fn global() -> &'static Self {
         MULTI_PARTY_CRS
             .get()
@@ -164,7 +186,7 @@ mod impl_enc_dec {
         bool::evaluator::BoolEncoding,
         pbs::{sample_extract, PbsInfo},
         rgsw::public_key_encrypt_rlwe,
-        Encryptor, Matrix, MatrixEntity, MultiPartyDecryptor, RowEntity,
+        Encryptor, Matrix, MatrixEntity, RowEntity,
     };
     use itertools::Itertools;
     use num_traits::{ToPrimitive, Zero};

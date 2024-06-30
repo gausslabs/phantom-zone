@@ -35,7 +35,8 @@ fn main() {
     // multi-party key gen round 2
     let server_key_shares = client_keys
         .iter()
-        .map(|k| gen_mp_keys_phase2(k, &public_key))
+        .enumerate()
+        .map(|(user_id, k)| gen_mp_keys_phase2(k, user_id, no_of_parties, &public_key))
         .collect_vec();
 
     // server aggregates server key shares and sets it
