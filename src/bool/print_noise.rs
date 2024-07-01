@@ -370,8 +370,10 @@ mod tests {
     fn qwerty() {
         use crate::{
             aggregate_public_key_shares, aggregate_server_key_shares,
-            bool::keys::{key_size::KeySize, ServerKeyEvaluationDomain},
-            evaluator::InteractiveMultiPartyCrs,
+            bool::{
+                evaluator::InteractiveMultiPartyCrs,
+                keys::{key_size::KeySize, ServerKeyEvaluationDomain},
+            },
             gen_client_key, gen_mp_keys_phase1, gen_mp_keys_phase2,
             parameters::CiphertextModulus,
             random::DefaultSecureRng,
@@ -432,9 +434,11 @@ mod tests {
     fn querty2() {
         use crate::{
             aggregate_server_key_shares,
-            bool::keys::{key_size::KeySize, NonInteractiveServerKeyEvaluationDomain},
+            bool::{
+                evaluator::NonInteractiveMultiPartyCrs,
+                keys::{key_size::KeySize, NonInteractiveServerKeyEvaluationDomain},
+            },
             decomposer::DefaultDecomposer,
-            evaluator::NonInteractiveMultiPartyCrs,
             gen_client_key, gen_server_key_share,
             parameters::CiphertextModulus,
             random::DefaultSecureRng,

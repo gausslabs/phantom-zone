@@ -1,6 +1,6 @@
 use itertools::{izip, Itertools};
 
-use crate::bool::evaluator::BooleanGates;
+use crate::bool::BooleanGates;
 
 pub(super) fn half_adder<E: BooleanGates>(
     evaluator: &mut E,

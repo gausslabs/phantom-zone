@@ -406,8 +406,8 @@ mod tests {
 
     use crate::{
         bool::{
-            evaluator::BooleanGates,
             keys::tests::{ideal_sk_rlwe, measure_noise_lwe},
+            BooleanGates,
         },
         Encoder, Encryptor, KeySwitchWithId, MultiPartyDecryptor,
     };

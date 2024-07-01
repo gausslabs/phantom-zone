@@ -497,7 +497,7 @@ pub(super) mod impl_server_key_eval_domain {
     use itertools::{izip, Itertools};
 
     use crate::{
-        evaluator::InteractiveMultiPartyCrs,
+        bool::evaluator::InteractiveMultiPartyCrs,
         ntt::{Ntt, NttInit},
         pbs::PbsKey,
         random::RandomFill,
@@ -1268,7 +1268,7 @@ pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix
 }
 
 mod impl_common_ref_non_interactive_multi_party_server_share {
-    use crate::evaluator::multi_party_user_id_lwe_segment;
+    use crate::bool::evaluator::multi_party_user_id_lwe_segment;
 
     use super::*;
 

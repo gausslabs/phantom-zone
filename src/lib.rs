@@ -22,7 +22,7 @@ pub use backend::{
 // ParameterSelector, };
 pub use bool::*;
 pub use ntt::{Ntt, NttBackendU64, NttInit};
-pub use shortint::{div_zero_error_flag, FheBool, FheUint8};
+pub use shortint::{div_zero_error_flag, FheUint8};
 
 pub use decomposer::{Decomposer, DecomposerIter, DefaultDecomposer};
 

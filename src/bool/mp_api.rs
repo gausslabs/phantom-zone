@@ -265,10 +265,10 @@ mod tests {
 
     use crate::{
         bool::{
-            evaluator::BooleanGates,
+            evaluator::BoolEncoding,
             keys::tests::{ideal_sk_rlwe, measure_noise_lwe},
+            BooleanGates,
         },
-        evaluator::{BoolEncoding, BoolEvaluator},
         Encryptor, MultiPartyDecryptor,
     };
 
@@ -368,9 +368,8 @@ mod tests {
         use rand::Rng;
 
         use crate::{
-            backend::ModulusPowerOf2, evaluator::BoolEncoding, pbs::PbsInfo,
-            rgsw::seeded_secret_key_encrypt_rlwe, utils::WithLocal, Decryptor, ModularOpsU64,
-            NttBackendU64, SampleExtractor,
+            bool::impl_bool_frontend::FheBool, pbs::PbsInfo, rgsw::seeded_secret_key_encrypt_rlwe,
+            Decryptor, SampleExtractor,
         };
 
         use super::*;
@@ -423,6 +422,27 @@ mod tests {
                 BoolEvaluator::with_local(|e| e.sk_decrypt(c, self))
             }
         }
+
+        impl<K: SinglePartyClientKey<Element = i32>, C> Encryptor<bool, FheBool<C>> for K
+        where
+            K: Encryptor<bool, C>,
+        {
+            fn encrypt(&self, m: &bool) -> FheBool<C> {
+                FheBool {
+                    data: self.encrypt(m),
+                }
+            }
+        }
+
+        impl<K: SinglePartyClientKey<Element = i32>, C> Decryptor<bool, FheBool<C>> for K
+        where
+            K: Decryptor<bool, C>,
+        {
+            fn decrypt(&self, c: &FheBool<C>) -> bool {
+                self.decrypt(c.data())
+            }
+        }
+
         impl<K> Encryptor<[bool], (Vec<Vec<u64>>, [u8; 32])> for K
         where
             K: SinglePartyClientKey<Element = i32>,
@@ -656,6 +676,41 @@ mod tests {
                         }
                     }
                 }
+            }
+        }
+
+        #[test]
+        #[cfg(feature = "interactive_mp")]
+        fn all_bool_apis() {
+            use crate::FheBool;
+
+            set_single_party_parameter_sets(SP_TEST_BOOL_PARAMS);
+
+            let (ck, sk) = gen_keys();
+            sk.set_server_key();
+
+            for _ in 0..100 {
+                let a = thread_rng().gen_bool(0.5);
+                let b = thread_rng().gen_bool(0.5);
+
+                let c_a: FheBool = ck.encrypt(&a);
+                let c_b: FheBool = ck.encrypt(&b);
+
+                let c_out = &c_a & &c_b;
+                let out = ck.decrypt(&c_out);
+                assert_eq!(out, a & b, "Expected {} but got {out}", a & b);
+
+                let c_out = &c_a | &c_b;
+                let out = ck.decrypt(&c_out);
+                assert_eq!(out, a | b, "Expected {} but got {out}", a | b);
+
+                let c_out = &c_a ^ &c_b;
+                let out = ck.decrypt(&c_out);
+                assert_eq!(out, a ^ b, "Expected {} but got {out}", a ^ b);
+
+                let c_out = !(&c_a);
+                let out = ck.decrypt(&c_out);
+                assert_eq!(out, !a, "Expected {} but got {out}", !a);
             }
         }
     }

@@ -33,7 +33,7 @@ use crate::{
         encode_x_pow_si_with_emebedding_factor, mod_exponent, puncture_p_rng, TryConvertFrom1,
         WithLocal,
     },
-    Encoder, Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
+    BooleanGates, Encoder, Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
 };
 
 use super::{
@@ -169,57 +169,6 @@ impl<S: Default + Copy> NonInteractiveMultiPartyCrs<S> {
 
         puncture_p_rng(&mut p_rng, user_i + 1)
     }
-}
-
-pub(crate) trait BooleanGates {
-    type Ciphertext: RowEntity;
-    type Key;
-
-    fn and_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
-    fn nand_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
-    fn or_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
-    fn nor_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
-    fn xor_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
-    fn xnor_inplace(&mut self, c0: &mut Self::Ciphertext, c1: &Self::Ciphertext, key: &Self::Key);
-    fn not_inplace(&mut self, c: &mut Self::Ciphertext);
-
-    fn and(
-        &mut self,
-        c0: &Self::Ciphertext,
-        c1: &Self::Ciphertext,
-        key: &Self::Key,
-    ) -> Self::Ciphertext;
-    fn nand(
-        &mut self,
-        c0: &Self::Ciphertext,
-        c1: &Self::Ciphertext,
-        key: &Self::Key,
-    ) -> Self::Ciphertext;
-    fn or(
-        &mut self,
-        c0: &Self::Ciphertext,
-        c1: &Self::Ciphertext,
-        key: &Self::Key,
-    ) -> Self::Ciphertext;
-    fn nor(
-        &mut self,
-        c0: &Self::Ciphertext,
-        c1: &Self::Ciphertext,
-        key: &Self::Key,
-    ) -> Self::Ciphertext;
-    fn xor(
-        &mut self,
-        c0: &Self::Ciphertext,
-        c1: &Self::Ciphertext,
-        key: &Self::Key,
-    ) -> Self::Ciphertext;
-    fn xnor(
-        &mut self,
-        c0: &Self::Ciphertext,
-        c1: &Self::Ciphertext,
-        key: &Self::Key,
-    ) -> Self::Ciphertext;
-    fn not(&mut self, c: &Self::Ciphertext) -> Self::Ciphertext;
 }
 
 struct ScratchMemory<M>
@@ -2324,7 +2273,7 @@ where
         );
     }
 
-    fn not_inplace(&mut self, c0: &mut M::R) {
+    fn not_inplace(&self, c0: &mut M::R) {
         let modop = &self.pbs_info.rlwe_modop;
         c0.as_mut().iter_mut().for_each(|v| *v = modop.neg(v));
     }
@@ -2395,7 +2344,7 @@ where
         out
     }
 
-    fn not(&mut self, c: &Self::Ciphertext) -> Self::Ciphertext {
+    fn not(&self, c: &Self::Ciphertext) -> Self::Ciphertext {
         let mut out = c.clone();
         self.not_inplace(&mut out);
         out

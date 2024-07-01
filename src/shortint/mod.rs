@@ -2,11 +2,10 @@ mod enc_dec;
 mod ops;
 
 pub type FheUint8 = enc_dec::FheUint8<Vec<u64>>;
-pub type FheBool = enc_dec::FheBool<Vec<u64>>;
 
 use std::cell::RefCell;
 
-use crate::bool::{evaluator::BooleanGates, BoolEvaluator, RuntimeServerKey};
+use crate::bool::{BoolEvaluator, BooleanGates, FheBool, RuntimeServerKey};
 
 thread_local! {
      static DIV_ZERO_ERROR: RefCell<Option<FheBool>> = RefCell::new(None);
