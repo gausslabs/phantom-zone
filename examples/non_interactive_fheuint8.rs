@@ -50,7 +50,7 @@ fn main() {
     // let now = std::time::Instant::now();
     let (ct_c0_a, ct_c0_b) = {
         let ct = c0_batched_to_send.unseed::<Vec<Vec<u64>>>().key_switch(0);
-        (ct.extract(0), ct.extract(1))
+        (ct.extract_at(0), ct.extract_at(1))
     };
     // println!(
     //     "Time to unseed, key switch, and extract 2 ciphertexts: {:?}",
@@ -60,7 +60,7 @@ fn main() {
     // extract a and b from client1 inputs
     let (ct_c1_a, ct_c1_b) = {
         let ct = c1_batch_to_send.unseed::<Vec<Vec<u64>>>().key_switch(1);
-        (ct.extract(0), ct.extract(1))
+        (ct.extract_at(0), ct.extract_at(1))
     };
 
     let now = std::time::Instant::now();

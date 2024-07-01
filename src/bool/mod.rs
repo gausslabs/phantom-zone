@@ -194,6 +194,8 @@ mod impl_bool_frontend {
 }
 
 mod common_mp_enc_dec {
+    use itertools::Itertools;
+
     use super::BoolEvaluator;
     use crate::{
         pbs::{sample_extract, PbsInfo},
@@ -225,7 +227,7 @@ mod common_mp_enc_dec {
     impl SampleExtractor<<Mat as Matrix>::R> for Mat {
         /// Sample extract coefficient at `index` as a LWE ciphertext from RLWE
         /// ciphertext `Self`
-        fn extract(&self, index: usize) -> <Mat as Matrix>::R {
+        fn extract_at(&self, index: usize) -> <Mat as Matrix>::R {
             // input is RLWE ciphertext
             assert!(self.dimension().0 == 2);
 
@@ -237,6 +239,41 @@ mod common_mp_enc_dec {
                 sample_extract(&mut lwe_out, self, e.pbs_info().modop_rlweq(), index);
                 lwe_out
             })
+        }
+
+        /// Extract first `how_many` coefficients of `Self` as LWE ciphertexts
+        fn extract_many(&self, how_many: usize) -> Vec<<Mat as Matrix>::R> {
+            assert!(self.dimension().0 == 2);
+
+            let ring_size = self.dimension().1;
+            assert!(how_many <= ring_size);
+
+            (0..how_many)
+                .map(|index| {
+                    BoolEvaluator::with_local(|e| {
+                        let mut lwe_out = <Mat as Matrix>::R::zeros(ring_size + 1);
+                        sample_extract(&mut lwe_out, self, e.pbs_info().modop_rlweq(), index);
+                        lwe_out
+                    })
+                })
+                .collect_vec()
+        }
+
+        /// Extracts all coefficients of `Self` as LWE ciphertexts
+        fn extract_all(&self) -> Vec<<Mat as Matrix>::R> {
+            assert!(self.dimension().0 == 2);
+
+            let ring_size = self.dimension().1;
+
+            (0..ring_size)
+                .map(|index| {
+                    BoolEvaluator::with_local(|e| {
+                        let mut lwe_out = <Mat as Matrix>::R::zeros(ring_size + 1);
+                        sample_extract(&mut lwe_out, self, e.pbs_info().modop_rlweq(), index);
+                        lwe_out
+                    })
+                })
+                .collect_vec()
         }
     }
 }

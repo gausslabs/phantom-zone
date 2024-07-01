@@ -1,7 +1,7 @@
 use itertools::Itertools;
 
 use crate::{
-    bool::{BoolEvaluator, FheBool},
+    bool::BoolEvaluator,
     random::{DefaultSecureRng, RandomFillUniformInModulus},
     utils::WithLocal,
     Decryptor, Encryptor, KeySwitchWithId, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor,
@@ -31,7 +31,10 @@ impl<C> FheUint8<C> {
 ///
 /// To extract Fhe Uint8 ciphertext at `index` call `self.extract(index)`
 pub struct BatchedFheUint8<C> {
+    /// Vector of RLWE ciphertexts `C`
     data: Vec<C>,
+    /// Count of FheUint8s packed in vector of RLWE ciphertexts
+    count: usize,
 }
 
 impl<C, R> SampleExtractor<FheUint8<R>> for BatchedFheUint8<C>
@@ -45,7 +48,8 @@ where
     /// ciphertexts, Fhe uint8 ciphertext at index `i` is stored in coefficients
     /// `i*8...(i+1)*8`. To extract Fhe uint8 at index `i`, sample extract bool
     /// ciphertext at indices `[i*8, ..., (i+1)*8)`
-    fn extract(&self, index: usize) -> FheUint8<R> {
+    fn extract_at(&self, index: usize) -> FheUint8<R> {
+        assert!(index < self.count);
         BoolEvaluator::with_local(|e| {
             let ring_size = e.parameters().rlwe_n().0;
 
@@ -55,11 +59,26 @@ where
                 .map(|i| {
                     let rlwe_index = i / ring_size;
                     let coeff_index = i % ring_size;
-                    self.data[rlwe_index].extract(coeff_index)
+                    self.data[rlwe_index].extract_at(coeff_index)
                 })
                 .collect_vec();
             FheUint8 { data }
         })
+    }
+
+    /// Extracts all FheUint8s packed in vector of RLWE ciphertexts of `Self`
+    fn extract_all(&self) -> Vec<FheUint8<R>> {
+        (0..self.count)
+            .map(|index| self.extract_at(index))
+            .collect_vec()
+    }
+
+    /// Extracts first `how_many` FheUint8s packed in vector of RLWE
+    /// ciphertexts of `Self`
+    fn extract_many(&self, how_many: usize) -> Vec<FheUint8<R>> {
+        (0..how_many)
+            .map(|index| self.extract_at(index))
+            .collect_vec()
     }
 }
 
@@ -92,14 +111,24 @@ where
                     rlwe
                 })
                 .collect_vec();
-            Self { data: rlwes }
+            Self {
+                data: rlwes,
+                count: value.count,
+            }
         })
     }
 }
 
 pub struct SeededBatchedFheUint8<C, S> {
+    /// Vector of Seeded RLWE ciphertexts `C`.
+    ///
+    /// If RLWE(m) = [a, b] s.t. m + e = b - as, `a` can be seeded and seeded
+    /// RLWE ciphertext only contains `b` polynomial
     data: Vec<C>,
+    /// Seed for the ciphertexts
     seed: S,
+    /// Count of FheUint8s packed in vector of RLWE ciphertexts
+    count: usize,
 }
 
 impl<C, S> SeededBatchedFheUint8<C, S> {
@@ -119,12 +148,16 @@ where
     /// Encrypt a slice of u8s of arbitray length as `SeededBatchedFheUint8`
     fn encrypt(&self, m: &[u8]) -> SeededBatchedFheUint8<C, S> {
         // convert vector of u8s to vector bools
-        let m = m
+        let bool_m = m
             .iter()
             .flat_map(|v| (0..8).into_iter().map(|i| (((*v) >> i) & 1) == 1))
             .collect_vec();
-        let (cts, seed) = K::encrypt(&self, &m);
-        SeededBatchedFheUint8 { data: cts, seed }
+        let (cts, seed) = K::encrypt(&self, &bool_m);
+        SeededBatchedFheUint8 {
+            data: cts,
+            seed,
+            count: m.len(),
+        }
     }
 }
 
@@ -133,7 +166,7 @@ where
     K: Encryptor<[bool], Vec<C>>,
 {
     fn encrypt(&self, m: &[u8]) -> BatchedFheUint8<C> {
-        let m = m
+        let bool_m = m
             .iter()
             .flat_map(|v| {
                 (0..8)
@@ -142,8 +175,11 @@ where
                     .collect_vec()
             })
             .collect_vec();
-        let cts = K::encrypt(&self, &m);
-        BatchedFheUint8 { data: cts }
+        let cts = K::encrypt(&self, &bool_m);
+        BatchedFheUint8 {
+            data: cts,
+            count: m.len(),
+        }
     }
 }
 
@@ -161,7 +197,10 @@ where
             .iter()
             .map(|c| c.key_switch(user_id))
             .collect_vec();
-        BatchedFheUint8 { data }
+        BatchedFheUint8 {
+            data,
+            count: self.count,
+        }
     }
 }
 

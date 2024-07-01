@@ -126,20 +126,20 @@ fn main() {
     let player_0_moves_enc = {
         let c = player_0_enc.unseed::<Vec<Vec<u64>>>().key_switch(0);
         (0..no_of_moves)
-            .map(|i| Coordinates::new(c.extract(2 * i), c.extract(i * 2 + 1)))
+            .map(|i| Coordinates::new(c.extract_at(2 * i), c.extract_at(i * 2 + 1)))
             .collect_vec()
     };
     let player_1_bomb_enc = {
         let c = player_1_enc.unseed::<Vec<Vec<u64>>>().key_switch(1);
-        Coordinates::new(c.extract(0), c.extract(1))
+        Coordinates::new(c.extract_at(0), c.extract_at(1))
     };
     let player_2_bomb_enc = {
         let c = player_2_enc.unseed::<Vec<Vec<u64>>>().key_switch(2);
-        Coordinates::new(c.extract(0), c.extract(1))
+        Coordinates::new(c.extract_at(0), c.extract_at(1))
     };
     let player_3_bomb_enc = {
         let c = player_3_enc.unseed::<Vec<Vec<u64>>>().key_switch(3);
-        Coordinates::new(c.extract(0), c.extract(1))
+        Coordinates::new(c.extract_at(0), c.extract_at(1))
     };
 
     // run the game

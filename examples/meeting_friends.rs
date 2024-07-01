@@ -105,11 +105,14 @@ fn main() {
     // Server parses private inputs from user a and b
     let user_a_location_enc = {
         let c = user_a_enc.unseed::<Vec<Vec<u64>>>().key_switch(0);
-        Location::new(c.extract(0), c.extract(1))
+        Location::new(c.extract_at(0), c.extract_at(1))
     };
     let (user_b_location_enc, user_b_threshold_enc) = {
         let c = user_b_enc.unseed::<Vec<Vec<u64>>>().key_switch(1);
-        (Location::new(c.extract(0), c.extract(1)), c.extract(2))
+        (
+            Location::new(c.extract_at(0), c.extract_at(1)),
+            c.extract_at(2),
+        )
     };
 
     // run the circuit

@@ -185,7 +185,12 @@ pub trait KeySwitchWithId<C> {
 }
 
 pub trait SampleExtractor<R> {
-    fn extract(&self, index: usize) -> R;
+    /// Extract ciphertext at `index`
+    fn extract_at(&self, index: usize) -> R;
+    /// Extract all ciphertexts
+    fn extract_all(&self) -> Vec<R>;
+    /// Extract first `how_many` ciphertexts
+    fn extract_many(&self, how_many: usize) -> Vec<R>;
 }
 
 trait Encoder<F, T> {
