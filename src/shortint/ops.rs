@@ -256,7 +256,11 @@ where
     (quotient, remainder)
 }
 
-fn is_zero<E: BooleanGates>(evaluator: &mut E, a: &[E::Ciphertext], key: &E::Key) -> E::Ciphertext {
+pub(super) fn is_zero<E: BooleanGates>(
+    evaluator: &mut E,
+    a: &[E::Ciphertext],
+    key: &E::Key,
+) -> E::Ciphertext {
     let mut a = a.iter().map(|v| evaluator.not(v)).collect_vec();
     let (out, rest_a) = a.split_at_mut(1);
     rest_a.iter().for_each(|c| {

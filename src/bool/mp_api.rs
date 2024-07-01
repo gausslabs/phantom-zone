@@ -508,13 +508,15 @@ mod tests {
         fn all_uint8_apis() {
             use num_traits::Euclid;
 
+            use crate::div_zero_error_flag;
+
             set_single_party_parameter_sets(SP_TEST_BOOL_PARAMS);
 
             let (ck, sk) = gen_keys();
             sk.set_server_key();
 
-            for i in 144..=255 {
-                for j in 100..=255 {
+            for i in 0..=255 {
+                for j in 0..=255 {
                     let m0 = i;
                     let m1 = j;
                     let c0 = ck.encrypt(&m0);
@@ -574,7 +576,7 @@ mod tests {
                                 );
                                 assert_eq!(
                                     m_remainder, r,
-                                    "Expected {} but got {m_quotient} for {i}%{j}",
+                                    "Expected {} but got {m_remainder} for {i}%{j}",
                                     r
                                 );
                             } else {
@@ -584,8 +586,14 @@ mod tests {
                                 );
                                 assert_eq!(
                                     m_remainder, i,
-                                    "Expected {i} but got {m_quotient}. Case div by zero"
-                                )
+                                    "Expected {i} but got {m_remainder}. Case div by zero"
+                                );
+
+                                let div_by_zero = ck.decrypt(&div_zero_error_flag().unwrap());
+                                assert_eq!(
+                                    div_by_zero, true,
+                                    "Expected true but got {div_by_zero}"
+                                );
                             }
                         }
                     }

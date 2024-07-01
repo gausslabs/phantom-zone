@@ -5,7 +5,19 @@ mod types;
 pub type FheUint8 = enc_dec::FheUint8<Vec<u64>>;
 pub type FheBool = Vec<u64>;
 
+use std::cell::RefCell;
+
 use crate::bool::{evaluator::BooleanGates, BoolEvaluator, RuntimeServerKey};
+
+thread_local! {
+     static DIV_ZERO_ERROR: RefCell<Option<FheBool>> = RefCell::new(None);
+}
+
+/// Returns Boolean ciphertext indicating whether last division was attempeted
+/// with decnomiantor set to 0.
+pub fn div_zero_error_flag() -> Option<Vec<u64>> {
+    DIV_ZERO_ERROR.with_borrow(|c| c.clone())
+}
 
 mod frontend {
     use super::ops::{
@@ -17,6 +29,8 @@ mod frontend {
     use super::*;
 
     mod arithetic {
+
+        use ops::is_zero;
 
         use super::*;
         use std::ops::{Add, AddAssign, Div, Mul, Rem, Sub};
@@ -64,9 +78,13 @@ mod frontend {
         impl Div<&FheUint8> for &FheUint8 {
             type Output = FheUint8;
             fn div(self, rhs: &FheUint8) -> Self::Output {
-                // TODO(Jay:) Figure out how to set zero error flag
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
+
+                    // set div by 0 error flag
+                    let is_zero = is_zero(e, rhs.data(), key);
+                    DIV_ZERO_ERROR.set(Some(is_zero));
+
                     let (quotient, _) = arbitrary_bit_division_for_quotient_and_rem(
                         e,
                         self.data(),
@@ -125,9 +143,13 @@ mod frontend {
             }
 
             pub fn div_rem(&self, rhs: &FheUint8) -> (FheUint8, FheUint8) {
-                // TODO(Jay:) Figure out how to set zero error flag
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
+
+                    // set div by 0 error flag
+                    let is_zero = is_zero(e, rhs.data(), key);
+                    DIV_ZERO_ERROR.set(Some(is_zero));
+
                     let (quotient, remainder) = arbitrary_bit_division_for_quotient_and_rem(
                         e,
                         self.data(),
@@ -141,9 +163,7 @@ mod frontend {
     }
 
     mod booleans {
-        use crate::shortint::ops::{
-            arbitrary_bit_comparator, arbitrary_bit_equality, arbitrary_signed_bit_comparator,
-        };
+        use crate::shortint::ops::{arbitrary_bit_comparator, arbitrary_bit_equality};
 
         use super::*;
 
