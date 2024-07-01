@@ -8,6 +8,12 @@ use crate::{
     RowMut, SampleExtractor,
 };
 
+/// Fhe Bool ciphertext
+#[derive(Clone)]
+pub struct FheBool<C> {
+    pub(super) data: C,
+}
+
 /// Fhe UInt8 type
 ///
 /// - Stores encryptions of bits in little endian (i.e least signficant bit
@@ -201,6 +207,25 @@ where
         });
 
         out
+    }
+}
+
+impl<C, K> MultiPartyDecryptor<bool, FheBool<C>> for K
+where
+    K: MultiPartyDecryptor<bool, C>,
+{
+    type DecryptionShare = <K as MultiPartyDecryptor<bool, C>>::DecryptionShare;
+
+    fn aggregate_decryption_shares(
+        &self,
+        c: &FheBool<C>,
+        shares: &[Self::DecryptionShare],
+    ) -> bool {
+        self.aggregate_decryption_shares(&c.data, shares)
+    }
+
+    fn gen_decryption_share(&self, c: &FheBool<C>) -> Self::DecryptionShare {
+        self.gen_decryption_share(&c.data)
     }
 }
 

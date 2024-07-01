@@ -34,3 +34,9 @@ path = "./examples/interactive_fheuint8.rs"
 name = "non_interactive_fheuint8"
 path = "./examples/non_interactive_fheuint8.rs"
 required-features = ["non_interactive_mp"]
+
+
+[[example]]
+name = "meeting_friends"
+path = "./examples/meeting_friends.rs"
+required-features = ["non_interactive_mp"]

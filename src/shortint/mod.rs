@@ -1,9 +1,8 @@
 mod enc_dec;
 mod ops;
-mod types;
 
 pub type FheUint8 = enc_dec::FheUint8<Vec<u64>>;
-pub type FheBool = Vec<u64>;
+pub type FheBool = enc_dec::FheBool<Vec<u64>>;
 
 use std::cell::RefCell;
 
@@ -15,7 +14,7 @@ thread_local! {
 
 /// Returns Boolean ciphertext indicating whether last division was attempeted
 /// with decnomiantor set to 0.
-pub fn div_zero_error_flag() -> Option<Vec<u64>> {
+pub fn div_zero_error_flag() -> Option<FheBool> {
     DIV_ZERO_ERROR.with_borrow(|c| c.clone())
 }
 
@@ -83,7 +82,7 @@ mod frontend {
 
                     // set div by 0 error flag
                     let is_zero = is_zero(e, rhs.data(), key);
-                    DIV_ZERO_ERROR.set(Some(is_zero));
+                    DIV_ZERO_ERROR.set(Some(FheBool { data: is_zero }));
 
                     let (quotient, _) = arbitrary_bit_division_for_quotient_and_rem(
                         e,
@@ -118,7 +117,7 @@ mod frontend {
                     let key = RuntimeServerKey::global();
                     let (overflow, _) =
                         arbitrary_bit_adder(e, self.data_mut(), rhs.data(), false, key);
-                    overflow
+                    FheBool { data: overflow }
                 })
             }
 
@@ -128,7 +127,7 @@ mod frontend {
                     let key = RuntimeServerKey::global();
                     let (overflow, _) =
                         arbitrary_bit_adder(e, lhs.data_mut(), rhs.data(), false, key);
-                    (lhs, overflow)
+                    (lhs, FheBool { data: overflow })
                 })
             }
 
@@ -138,7 +137,7 @@ mod frontend {
                     let (out, mut overflow, _) =
                         arbitrary_bit_subtractor(e, self.data(), rhs.data(), key);
                     e.not_inplace(&mut overflow);
-                    (FheUint8 { data: out }, overflow)
+                    (FheUint8 { data: out }, FheBool { data: overflow })
                 })
             }
 
@@ -148,7 +147,7 @@ mod frontend {
 
                     // set div by 0 error flag
                     let is_zero = is_zero(e, rhs.data(), key);
-                    DIV_ZERO_ERROR.set(Some(is_zero));
+                    DIV_ZERO_ERROR.set(Some(FheBool { data: is_zero }));
 
                     let (quotient, remainder) = arbitrary_bit_division_for_quotient_and_rem(
                         e,
@@ -172,7 +171,8 @@ mod frontend {
             pub fn eq(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
-                    arbitrary_bit_equality(e, self.data(), other.data(), key)
+                    let out = arbitrary_bit_equality(e, self.data(), other.data(), key);
+                    FheBool { data: out }
                 })
             }
 
@@ -182,7 +182,7 @@ mod frontend {
                     let key = RuntimeServerKey::global();
                     let mut is_equal = arbitrary_bit_equality(e, self.data(), other.data(), key);
                     e.not_inplace(&mut is_equal);
-                    is_equal
+                    FheBool { data: is_equal }
                 })
             }
 
@@ -190,7 +190,8 @@ mod frontend {
             pub fn lt(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
-                    arbitrary_bit_comparator(e, other.data(), self.data(), key)
+                    let out = arbitrary_bit_comparator(e, other.data(), self.data(), key);
+                    FheBool { data: out }
                 })
             }
 
@@ -198,7 +199,8 @@ mod frontend {
             pub fn gt(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
-                    arbitrary_bit_comparator(e, self.data(), other.data(), key)
+                    let out = arbitrary_bit_comparator(e, self.data(), other.data(), key);
+                    FheBool { data: out }
                 })
             }
 
@@ -209,7 +211,7 @@ mod frontend {
                     let mut a_greater_b =
                         arbitrary_bit_comparator(e, self.data(), other.data(), key);
                     e.not_inplace(&mut a_greater_b);
-                    a_greater_b
+                    FheBool { data: a_greater_b }
                 })
             }
 
@@ -219,7 +221,7 @@ mod frontend {
                     let key = RuntimeServerKey::global();
                     let mut a_less_b = arbitrary_bit_comparator(e, other.data(), self.data(), key);
                     e.not_inplace(&mut a_less_b);
-                    a_less_b
+                    FheBool { data: a_less_b }
                 })
             }
         }
