@@ -98,12 +98,12 @@ fn main() {
     let player_2_bomb = Coordinates::new(thread_rng().gen::<u8>(), thread_rng().gen());
     let player_3_bomb = Coordinates::new(thread_rng().gen::<u8>(), thread_rng().gen());
 
-    println!("P0 move coordinates: {:?}", &player_0_moves);
-    println!("P1 bomb coordinate : {:?}", &player_1_bomb);
-    println!("P2 bomb coordinate : {:?}", &player_2_bomb);
-    println!("P3 bomb coordinate : {:?}", &player_3_bomb);
+    println!("P0 moves coordinates: {:?}", &player_0_moves);
+    println!("P1 bomb coordinate  : {:?}", &player_1_bomb);
+    println!("P2 bomb coordinate  : {:?}", &player_2_bomb);
+    println!("P3 bomb coordinate  : {:?}", &player_3_bomb);
 
-    // Al playes encrypt their private inputs
+    // Al players encrypt their private inputs
     let player_0_enc = cks[0].encrypt(
         player_0_moves
             .iter()
@@ -124,9 +124,14 @@ fn main() {
 
     // server parses all player inputs
     let player_0_moves_enc = {
-        let c = player_0_enc.unseed::<Vec<Vec<u64>>>().key_switch(0);
-        (0..no_of_moves)
-            .map(|i| Coordinates::new(c.extract_at(2 * i), c.extract_at(i * 2 + 1)))
+        let c = player_0_enc
+            .unseed::<Vec<Vec<u64>>>()
+            .key_switch(0)
+            .extract_all();
+        c.into_iter()
+            .chunks(2)
+            .into_iter()
+            .map(|mut x_y| Coordinates::new(x_y.next().unwrap(), x_y.next().unwrap()))
             .collect_vec()
     };
     let player_1_bomb_enc = {
