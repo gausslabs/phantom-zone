@@ -271,7 +271,7 @@ fn blind_rotation<
     let d_auto = auto_decomposer.decomposition_count().0;
 
     let q_by_4 = q >> 2;
-    let mut count = 0;
+    // let mut count = 0;
     // -(g^k)
     let mut v = 0;
     for i in (1..q_by_4).rev() {
@@ -314,8 +314,8 @@ fn blind_rotation<
                 is_trivial,
             );
             // println!("Auto time: {:?}", now.elapsed());
+            // count += 1;
 
-            count += 1;
             v = 0;
         }
     }
@@ -351,7 +351,7 @@ fn blind_rotation<
             auto_decomposer,
             is_trivial,
         );
-        count += 1;
+        // count += 1;
     }
 
     // +(g^k)
@@ -390,7 +390,8 @@ fn blind_rotation<
                 is_trivial,
             );
             v = 0;
-            count += 1;
+
+            // count += 1;
         }
     }
 
