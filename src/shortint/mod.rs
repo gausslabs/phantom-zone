@@ -20,15 +20,32 @@ pub fn div_zero_error_flag() -> Option<FheBool> {
 mod frontend {
     use super::ops::{
         arbitrary_bit_adder, arbitrary_bit_division_for_quotient_and_rem, arbitrary_bit_subtractor,
-        eight_bit_mul,
+        eight_bit_mul, is_zero,
     };
     use crate::utils::{Global, WithLocal};
 
     use super::*;
 
-    mod arithetic {
+    /// Set Div by Zero flag after each divison. Div by zero flag is set to true
+    /// if either 1 of the division executed in circuit evaluation has
+    /// denominator set to 0.
+    fn set_div_by_zero_flag(denominator: &FheUint8) {
+        {
+            BoolEvaluator::with_local_mut(|e| {
+                let key = RuntimeServerKey::global();
+                let is_zero = is_zero(e, denominator.data(), key);
+                DIV_ZERO_ERROR.with_borrow_mut(|before_is_zero| {
+                    if before_is_zero.is_none() {
+                        *before_is_zero = Some(FheBool { data: is_zero });
+                    } else {
+                        e.or_inplace(before_is_zero.as_mut().unwrap().data_mut(), &is_zero, key);
+                    }
+                });
+            })
+        }
+    }
 
-        use ops::is_zero;
+    mod arithetic {
 
         use super::*;
         use std::ops::{Add, AddAssign, Div, Mul, Rem, Sub};
@@ -76,12 +93,11 @@ mod frontend {
         impl Div<&FheUint8> for &FheUint8 {
             type Output = FheUint8;
             fn div(self, rhs: &FheUint8) -> Self::Output {
+                // set div by 0 error flag
+                set_div_by_zero_flag(rhs);
+
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
-
-                    // set div by 0 error flag
-                    let is_zero = is_zero(e, rhs.data(), key);
-                    DIV_ZERO_ERROR.set(Some(FheBool { data: is_zero }));
 
                     let (quotient, _) = arbitrary_bit_division_for_quotient_and_rem(
                         e,
@@ -141,12 +157,11 @@ mod frontend {
             }
 
             pub fn div_rem(&self, rhs: &FheUint8) -> (FheUint8, FheUint8) {
+                // set div by 0 error flag
+                set_div_by_zero_flag(rhs);
+
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
-
-                    // set div by 0 error flag
-                    let is_zero = is_zero(e, rhs.data(), key);
-                    DIV_ZERO_ERROR.set(Some(FheBool { data: is_zero }));
 
                     let (quotient, remainder) = arbitrary_bit_division_for_quotient_and_rem(
                         e,

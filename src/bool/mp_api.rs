@@ -554,7 +554,8 @@ mod tests {
                             assert_eq!(
                                 m0_plus_m1,
                                 m0.wrapping_add(m1),
-                                "Expected {} but got {m0_plus_m1} for {i}+{j}",
+                                "Expected {} but got {m0_plus_m1} for
+                        {i}+{j}",
                                 m0.wrapping_add(m1)
                             );
                         }
@@ -565,7 +566,8 @@ mod tests {
                             assert_eq!(
                                 m0_sub_m1,
                                 m0.wrapping_sub(m1),
-                                "Expected {} but got {m0_sub_m1} for {i}-{j}",
+                                "Expected {} but got {m0_sub_m1} for
+                        {i}-{j}",
                                 m0.wrapping_sub(m1)
                             );
                         }
@@ -591,22 +593,26 @@ mod tests {
                                 let (q, r) = i.div_rem_euclid(&j);
                                 assert_eq!(
                                     m_quotient, q,
-                                    "Expected {} but got {m_quotient} for {i}/{j}",
+                                    "Expected {} but got {m_quotient} for
+                    {i}/{j}",
                                     q
                                 );
                                 assert_eq!(
                                     m_remainder, r,
-                                    "Expected {} but got {m_remainder} for {i}%{j}",
+                                    "Expected {} but got {m_remainder} for
+                    {i}%{j}",
                                     r
                                 );
                             } else {
                                 assert_eq!(
                                     m_quotient, 255,
-                                    "Expected 255 but got {m_quotient}. Case div by zero"
+                                    "Expected 255 but got {m_quotient}. Case
+                    div by zero"
                                 );
                                 assert_eq!(
                                     m_remainder, i,
-                                    "Expected {i} but got {m_remainder}. Case div by zero"
+                                    "Expected {i} but got {m_remainder}. Case
+                    div by zero"
                                 );
 
                                 let div_by_zero = ck.decrypt(&div_zero_error_flag().unwrap());
