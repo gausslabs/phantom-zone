@@ -79,6 +79,16 @@ impl SingleDecomposerParams for (DecompostionLogBase, DecompositionCount) {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+pub(crate) enum SecretKeyDistribution {
+    /// Elements of secret key are sample from Gaussian distribitution with
+    /// \sigma = 3.19 and \mu = 0.0
+    ErrorDistribution,
+    /// Elements of secret key are chosen from the set {1,0,-1} with hamming
+    /// weight `floor(N/2)` where `N` is the secret dimension.
+    TernaryDistribution,
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub(crate) enum ParameterVariant {
     SingleParty,
     MultiParty,
@@ -86,6 +96,10 @@ pub(crate) enum ParameterVariant {
 }
 #[derive(Clone, PartialEq)]
 pub struct BoolParameters<El> {
+    /// RLWE secret key distribution
+    rlwe_secret_key_dist: SecretKeyDistribution,
+    /// LWE secret key distribtuion
+    lwe_secret_key_dist: SecretKeyDistribution,
     /// RLWE ciphertext modulus Q
     rlwe_q: CiphertextModulus<El>,
     /// LWE ciphertext modulus q (usually referred to as Q_{ks})
@@ -153,6 +167,14 @@ pub struct BoolParameters<El> {
 }
 
 impl<El> BoolParameters<El> {
+    pub(crate) fn rlwe_secret_key_dist(&self) -> &SecretKeyDistribution {
+        &self.rlwe_secret_key_dist
+    }
+
+    pub(crate) fn lwe_secret_key_dist(&self) -> &SecretKeyDistribution {
+        &self.lwe_secret_key_dist
+    }
+
     pub(crate) fn rlwe_q(&self) -> &CiphertextModulus<El> {
         &self.rlwe_q
     }
@@ -502,6 +524,8 @@ where
 }
 
 pub(crate) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
     rlwe_q: CiphertextModulus::new_non_native(1152921504606830593),
     lwe_q: CiphertextModulus::new_non_native(1 << 20),
     br_q: 1 << 11,
@@ -524,6 +548,8 @@ pub(crate) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
 };
 
 pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
     rlwe_q: CiphertextModulus::new_non_native(36028797018820609),
     lwe_q: CiphertextModulus::new_non_native(1 << 20),
     br_q: 1 << 11,
@@ -546,6 +572,8 @@ pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u6
 };
 
 pub(crate) const I_2P: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
     rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
     lwe_q: CiphertextModulus::new_non_native(1 << 15),
     br_q: 1 << 11,
@@ -568,6 +596,8 @@ pub(crate) const I_2P: BoolParameters<u64> = BoolParameters::<u64> {
 };
 
 pub(crate) const NI_2P: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
     rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
     lwe_q: CiphertextModulus::new_non_native(1 << 15),
     br_q: 1 << 11,
@@ -593,6 +623,8 @@ pub(crate) const NI_2P: BoolParameters<u64> = BoolParameters::<u64> {
 };
 
 pub(crate) const NI_4P: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
     rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
     lwe_q: CiphertextModulus::new_non_native(1 << 16),
     br_q: 1 << 11,
@@ -619,6 +651,8 @@ pub(crate) const NI_4P: BoolParameters<u64> = BoolParameters::<u64> {
 
 #[cfg(test)]
 pub(crate) const SP_TEST_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
     rlwe_q: CiphertextModulus::new_non_native(268369921u64),
     lwe_q: CiphertextModulus::new_non_native(1 << 16),
     br_q: 1 << 9,

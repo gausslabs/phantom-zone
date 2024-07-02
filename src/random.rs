@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use itertools::izip;
-use num_traits::{PrimInt, Zero};
+use num_traits::{FromPrimitive, PrimInt, Zero};
 use rand::{distributions::Uniform, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{uniform::SampleUniform, Distribution};
@@ -33,6 +33,15 @@ where
     M: ?Sized,
 {
     /// Fill container with random elements of type of its elements
+    fn random_fill(&mut self, container: &mut M);
+}
+
+pub trait RandomFillGaussian<M>
+where
+    M: ?Sized,
+{
+    /// Fill container with random elements sampled from normal distribtuion
+    /// with \mu = 0.0 and \sigma = 3.19.
     fn random_fill(&mut self, container: &mut M);
 }
 
@@ -129,6 +138,23 @@ where
         )
         .for_each(|(from, to)| {
             *to = from;
+        });
+    }
+}
+
+impl<T> RandomFillGaussian<[T]> for DefaultSecureRng
+where
+    T: FromPrimitive,
+{
+    fn random_fill(&mut self, container: &mut [T]) {
+        izip!(
+            rand_distr::Normal::new(0.0, 3.19f64)
+                .unwrap()
+                .sample_iter(&mut self.rng),
+            container.iter_mut()
+        )
+        .for_each(|(from, to)| {
+            *to = T::from_f64(from).unwrap();
         });
     }
 }

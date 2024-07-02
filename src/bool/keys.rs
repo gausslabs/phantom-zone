@@ -54,7 +54,8 @@ pub struct ClientKey<S, E> {
 
 mod impl_ck {
     use crate::{
-        random::DefaultSecureRng,
+        parameters::SecretKeyDistribution,
+        random::{DefaultSecureRng, RandomFillGaussian},
         utils::{fill_random_ternary_secret_with_hamming_weight, puncture_p_rng},
     };
 
@@ -76,15 +77,29 @@ mod impl_ck {
             let lwe_seed = puncture_p_rng::<[u8; 32], DefaultSecureRng>(&mut p_rng, 2);
 
             let mut lwe_prng = DefaultSecureRng::new_seeded(lwe_seed);
+
             let mut out = vec![0i32; self.parameters.lwe_n().0];
-            fill_random_ternary_secret_with_hamming_weight(
-                &mut out,
-                self.parameters.lwe_n().0 >> 1,
-                &mut lwe_prng,
-            );
+
+            match self.parameters.lwe_secret_key_dist() {
+                &SecretKeyDistribution::ErrorDistribution => {
+                    RandomFillGaussian::random_fill(&mut lwe_prng, &mut out);
+                }
+                &SecretKeyDistribution::TernaryDistribution => {
+                    fill_random_ternary_secret_with_hamming_weight(
+                        &mut out,
+                        self.parameters.lwe_n().0 >> 1,
+                        &mut lwe_prng,
+                    );
+                }
+            }
             out
         }
         fn sk_rlwe(&self) -> Vec<Self::Element> {
+            assert!(
+                self.parameters.rlwe_secret_key_dist()
+                    == &SecretKeyDistribution::TernaryDistribution
+            );
+
             let mut p_rng = DefaultSecureRng::new_seeded(self.seed);
             let rlwe_seed = puncture_p_rng::<[u8; 32], DefaultSecureRng>(&mut p_rng, 1);
 
@@ -120,6 +135,11 @@ mod impl_ck {
             <Self as SinglePartyClientKey>::sk_rlwe(&self)
         }
         fn sk_u_rlwe(&self) -> Vec<Self::Element> {
+            assert!(
+                self.parameters.rlwe_secret_key_dist()
+                    == &SecretKeyDistribution::TernaryDistribution
+            );
+
             let mut p_rng = DefaultSecureRng::new_seeded(self.seed);
             let rlwe_seed = puncture_p_rng::<[u8; 32], DefaultSecureRng>(&mut p_rng, 3);
 
@@ -1486,7 +1506,7 @@ pub(super) mod tests {
         bool::ClientKey,
         decomposer::NumInfo,
         lwe::decrypt_lwe,
-        parameters::CiphertextModulus,
+        parameters::{CiphertextModulus, I_2P},
         utils::TryConvertFrom1,
         ArithmeticOps, Row,
     };
@@ -1540,4 +1560,11 @@ pub(super) mod tests {
             .unwrap()
             .log2()
     }
+    // #[test]
+    // fn trial() {
+    //     let parameters = I_2P;
+    //     let ck = ClientKey::new(parameters);
+    //     let lwe = ck.sk_lwe();
+    //     dbg!(lwe);
+    // }
 }

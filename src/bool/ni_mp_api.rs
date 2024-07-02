@@ -447,23 +447,26 @@ mod tests {
     use rand::{thread_rng, RngCore};
 
     use crate::{
+        backend::Modulus,
         bool::{
             keys::tests::{ideal_sk_rlwe, measure_noise_lwe},
             BooleanGates,
         },
-        Encoder, Encryptor, KeySwitchWithId, MultiPartyDecryptor,
+        lwe::decrypt_lwe,
+        utils::tests::Stats,
+        ArithmeticOps, Encoder, Encryptor, KeySwitchWithId, MultiPartyDecryptor,
     };
 
     use super::*;
 
     #[test]
     fn non_interactive_mp_bool_nand() {
-        set_parameter_set(ParameterSelector::NonInteractiveLTE4Party);
+        set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
         set_common_reference_seed(seed);
 
-        let parties = 3;
+        let parties = 2;
 
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
 
@@ -495,6 +498,8 @@ mod tests {
             ct.extract(0)
         };
 
+        let mut stats = Stats::new();
+
         for _ in 0..1000 {
             // let now = std::time::Instant::now();
             let ct_out =
@@ -510,13 +515,17 @@ mod tests {
             let m_expected = m0 ^ m1;
 
             {
-                let noise = measure_noise_lwe(
-                    &ct_out,
-                    parameters.rlwe_q().encode(m_expected),
-                    &ideal_sk_rlwe,
-                    &rlwe_modop,
-                );
-                println!("Noise: {noise}");
+                // let noise = measure_noise_lwe(
+                //     &ct_out,
+                //     parameters.rlwe_q().encode(m_expected),
+                //     &ideal_sk_rlwe,
+                //     &rlwe_modop,
+                // );
+                // println!("Noise: {noise}");
+
+                let noisy_m = decrypt_lwe(&ct_out, &ideal_sk_rlwe, &rlwe_modop);
+                let noise = rlwe_modop.sub(&parameters.rlwe_q().encode(m_expected), &noisy_m);
+                stats.add_more(&vec![parameters.rlwe_q().map_element_to_i64(&noise)]);
             }
 
             assert!(m_out == m_expected, "Expected {m_expected} but got {m_out}");
@@ -527,5 +536,7 @@ mod tests {
             ct1 = ct0;
             ct0 = ct_out;
         }
+
+        println!("Noise std dev log2: {}", stats.std_dev().abs().log2());
     }
 }
