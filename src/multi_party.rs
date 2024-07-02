@@ -1,13 +1,16 @@
 use std::fmt::Debug;
 
 use itertools::izip;
+use num_traits::Zero;
 
 use crate::{
-    backend::{GetModulus, VectorOps},
+    backend::{GetModulus, Modulus, VectorOps},
     ntt::Ntt,
-    random::{RandomFillGaussianInModulus, RandomFillUniformInModulus},
+    random::{
+        RandomFillGaussianInModulus, RandomFillUniformInModulus, RandomGaussianElementInModulus,
+    },
     utils::TryConvertFrom1,
-    Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut,
+    ArithmeticOps, Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut,
 };
 
 pub(crate) fn public_key_share<
@@ -48,6 +51,59 @@ pub(crate) fn public_key_share<
 
     RandomFillGaussianInModulus::random_fill(rng, &q, share_out.as_mut());
     modop.elwise_add_mut(share_out.as_mut(), s.as_ref()); // s*e + e
+}
+
+/// Generate decryption share for LWE ciphertext `lwe_ct` with user's secret `s`
+pub(crate) fn multi_party_decryption_share<
+    R: RowMut + RowEntity,
+    Mod: Modulus<Element = R::Element>,
+    ModOp: ArithmeticOps<Element = R::Element> + VectorOps<Element = R::Element> + GetModulus<M = Mod>,
+    Rng: RandomGaussianElementInModulus<R::Element, Mod>,
+    S,
+>(
+    lwe_ct: &R,
+    s: &[S],
+    mod_op: &ModOp,
+    rng: &mut Rng,
+) -> R::Element
+where
+    R: TryConvertFrom1<[S], Mod>,
+    R::Element: Zero,
+{
+    assert!(lwe_ct.as_ref().len() == s.len() + 1);
+    let mut neg_s = R::try_convert_from(s, mod_op.modulus());
+    mod_op.elwise_neg_mut(neg_s.as_mut());
+
+    // share =  (\sum -s_i * a_i) + e
+    let mut share = R::Element::zero();
+    izip!(neg_s.as_ref().iter(), lwe_ct.as_ref().iter().skip(1)).for_each(|(si, ai)| {
+        share = mod_op.add(&share, &mod_op.mul(si, ai));
+    });
+
+    let e = rng.random(mod_op.modulus());
+    share = mod_op.add(&share, &e);
+
+    share
+}
+
+/// Aggregate decryption shares for `lwe_ct` and return noisy decryption output
+/// `m + e`
+pub(crate) fn multi_party_aggregate_decryption_shares_and_decrypt<
+    R: RowMut + RowEntity,
+    ModOp: ArithmeticOps<Element = R::Element>,
+>(
+    lwe_ct: &R,
+    shares: &[R::Element],
+    mod_op: &ModOp,
+) -> R::Element
+where
+    R::Element: Zero,
+{
+    let mut sum_shares = R::Element::zero();
+    shares
+        .iter()
+        .for_each(|v| sum_shares = mod_op.add(&sum_shares, v));
+    mod_op.add(&lwe_ct.as_ref()[0], &sum_shares)
 }
 
 pub(crate) fn non_interactive_rgsw_ct<

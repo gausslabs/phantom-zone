@@ -8,10 +8,11 @@ use crate::{
     RowMut, SampleExtractor,
 };
 
-/// Fhe UInt8 type
+/// Fhe UInt8
 ///
-/// - Stores encryptions of bits in little endian (i.e least signficant bit
-///   stored at 0th index and most signficant bit stores at 7th index)
+/// Note that `Self.data` stores encryptions of bits in little endian (i.e least
+/// signficant bit stored at 0th index and most signficant bit stores at 7th
+/// index)
 #[derive(Clone)]
 pub struct FheUint8<C> {
     pub(super) data: Vec<C>,
@@ -27,7 +28,9 @@ impl<C> FheUint8<C> {
     }
 }
 
-/// Stored a batch of Fhe Uint8 ciphertext as collection of RLWE ciphertexts
+/// Stores a batch of Fhe Uint8 ciphertext as collection of unseeded RLWE
+/// ciphertexts always encrypted under the ideal RLWE secret `s` of the MPC
+/// protocol
 ///
 /// To extract Fhe Uint8 ciphertext at `index` call `self.extract(index)`
 pub struct BatchedFheUint8<C> {
@@ -35,6 +38,68 @@ pub struct BatchedFheUint8<C> {
     data: Vec<C>,
     /// Count of FheUint8s packed in vector of RLWE ciphertexts
     count: usize,
+}
+
+impl<K, C> Encryptor<[u8], BatchedFheUint8<C>> for K
+where
+    K: Encryptor<[bool], Vec<C>>,
+{
+    /// Encrypt a batch of uint8s packed in vector of RLWE ciphertexts
+    ///
+    /// Uint8s can be extracted from `BatchedFheUint8` with `SampleExtractor`
+    fn encrypt(&self, m: &[u8]) -> BatchedFheUint8<C> {
+        let bool_m = m
+            .iter()
+            .flat_map(|v| {
+                (0..8)
+                    .into_iter()
+                    .map(|i| ((*v >> i) & 1) == 1)
+                    .collect_vec()
+            })
+            .collect_vec();
+        let cts = K::encrypt(&self, &bool_m);
+        BatchedFheUint8 {
+            data: cts,
+            count: m.len(),
+        }
+    }
+}
+
+impl<M: MatrixEntity + MatrixMut<MatElement = u64>> From<&SeededBatchedFheUint8<M::R, [u8; 32]>>
+    for BatchedFheUint8<M>
+where
+    <M as Matrix>::R: RowMut,
+{
+    /// Unseeds collection of seeded RLWE ciphertext in SeededBatchedFheUint8
+    /// and returns as `Self`
+    fn from(value: &SeededBatchedFheUint8<M::R, [u8; 32]>) -> Self {
+        BoolEvaluator::with_local(|e| {
+            let parameters = e.parameters();
+            let ring_size = parameters.rlwe_n().0;
+            let rlwe_q = parameters.rlwe_q();
+
+            let mut prng = DefaultSecureRng::new_seeded(value.seed);
+            let rlwes = value
+                .data
+                .iter()
+                .map(|partb| {
+                    let mut rlwe = M::zeros(2, ring_size);
+
+                    // sample A
+                    RandomFillUniformInModulus::random_fill(&mut prng, rlwe_q, rlwe.get_row_mut(0));
+
+                    // Copy over B
+                    rlwe.get_row_mut(1).copy_from_slice(partb.as_ref());
+
+                    rlwe
+                })
+                .collect_vec();
+            Self {
+                data: rlwes,
+                count: value.count,
+            }
+        })
+    }
 }
 
 impl<C, R> SampleExtractor<FheUint8<R>> for BatchedFheUint8<C>
@@ -82,8 +147,28 @@ where
     }
 }
 
+/// Stores a batch of FheUint8s packed in a collection unseeded RLWE ciphertexts
+///
+/// `Self` stores unseeded RLWE ciphertexts encrypted under user's RLWE secret
+/// `u_j` and is different from `BatchFheUint8` which stores collection of RLWE
+/// ciphertexts under ideal RLWE secret `s` of the (non-interactive/interactive)
+/// MPC protocol.
+///
+/// To extract FheUint8s from `Self`'s collection of RLWE ciphertexts, first
+/// switch `Self` to `BatchFheUint8` with `key_switch(user_id)` where `user_id`
+/// is user's id. This key switches collection of RLWE ciphertexts from
+/// user's RLWE secret `u_j` to ideal RLWE secret `s` of the MPC protocol. Then
+/// proceed to use `SampleExtract` on `BatchFheUint8` (for ex, call
+/// `extract_at(0)` to extract FheUint8 stored at index 0)
+pub struct NonInteractiveBatchedFheUint8<C> {
+    /// Vector of RLWE ciphertexts `C`
+    data: Vec<C>,
+    /// Count of FheUint8s packed in vector of RLWE ciphertexts
+    count: usize,
+}
+
 impl<M: MatrixEntity + MatrixMut<MatElement = u64>> From<&SeededBatchedFheUint8<M::R, [u8; 32]>>
-    for BatchedFheUint8<M>
+    for NonInteractiveBatchedFheUint8<M>
 where
     <M as Matrix>::R: RowMut,
 {
@@ -119,6 +204,27 @@ where
     }
 }
 
+impl<C> KeySwitchWithId<BatchedFheUint8<C>> for NonInteractiveBatchedFheUint8<C>
+where
+    C: KeySwitchWithId<C>,
+{
+    /// Key switch `Self`'s collection of RLWE cihertexts encrypted under user's
+    /// RLWE secret `u_j` to ideal RLWE secret `s` of the MPC protocol.
+    ///
+    /// - user_id: user id of user `j`
+    fn key_switch(&self, user_id: usize) -> BatchedFheUint8<C> {
+        let data = self
+            .data
+            .iter()
+            .map(|c| c.key_switch(user_id))
+            .collect_vec();
+        BatchedFheUint8 {
+            data,
+            count: self.count,
+        }
+    }
+}
+
 pub struct SeededBatchedFheUint8<C, S> {
     /// Vector of Seeded RLWE ciphertexts `C`.
     ///
@@ -131,21 +237,12 @@ pub struct SeededBatchedFheUint8<C, S> {
     count: usize,
 }
 
-impl<C, S> SeededBatchedFheUint8<C, S> {
-    pub fn unseed<M>(&self) -> BatchedFheUint8<M>
-    where
-        BatchedFheUint8<M>: for<'a> From<&'a SeededBatchedFheUint8<C, S>>,
-        M: Matrix<R = C>,
-    {
-        BatchedFheUint8::from(self)
-    }
-}
-
 impl<K, C, S> Encryptor<[u8], SeededBatchedFheUint8<C, S>> for K
 where
     K: Encryptor<[bool], (Vec<C>, S)>,
 {
-    /// Encrypt a slice of u8s of arbitray length as `SeededBatchedFheUint8`
+    /// Encrypt a slice of u8s of arbitray length packed into collection of
+    /// seeded RLWE ciphertexts and return `SeededBatchedFheUint8`
     fn encrypt(&self, m: &[u8]) -> SeededBatchedFheUint8<C, S> {
         // convert vector of u8s to vector bools
         let bool_m = m
@@ -161,46 +258,42 @@ where
     }
 }
 
-impl<K, C> Encryptor<[u8], BatchedFheUint8<C>> for K
-where
-    K: Encryptor<[bool], Vec<C>>,
-{
-    fn encrypt(&self, m: &[u8]) -> BatchedFheUint8<C> {
-        let bool_m = m
-            .iter()
-            .flat_map(|v| {
-                (0..8)
-                    .into_iter()
-                    .map(|i| ((*v >> i) & 1) == 1)
-                    .collect_vec()
-            })
-            .collect_vec();
-        let cts = K::encrypt(&self, &bool_m);
-        BatchedFheUint8 {
-            data: cts,
-            count: m.len(),
-        }
-    }
-}
-
-impl<C> KeySwitchWithId<BatchedFheUint8<C>> for BatchedFheUint8<C>
-where
-    C: KeySwitchWithId<C>,
-{
-    /// Key switching collection of RLWE ciphertexts in `BatchedFheUint8` from
-    /// user j's RLWE secret u_j to ideal RLWE secret key `s` of the protocol.
+impl<C, S> SeededBatchedFheUint8<C, S> {
+    /// Unseed collection of seeded RLWE ciphertexts of `Self` and returns
+    /// `NonInteractiveBatchedFheUint8` with collection of unseeded RLWE
+    /// ciphertexts.
     ///
-    /// - user_id: user id of user j
-    fn key_switch(&self, user_id: usize) -> BatchedFheUint8<C> {
-        let data = self
-            .data
-            .iter()
-            .map(|c| c.key_switch(user_id))
-            .collect_vec();
-        BatchedFheUint8 {
-            data,
-            count: self.count,
-        }
+    /// In non-interactive MPC setting, RLWE ciphertexts are encrypted under
+    /// user's RLWE secret `u_j`. The RLWE ciphertexts must be key switched to
+    /// ideal RLWE secret `s` of the MPC protocol before use.
+    ///
+    /// Note that we don't provide `unseed` API from `Self` to
+    /// `BatchedFheUint8`. This is because:
+    ///
+    /// - In non-interactive setting (1) client encrypts private inputs using
+    ///   their secret `u_j` as `SeededBatchedFheUint8` and sends it to the
+    ///   server. (2) Server unseeds `SeededBatchedFheUint8` into
+    ///   `NonInteractiveBatchedFheUint8` indicating that private inputs are
+    ///   still encrypted under user's RLWE secret `u_j`. (3) Server key
+    ///   switches `NonInteractiveBatchedFheUint8` from user's RLWE secret `u_j`
+    ///   to ideal RLWE secret `s` and outputs `BatchedFheUint8`. (4)
+    ///   `BatchedFheUint8` always stores RLWE secret under ideal RLWE secret of
+    ///   the protocol. Hence, it is safe to extract FheUint8s. Server proceeds
+    ///   to extract necessary FheUint8s.
+    ///
+    /// - In interactive setting (1) client always encrypts private inputs using
+    ///   public key corresponding to ideal RLWE secret `s` of the protocol and
+    ///   produces `BatchedFheUint8`. (2) Given `BatchedFheUint8` stores
+    ///   collection of RLWE ciphertext under ideal RLWE secret `s`, server can
+    ///   directly extract necessary FheUint8s to use.
+    ///
+    /// Thus, there's no need to go directly from `Self` to `BatchedFheUint8`.
+    pub fn unseed<M>(&self) -> NonInteractiveBatchedFheUint8<M>
+    where
+        NonInteractiveBatchedFheUint8<M>: for<'a> From<&'a SeededBatchedFheUint8<C, S>>,
+        M: Matrix<R = C>,
+    {
+        NonInteractiveBatchedFheUint8::from(self)
     }
 }
 

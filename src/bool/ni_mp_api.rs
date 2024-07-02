@@ -200,11 +200,15 @@ pub(super) struct BatchedFheBools<C> {
 mod impl_enc_dec {
     use crate::{
         bool::{evaluator::BoolEncoding, keys::NonInteractiveMultiPartyClientKey},
+        multi_party::{
+            multi_party_aggregate_decryption_shares_and_decrypt, multi_party_decryption_share,
+        },
         pbs::{sample_extract, PbsInfo, WithShoupRepr},
         random::{NewWithSeed, RandomFillUniformInModulus},
         rgsw::{rlwe_key_switch, seeded_secret_key_encrypt_rlwe},
         utils::TryConvertFrom1,
-        Encryptor, KeySwitchWithId, Matrix, MatrixEntity, MatrixMut, RowEntity, RowMut,
+        Encryptor, KeySwitchWithId, Matrix, MatrixEntity, MatrixMut, MultiPartyDecryptor,
+        RowEntity, RowMut,
     };
     use itertools::Itertools;
     use num_traits::{ToPrimitive, Zero};
@@ -347,6 +351,44 @@ mod impl_enc_dec {
 
                     (rlwes, seed)
                 })
+            })
+        }
+    }
+
+    impl<K> MultiPartyDecryptor<bool, <Mat as Matrix>::R> for K
+    where
+        K: NonInteractiveMultiPartyClientKey,
+        <Mat as Matrix>::R:
+            TryConvertFrom1<[K::Element], CiphertextModulus<<Mat as Matrix>::MatElement>>,
+    {
+        type DecryptionShare = <Mat as Matrix>::MatElement;
+
+        fn gen_decryption_share(&self, c: &<Mat as Matrix>::R) -> Self::DecryptionShare {
+            BoolEvaluator::with_local(|e| {
+                DefaultSecureRng::with_local_mut(|rng| {
+                    multi_party_decryption_share(
+                        c,
+                        self.sk_rlwe().as_slice(),
+                        e.pbs_info().modop_rlweq(),
+                        rng,
+                    )
+                })
+            })
+        }
+
+        fn aggregate_decryption_shares(
+            &self,
+            c: &<Mat as Matrix>::R,
+            shares: &[Self::DecryptionShare],
+        ) -> bool {
+            BoolEvaluator::with_local(|e| {
+                let noisy_m = multi_party_aggregate_decryption_shares_and_decrypt(
+                    c,
+                    shares,
+                    e.pbs_info().modop_rlweq(),
+                );
+
+                e.pbs_info().rlwe_q().decode(noisy_m)
             })
         }
     }

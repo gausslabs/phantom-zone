@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Mul, sync::OnceLock};
+use std::{cell::RefCell, sync::OnceLock};
 
 use crate::{
     backend::{ModularOpsU64, ModulusPowerOf2},
@@ -184,9 +184,13 @@ impl Global for RuntimeServerKey {
 mod impl_enc_dec {
     use crate::{
         bool::evaluator::BoolEncoding,
+        multi_party::{
+            multi_party_aggregate_decryption_shares_and_decrypt, multi_party_decryption_share,
+        },
         pbs::{sample_extract, PbsInfo},
         rgsw::public_key_encrypt_rlwe,
-        Encryptor, Matrix, MatrixEntity, RowEntity,
+        utils::TryConvertFrom1,
+        Encryptor, Matrix, MatrixEntity, MultiPartyDecryptor, RowEntity,
     };
     use itertools::Itertools;
     use num_traits::{ToPrimitive, Zero};
@@ -254,14 +258,50 @@ mod impl_enc_dec {
             })
         }
     }
+
+    impl<K> MultiPartyDecryptor<bool, <Mat as Matrix>::R> for K
+    where
+        K: InteractiveMultiPartyClientKey,
+        <Mat as Matrix>::R:
+            TryConvertFrom1<[K::Element], CiphertextModulus<<Mat as Matrix>::MatElement>>,
+    {
+        type DecryptionShare = <Mat as Matrix>::MatElement;
+
+        fn gen_decryption_share(&self, c: &<Mat as Matrix>::R) -> Self::DecryptionShare {
+            BoolEvaluator::with_local(|e| {
+                DefaultSecureRng::with_local_mut(|rng| {
+                    multi_party_decryption_share(
+                        c,
+                        self.sk_rlwe().as_slice(),
+                        e.pbs_info().modop_rlweq(),
+                        rng,
+                    )
+                })
+            })
+        }
+
+        fn aggregate_decryption_shares(
+            &self,
+            c: &<Mat as Matrix>::R,
+            shares: &[Self::DecryptionShare],
+        ) -> bool {
+            BoolEvaluator::with_local(|e| {
+                let noisy_m = multi_party_aggregate_decryption_shares_and_decrypt(
+                    c,
+                    shares,
+                    e.pbs_info().modop_rlweq(),
+                );
+
+                e.pbs_info().rlwe_q().decode(noisy_m)
+            })
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::thread::panicking;
-
     use itertools::Itertools;
-    use rand::{thread_rng, RngCore};
+    use rand::{thread_rng, Rng, RngCore};
 
     use crate::{
         bool::{
@@ -269,7 +309,7 @@ mod tests {
             keys::tests::{ideal_sk_rlwe, measure_noise_lwe},
             BooleanGates,
         },
-        Encryptor, MultiPartyDecryptor,
+        Encryptor, MultiPartyDecryptor, SampleExtractor,
     };
 
     use super::*;
@@ -363,13 +403,52 @@ mod tests {
         }
     }
 
+    #[test]
+    fn batched_fhe_u8s_extract_works() {
+        set_parameter_set(ParameterSelector::InteractiveLTE2Party);
+        let mut seed = [0u8; 32];
+        thread_rng().fill_bytes(&mut seed);
+        set_mp_seed(seed);
+
+        let parties = 2;
+        let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
+
+        // round 1
+        let pk_shares = cks.iter().map(|k| gen_mp_keys_phase1(k)).collect_vec();
+
+        // collective pk
+        let pk = aggregate_public_key_shares(&pk_shares);
+
+        let parameters = BoolEvaluator::with_local(|e| e.parameters().clone());
+
+        let batch_size = parameters.rlwe_n().0 * 3 + 123;
+        let m = (0..batch_size)
+            .map(|_| thread_rng().gen::<u8>())
+            .collect_vec();
+
+        let seeded_ct = pk.encrypt(m.as_slice());
+
+        let m_back = (0..batch_size)
+            .map(|i| {
+                let ct = seeded_ct.extract_at(i);
+                cks[0].aggregate_decryption_shares(
+                    &ct,
+                    &cks.iter()
+                        .map(|k| k.gen_decryption_share(&ct))
+                        .collect_vec(),
+                )
+            })
+            .collect_vec();
+
+        assert_eq!(m, m_back);
+    }
+
     mod sp_api {
         use num_traits::ToPrimitive;
-        use rand::Rng;
 
         use crate::{
             bool::impl_bool_frontend::FheBool, pbs::PbsInfo, rgsw::seeded_secret_key_encrypt_rlwe,
-            Decryptor, SampleExtractor,
+            Decryptor,
         };
 
         use super::*;
@@ -499,28 +578,6 @@ mod tests {
                     })
                 })
             }
-        }
-
-        #[test]
-        fn batch_extract_works() {
-            set_single_party_parameter_sets(SP_TEST_BOOL_PARAMS);
-
-            let (ck, sk) = gen_keys();
-            sk.set_server_key();
-
-            let batch_size = (SP_TEST_BOOL_PARAMS.rlwe_n().0 * 3 + 123);
-            let m = (0..batch_size)
-                .map(|_| thread_rng().gen::<u8>())
-                .collect_vec();
-
-            let seeded_ct = ck.encrypt(m.as_slice());
-            let ct = seeded_ct.unseed::<Vec<Vec<u64>>>();
-
-            let m_back = (0..batch_size)
-                .map(|i| ck.decrypt(&ct.extract_at(i)))
-                .collect_vec();
-
-            assert_eq!(m, m_back);
         }
 
         #[test]

@@ -2070,41 +2070,6 @@ where
         })
     }
 
-    pub(super) fn multi_party_decryption_share<K: InteractiveMultiPartyClientKey<Element = i32>>(
-        &self,
-        lwe_ct: &M::R,
-        client_key: &K,
-    ) -> <M as Matrix>::MatElement {
-        assert!(lwe_ct.as_ref().len() == self.pbs_info.parameters.rlwe_n().0 + 1);
-        let modop = &self.pbs_info.rlwe_modop;
-        let mut neg_s =
-            M::R::try_convert_from(&client_key.sk_rlwe(), &self.pbs_info.parameters.rlwe_q());
-        modop.elwise_neg_mut(neg_s.as_mut());
-
-        let mut neg_sa = M::MatElement::zero();
-        izip!(lwe_ct.as_ref().iter().skip(1), neg_s.as_ref().iter()).for_each(|(ai, nsi)| {
-            neg_sa = modop.add(&neg_sa, &modop.mul(ai, nsi));
-        });
-
-        let e = DefaultSecureRng::with_local_mut(|rng| {
-            RandomGaussianElementInModulus::random(rng, self.pbs_info.parameters.rlwe_q())
-        });
-        let share = modop.add(&neg_sa, &e);
-
-        share
-    }
-
-    pub(crate) fn multi_party_decrypt(&self, shares: &[M::MatElement], lwe_ct: &M::R) -> bool {
-        let modop = &self.pbs_info.rlwe_modop;
-        let mut sum_a = M::MatElement::zero();
-        shares
-            .iter()
-            .for_each(|share_i| sum_a = modop.add(&sum_a, &share_i));
-
-        let encoded_m = modop.add(&lwe_ct.as_ref()[0], &sum_a);
-        self.pbs_info.parameters.rlwe_q().decode(encoded_m)
-    }
-
     pub fn sk_encrypt<K: SinglePartyClientKey<Element = i32>>(
         &self,
         m: bool,

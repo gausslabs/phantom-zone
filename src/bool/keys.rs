@@ -99,6 +99,7 @@ mod impl_ck {
         }
     }
 
+    #[cfg(feature = "interactive_mp")]
     impl<E> InteractiveMultiPartyClientKey for ClientKey<[u8; 32], E> {
         type Element = i32;
         fn sk_lwe(&self) -> Vec<Self::Element> {
@@ -109,6 +110,7 @@ mod impl_ck {
         }
     }
 
+    #[cfg(feature = "non_interactive_mp")]
     impl<E> NonInteractiveMultiPartyClientKey for ClientKey<[u8; 32], E> {
         type Element = i32;
         fn sk_lwe(&self) -> Vec<Self::Element> {
