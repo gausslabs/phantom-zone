@@ -34,6 +34,8 @@ fn coordinates_is_equal(a: &Coordinates<FheUint8>, b: &Coordinates<FheUint8>) ->
     &(a.x().eq(b.x())) & &(a.y().eq(b.y()))
 }
 
+/// Traverse the map with `p0` moves and check whether any of the moves equal
+/// bomb coordinates (in encrypted domain)
 fn traverse_map(p0: &[Coordinates<FheUint8>], bomb_coords: &[Coordinates<FheUint8>]) -> FheBool {
     // First move
     let mut out = coordinates_is_equal(&p0[0], &bomb_coords[0]);
@@ -52,23 +54,23 @@ fn traverse_map(p0: &[Coordinates<FheUint8>], bomb_coords: &[Coordinates<FheUint
 }
 
 // Do you recall bomberman? It's an interesting game where the bomberman has to
-// cross the map without stepping on strategically placed bombs all across the
+// cross the map without stepping on strategically placed bombs all over the
 // map. Below we implement a very basic prototype of bomberman with 4 players.
 //
-// The map has 256 tiles with bottom left-most tile labelled with coordinate
-// (0,0) and top right-most tile labelled with coordinate (255, 255). There are
+// The map has 256 tiles with bottom left-most tile labelled with coordinates
+// (0,0) and top right-most tile labelled with coordinates (255, 255). There are
 // 4 players: Player 0, Player 1, Player 2, Player 3. Player 0's task is to walk
 // across the map with fixed no. of moves while preventing itself from stepping
-// on any of the bombs placed across the map by Player 1, 2, and 3.
+// on any of the bombs placed on the map by Player 1, 2, and 3.
 //
 // The twist is that Player 0's moves and the locations of bombs placed by other
 // players are encrypted. Player 0 moves across the map in encrypted domain.
 // Only a boolean output indicating whether player 0 survived after all the
 // moves or killed itself by stepping onto a bomb is revealed at the end. If
-// player 0 survives, Player 1, 2, 3 never learn what moves did it make. If
-// player 0 kills itself by stepping onto a bomb, it only learns that bomb was
-// placed on one coordinates it moved to. Moreover, Player 1, 2, 3 never learn
-// about locations of each other bombs or even whose bomb killed Player 1.
+// player 0 survives, Player 1, 2, 3 never learn what moves did Player 0 make.
+// If Player 0 kills itself by stepping onto a bomb, it only learns that bomb
+// was placed on one of the coordinates it moved to. Moreover, Player 1, 2, 3
+// never learn locations of each other bombs or whose bomb killed Player 0.
 fn main() {
     set_parameter_set(ParameterSelector::NonInteractiveLTE4Party);
 
@@ -81,29 +83,34 @@ fn main() {
 
     // Client side //
 
+    // Players generate client keys
     let cks = (0..no_of_parties).map(|_| gen_client_key()).collect_vec();
 
+    // Players generate server keys
     let server_key_shares = cks
         .iter()
         .enumerate()
         .map(|(index, k)| gen_server_key_share(index, no_of_parties, k))
         .collect_vec();
 
-    // encrypt inputs
+    // Player 0 describes its moves as sequence of coordinates on the map
     let no_of_moves = 10;
     let player_0_moves = (0..no_of_moves)
         .map(|_| Coordinates::new(thread_rng().gen::<u8>(), thread_rng().gen()))
         .collect_vec();
+    // Coordinates of bomb placed by Player 1
     let player_1_bomb = Coordinates::new(thread_rng().gen::<u8>(), thread_rng().gen());
+    // Coordinates of bomb placed by Player 2
     let player_2_bomb = Coordinates::new(thread_rng().gen::<u8>(), thread_rng().gen());
+    // Coordinates of bomb placed by Player 3
     let player_3_bomb = Coordinates::new(thread_rng().gen::<u8>(), thread_rng().gen());
 
     println!("P0 moves coordinates: {:?}", &player_0_moves);
-    println!("P1 bomb coordinate  : {:?}", &player_1_bomb);
-    println!("P2 bomb coordinate  : {:?}", &player_2_bomb);
-    println!("P3 bomb coordinate  : {:?}", &player_3_bomb);
+    println!("P1 bomb coordinates : {:?}", &player_1_bomb);
+    println!("P2 bomb coordinates : {:?}", &player_2_bomb);
+    println!("P3 bomb coordinates : {:?}", &player_3_bomb);
 
-    // Al players encrypt their private inputs
+    // Players encrypt their private inputs
     let player_0_enc = cks[0].encrypt(
         player_0_moves
             .iter()
@@ -115,14 +122,14 @@ fn main() {
     let player_2_enc = cks[2].encrypt(vec![*player_2_bomb.x(), *player_2_bomb.y()].as_slice());
     let player_3_enc = cks[3].encrypt(vec![*player_3_bomb.x(), *player_3_bomb.y()].as_slice());
 
-    // All player upload the encrypted inputs and server key shates to the server
+    // Players upload the encrypted inputs and server key shares to the server
 
     // Server side //
 
     let server_key = aggregate_server_key_shares(&server_key_shares);
     server_key.set_server_key();
 
-    // server parses all player inputs
+    // server parses Player inputs
     let player_0_moves_enc = {
         let c = player_0_enc
             .unseed::<Vec<Vec<u64>>>()
@@ -147,17 +154,20 @@ fn main() {
         Coordinates::new(c.extract_at(0), c.extract_at(1))
     };
 
-    // run the game
+    // Server runs the game
     let player_0_dead_ct = traverse_map(
         &player_0_moves_enc,
         &vec![player_1_bomb_enc, player_2_bomb_enc, player_3_bomb_enc],
     );
 
-    // All players generate decryption shares
+    // Client side //
+
+    // Players generate decryption shares and send them to each other
     let decryption_shares = cks
         .iter()
         .map(|k| k.gen_decryption_share(&player_0_dead_ct))
         .collect_vec();
+    // Players decrypt to find whether Player 0 survived
     let player_0_dead = cks[0].aggregate_decryption_shares(&player_0_dead_ct, &decryption_shares);
 
     if player_0_dead {

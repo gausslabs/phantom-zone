@@ -24,7 +24,7 @@ pub(crate) mod tests {
             fill_random_ternary_secret_with_hamming_weight, generate_prime, negacyclic_mul,
             tests::Stats, ToShoup, TryConvertFrom1, WithLocal,
         },
-        Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut, Secret,
+        Matrix, MatrixEntity, MatrixMut, Row, RowEntity, RowMut,
     };
 
     use super::{
@@ -406,13 +406,6 @@ pub(crate) mod tests {
         pub(crate) values: Vec<i32>,
     }
 
-    impl Secret for RlweSecret {
-        type Element = i32;
-        fn values(&self) -> &[Self::Element] {
-            &self.values
-        }
-    }
-
     impl RlweSecret {
         pub fn random(hw: usize, n: usize) -> RlweSecret {
             DefaultSecureRng::with_local_mut(|rng| {
@@ -421,6 +414,10 @@ pub(crate) mod tests {
 
                 RlweSecret { values: out }
             })
+        }
+
+        fn values(&self) -> &[i32] {
+            &self.values
         }
     }
 

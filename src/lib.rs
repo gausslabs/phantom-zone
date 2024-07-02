@@ -16,13 +16,10 @@ mod utils;
 pub use backend::{
     ArithmeticLazyOps, ArithmeticOps, ModInit, ModularOpsU64, ShoupMatrixFMA, VectorOps,
 };
-// pub use bool::{
-//     aggregate_public_key_shares, aggregate_server_key_shares, gen_client_key,
-// gen_mp_keys_phase1,     gen_mp_keys_phase2, set_mp_seed, set_parameter_set,
-// ParameterSelector, };
+
 pub use bool::*;
 pub use ntt::{Ntt, NttBackendU64, NttInit};
-pub use shortint::{div_zero_error_flag, FheUint8};
+pub use shortint::{div_zero_error_flag, reset_error_flags, FheUint8};
 
 pub use decomposer::{Decomposer, DecomposerIter, DefaultDecomposer};
 
@@ -94,11 +91,6 @@ pub trait RowMut: Row + AsMut<[<Self as Row>::Element]> {}
 
 pub trait RowEntity: Row {
     fn zeros(col: usize) -> Self;
-}
-
-trait Secret {
-    type Element;
-    fn values(&self) -> &[Self::Element];
 }
 
 impl<T> Matrix for Vec<Vec<T>> {

@@ -114,9 +114,10 @@ pub(super) fn bit_mux<E: BooleanGates>(
     // (s&a) | ((1-s)^b)
     let not_selector = evaluator.not(&selector);
 
-    let s_and_a = evaluator.and(&selector, if_true, key);
+    let mut s_and_a = evaluator.and(&selector, if_true, key);
     let s_and_b = evaluator.and(&not_selector, if_false, key);
-    evaluator.or(&s_and_a, &s_and_b, key)
+    evaluator.or(&mut s_and_a, &s_and_b, key);
+    s_and_a
 }
 
 pub(super) fn arbitrary_bit_mux<E: BooleanGates>(
@@ -131,9 +132,10 @@ pub(super) fn arbitrary_bit_mux<E: BooleanGates>(
 
     izip!(if_true.iter(), if_false.iter())
         .map(|(a, b)| {
-            let s_and_a = evaluator.and(&selector, a, key);
+            let mut s_and_a = evaluator.and(&selector, a, key);
             let s_and_b = evaluator.and(&not_selector, b, key);
-            evaluator.or(&s_and_a, &s_and_b, key)
+            evaluator.or_inplace(&mut s_and_a, &s_and_b, key);
+            s_and_a
         })
         .collect()
 }

@@ -173,7 +173,7 @@ mod tests {
         decomposer::DefaultDecomposer,
         random::{DefaultSecureRng, NewWithSeed},
         utils::{fill_random_ternary_secret_with_hamming_weight, WithLocal},
-        MatrixEntity, MatrixMut, Secret,
+        MatrixEntity, MatrixMut,
     };
 
     use super::*;
@@ -185,13 +185,6 @@ mod tests {
         pub(crate) values: Vec<i32>,
     }
 
-    impl Secret for LweSecret {
-        type Element = i32;
-        fn values(&self) -> &[Self::Element] {
-            &self.values
-        }
-    }
-
     impl LweSecret {
         fn random(hw: usize, n: usize) -> LweSecret {
             DefaultSecureRng::with_local_mut(|rng| {
@@ -200,6 +193,10 @@ mod tests {
 
                 LweSecret { values: out }
             })
+        }
+
+        fn values(&self) -> &[i32] {
+            &self.values
         }
     }
 

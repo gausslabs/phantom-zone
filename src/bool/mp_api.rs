@@ -517,7 +517,7 @@ mod tests {
             let ct = seeded_ct.unseed::<Vec<Vec<u64>>>();
 
             let m_back = (0..batch_size)
-                .map(|i| ck.decrypt(&ct.extract(i)))
+                .map(|i| ck.decrypt(&ct.extract_at(i)))
                 .collect_vec();
 
             assert_eq!(m, m_back);
@@ -528,7 +528,7 @@ mod tests {
         fn all_uint8_apis() {
             use num_traits::Euclid;
 
-            use crate::div_zero_error_flag;
+            use crate::{div_zero_error_flag, FheBool};
 
             set_single_party_parameter_sets(SP_TEST_BOOL_PARAMS);
 
@@ -624,7 +624,7 @@ mod tests {
                         }
                     }
 
-                    // Comparisons
+                    // // Comparisons
                     {
                         {
                             let c_eq = c0.eq(&c1);
@@ -680,6 +680,15 @@ mod tests {
                                 i <= j
                             );
                         }
+                    }
+
+                    // mux
+                    {
+                        let selector = thread_rng().gen_bool(0.5);
+                        let selector_enc: FheBool = ck.encrypt(&selector);
+                        let mux_out = ck.decrypt(&c0.mux(&c1, &selector_enc));
+                        let want_mux_out = if selector { m0 } else { m1 };
+                        assert_eq!(mux_out, want_mux_out);
                     }
                 }
             }

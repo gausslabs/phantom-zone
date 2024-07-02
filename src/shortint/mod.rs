@@ -17,6 +17,16 @@ pub fn div_zero_error_flag() -> Option<FheBool> {
     DIV_ZERO_ERROR.with_borrow(|c| c.clone())
 }
 
+/// Reset all error flags
+///
+/// Error flags are thread local. When running multiple circuits in sequence
+/// within a single program you must prevent error flags set during the
+/// execution of previous circuit to affect error flags set during execution of
+/// the next circuit by resetting the flags before starting with next circuit.
+pub fn reset_error_flags() {
+    DIV_ZERO_ERROR.with_borrow_mut(|c| *c = None);
+}
+
 mod frontend {
     use super::ops::{
         arbitrary_bit_adder, arbitrary_bit_division_for_quotient_and_rem, arbitrary_bit_subtractor,
@@ -176,7 +186,9 @@ mod frontend {
     }
 
     mod booleans {
-        use crate::shortint::ops::{arbitrary_bit_comparator, arbitrary_bit_equality};
+        use crate::shortint::ops::{
+            arbitrary_bit_comparator, arbitrary_bit_equality, arbitrary_bit_mux,
+        };
 
         use super::*;
 
@@ -237,6 +249,27 @@ mod frontend {
                     e.not_inplace(&mut a_less_b);
                     FheBool { data: a_less_b }
                 })
+            }
+
+            /// Returns `Self` if `selector = True` else returns `other`
+            pub fn mux(&self, other: &FheUint8, selector: &FheBool) -> FheUint8 {
+                BoolEvaluator::with_local_mut(|e| {
+                    let key = RuntimeServerKey::global();
+                    let out = arbitrary_bit_mux(e, selector.data(), self.data(), other.data(), key);
+                    FheUint8 { data: out }
+                })
+            }
+
+            /// max(`Self`, `other`)
+            pub fn max(&self, other: &FheUint8) -> FheUint8 {
+                let self_gt = self.gt(other);
+                self.mux(other, &self_gt)
+            }
+
+            /// min(`Self`, `other`)
+            pub fn min(&self, other: &FheUint8) -> FheUint8 {
+                let self_lt = self.lt(other);
+                self.mux(other, &self_lt)
             }
         }
     }
