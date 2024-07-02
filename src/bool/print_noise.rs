@@ -322,7 +322,7 @@ where
     // LWE key switches LWE_in = LWE_{Q_ks,N, s}(m) = (b, a_0, ... a_N) -> LWE_out =
     // LWE_{Q_{ks}, n, z}(m) = (b', a'_0, ..., a'n)
     // If LWE_in = (0, a = {a_0, ..., a_N}), then LWE_out = LWE(-a \cdot s_{rlwe})
-    for _ in 0..10 {
+    for _ in 0..100 {
         let mut lwe_in = M::R::zeros(rlwe_n + 1);
         RandomFillUniformInModulus::random_fill(&mut rng, lwe_q, &mut lwe_in.as_mut()[1..]);
 
@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "interactive_mp")]
-    fn qwerty() {
+    fn interactive_key_noise() {
         use crate::{
             aggregate_public_key_shares, aggregate_server_key_shares,
             bool::{
@@ -379,7 +379,7 @@ mod tests {
             random::DefaultSecureRng,
             set_common_reference_seed, set_parameter_set,
             utils::WithLocal,
-            BoolEvaluator, DefaultDecomposer, ModularOpsU64, Ntt, NttBackendU64,
+            BoolEvaluator, DefaultDecomposer, ModularOpsU64, NttBackendU64,
         };
 
         set_parameter_set(crate::ParameterSelector::InteractiveLTE2Party);
@@ -413,6 +413,11 @@ mod tests {
             ModularOpsU64<CiphertextModulus<u64>>,
             _,
         >(parameters, &cks, &server_key_eval);
+
+        println!(
+            "Common reference seeded server key share key size size: {} Bits",
+            server_key_shares[0].size()
+        );
 
         println!(
             "Rgsw nsm std log2 {}",

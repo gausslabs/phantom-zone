@@ -910,7 +910,10 @@ where
         BoolParameters<M::MatElement>,
         InteractiveMultiPartyCrs<[u8; 32]>,
     > {
-        assert_eq!(self.parameters().variant(), &ParameterVariant::MultiParty);
+        assert_eq!(
+            self.parameters().variant(),
+            &ParameterVariant::InteractiveMultiParty
+        );
         assert!(user_id < total_users);
 
         let sk_rlwe = client_key.sk_rlwe();
@@ -1060,7 +1063,10 @@ where
         S: PartialEq + Clone,
         M: Clone,
     {
-        assert_eq!(self.parameters().variant(), &ParameterVariant::MultiParty);
+        assert_eq!(
+            self.parameters().variant(),
+            &ParameterVariant::InteractiveMultiParty
+        );
         assert!(shares.len() > 0);
 
         let total_users = shares.len();

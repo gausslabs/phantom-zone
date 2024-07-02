@@ -20,14 +20,14 @@ fn function2_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, d: &FheUint8) -> FheU
 
 fn main() {
     // Select parameter set
-    set_parameter_set(ParameterSelector::InteractiveLTE2Party);
+    set_parameter_set(ParameterSelector::InteractiveLTE4Party);
 
     // set application's common reference seed
     let mut seed = [0u8; 32];
     thread_rng().fill_bytes(&mut seed);
     set_common_reference_seed(seed);
 
-    let no_of_parties = 2;
+    let no_of_parties = 4;
 
     // Client side //
 

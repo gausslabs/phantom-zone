@@ -27,6 +27,8 @@ static MULTI_PARTY_CRS: OnceLock<InteractiveMultiPartyCrs<[u8; 32]>> = OnceLock:
 
 pub enum ParameterSelector {
     InteractiveLTE2Party,
+    InteractiveLTE4Party,
+    InteractiveLTE8Party,
 }
 
 /// Select Interactive multi-party parameter variant
@@ -35,7 +37,12 @@ pub fn set_parameter_set(select: ParameterSelector) {
         ParameterSelector::InteractiveLTE2Party => {
             BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(I_2P)));
         }
-
+        ParameterSelector::InteractiveLTE4Party => {
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(I_4P)));
+        }
+        ParameterSelector::InteractiveLTE8Party => {
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(I_8P_LB_SR)));
+        }
         _ => {
             panic!("Paramerter not supported")
         }
@@ -355,8 +362,10 @@ mod tests {
         let rlwe_modop = parameters.default_rlwe_modop();
 
         for _ in 0..500 {
+            let now = std::time::Instant::now();
             let ct_out =
                 BoolEvaluator::with_local_mut(|e| e.nand(&ct0, &ct1, RuntimeServerKey::global()));
+            println!("Time: {:?}", now.elapsed());
 
             let m_expected = !(m0 && m1);
 
