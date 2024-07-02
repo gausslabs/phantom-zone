@@ -22,7 +22,7 @@ use crate::{
     pbs::{pbs, PbsInfo, PbsKey, WithShoupRepr},
     random::{
         DefaultSecureRng, NewWithSeed, RandomFill, RandomFillGaussianInModulus,
-        RandomFillUniformInModulus, RandomGaussianElementInModulus,
+        RandomFillUniformInModulus,
     },
     rgsw::{
         generate_auto_map, public_key_encrypt_rgsw, rgsw_by_rgsw_inplace, rgsw_x_rgsw_scratch_rows,

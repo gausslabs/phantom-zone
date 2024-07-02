@@ -35,7 +35,8 @@ fn main() {
 
     // client 0 encrypts its private inputs
     let c0_a = thread_rng().gen::<u8>();
-    // Clients encrypt their private inputs in a seeded batched ciphertext
+    // Clients encrypt their private inputs in a seeded batched ciphertext using
+    // their private RLWE secret `u_j`.
     let c0_enc = cks[0].encrypt(vec![c0_a].as_slice());
 
     // client 1 encrypts its private inputs
@@ -54,6 +55,9 @@ fn main() {
     //
     // We assign user_id 0 to client 0, user_id 1 to client 1, user_id 2 to client
     // 2, user_id 3 to client 3.
+    //
+    // Note that `user_id`s must be unique among the clients and must be less than
+    // total number of clients.
     let server_key_shares = cks
         .iter()
         .enumerate()
@@ -126,9 +130,10 @@ fn main() {
     // -----------
 
     // Server key can be re-used for different functions with different private
-    // client inputs for the same set of clients. Here we run `function2_fhe` for
-    // the same set of client but with new inputs. Clients only have to upload their
-    // private inputs to the server this time.
+    // client inputs for the same set of clients.
+    //
+    // Here we run `function2_fhe` for the same set of client but with new inputs.
+    // Clients only have to upload their private inputs to the server this time.
 
     // Each client encrypts their private input
     let c0_a = thread_rng().gen::<u8>();
@@ -140,7 +145,7 @@ fn main() {
     let c3_a = thread_rng().gen::<u8>();
     let c3_enc = cks[3].encrypt(vec![c3_a].as_slice());
 
-    // Clients upload their private inputs to the server
+    // Clients upload only their new private inputs to the server
 
     // Server side //
 

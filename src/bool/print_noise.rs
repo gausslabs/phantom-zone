@@ -374,19 +374,22 @@ mod tests {
                 evaluator::InteractiveMultiPartyCrs,
                 keys::{key_size::KeySize, ServerKeyEvaluationDomain},
             },
-            gen_client_key, gen_mp_keys_phase1, gen_mp_keys_phase2,
+            gen_client_key, gen_mp_keys_phase2, interactive_multi_party_round1_share,
             parameters::CiphertextModulus,
             random::DefaultSecureRng,
-            set_mp_seed, set_parameter_set,
+            set_common_reference_seed, set_parameter_set,
             utils::WithLocal,
             BoolEvaluator, DefaultDecomposer, ModularOpsU64, Ntt, NttBackendU64,
         };
 
         set_parameter_set(crate::ParameterSelector::InteractiveLTE2Party);
-        set_mp_seed(InteractiveMultiPartyCrs::random().seed);
+        set_common_reference_seed(InteractiveMultiPartyCrs::random().seed);
         let parties = 2;
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
-        let pk_shares = cks.iter().map(|k| gen_mp_keys_phase1(k)).collect_vec();
+        let pk_shares = cks
+            .iter()
+            .map(|k| interactive_multi_party_round1_share(k))
+            .collect_vec();
 
         let pk = aggregate_public_key_shares(&pk_shares);
         let server_key_shares = cks

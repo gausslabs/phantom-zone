@@ -43,7 +43,7 @@ pub fn set_parameter_set(select: ParameterSelector) {
 }
 
 /// Set application specific interactive multi-party common reference string
-pub fn set_mp_seed(seed: [u8; 32]) {
+pub fn set_common_reference_seed(seed: [u8; 32]) {
     assert!(
         MULTI_PARTY_CRS
             .set(InteractiveMultiPartyCrs { seed: seed })
@@ -57,9 +57,9 @@ pub fn gen_client_key() -> ClientKey {
     BoolEvaluator::with_local(|e| e.client_key())
 }
 
-/// Generate client's share for collective public key, i.e round 1, of the
-/// protocol
-pub fn gen_mp_keys_phase1(
+/// Generate client's share for collective public key, i.e round 1 share, in
+/// round 1 of the 2 round protocol
+pub fn interactive_multi_party_round1_share(
     ck: &ClientKey,
 ) -> CommonReferenceSeededCollectivePublicKeyShare<Vec<u64>, [u8; 32], BoolParameters<u64>> {
     BoolEvaluator::with_local(|e| {
@@ -319,13 +319,16 @@ mod tests {
         set_parameter_set(ParameterSelector::InteractiveLTE2Party);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
-        set_mp_seed(seed);
+        set_common_reference_seed(seed);
 
         let parties = 2;
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
 
         // round 1
-        let pk_shares = cks.iter().map(|k| gen_mp_keys_phase1(k)).collect_vec();
+        let pk_shares = cks
+            .iter()
+            .map(|k| interactive_multi_party_round1_share(k))
+            .collect_vec();
 
         // collective pk
         let pk = aggregate_public_key_shares(&pk_shares);
@@ -408,13 +411,16 @@ mod tests {
         set_parameter_set(ParameterSelector::InteractiveLTE2Party);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
-        set_mp_seed(seed);
+        set_common_reference_seed(seed);
 
         let parties = 2;
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
 
         // round 1
-        let pk_shares = cks.iter().map(|k| gen_mp_keys_phase1(k)).collect_vec();
+        let pk_shares = cks
+            .iter()
+            .map(|k| interactive_multi_party_round1_share(k))
+            .collect_vec();
 
         // collective pk
         let pk = aggregate_public_key_shares(&pk_shares);
