@@ -878,7 +878,7 @@ pub(crate) mod tests {
 
             let mut diff = want_m;
             mod_op.elwise_sub_mut(diff.as_mut(), got_m.as_ref());
-            stats.add_more(&Vec::<i64>::try_convert_from(&diff, q));
+            stats.add_many_samples(&Vec::<i64>::try_convert_from(&diff, q));
         }
 
         // RLWE(\beta^j  m)
@@ -899,7 +899,7 @@ pub(crate) mod tests {
 
             let mut diff = want_m;
             mod_op.elwise_sub_mut(diff.as_mut(), got_m.as_ref());
-            stats.add_more(&Vec::<i64>::try_convert_from(&diff, q));
+            stats.add_many_samples(&Vec::<i64>::try_convert_from(&diff, q));
         }
 
         stats

@@ -3,7 +3,6 @@ use std::{cell::RefCell, sync::OnceLock};
 use crate::{
     backend::ModulusPowerOf2,
     bool::parameters::ParameterVariant,
-    parameters::NI_4P,
     random::DefaultSecureRng,
     utils::{Global, WithLocal},
     ModularOpsU64, NttBackendU64,
@@ -16,7 +15,7 @@ use super::{
         NonInteractiveServerKeyEvaluationDomain, SeededNonInteractiveMultiPartyServerKey,
         ShoupNonInteractiveServerKeyEvaluationDomain,
     },
-    parameters::{BoolParameters, CiphertextModulus, NI_2P},
+    parameters::{BoolParameters, CiphertextModulus, NI_2P, NI_4P_HB_FR, NI_8P},
     ClientKey,
 };
 
@@ -40,6 +39,7 @@ static MULTI_PARTY_CRS: OnceLock<NonInteractiveMultiPartyCrs<[u8; 32]>> = OnceLo
 pub enum ParameterSelector {
     NonInteractiveLTE2Party,
     NonInteractiveLTE4Party,
+    NonInteractiveLTE8Party,
 }
 
 pub fn set_parameter_set(select: ParameterSelector) {
@@ -48,11 +48,10 @@ pub fn set_parameter_set(select: ParameterSelector) {
             BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_2P)));
         }
         ParameterSelector::NonInteractiveLTE4Party => {
-            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_4P)));
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_4P_HB_FR)));
         }
-
-        _ => {
-            panic!("Paramerters not supported")
+        ParameterSelector::NonInteractiveLTE8Party => {
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_8P)));
         }
     }
 }
@@ -461,12 +460,12 @@ mod tests {
 
     #[test]
     fn non_interactive_mp_bool_nand() {
-        set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
+        set_parameter_set(ParameterSelector::NonInteractiveLTE8Party);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
         set_common_reference_seed(seed);
 
-        let parties = 2;
+        let parties = 8;
 
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
 
@@ -501,10 +500,10 @@ mod tests {
         let mut stats = Stats::new();
 
         for _ in 0..1000 {
-            // let now = std::time::Instant::now();
+            let now = std::time::Instant::now();
             let ct_out =
                 BoolEvaluator::with_local_mut(|e| e.xor(&ct0, &ct1, RuntimeServerKey::global()));
-            // println!("Time: {:?}", now.elapsed());
+            println!("Time: {:?}", now.elapsed());
 
             let decryption_shares = cks
                 .iter()
@@ -515,17 +514,13 @@ mod tests {
             let m_expected = m0 ^ m1;
 
             {
-                // let noise = measure_noise_lwe(
-                //     &ct_out,
-                //     parameters.rlwe_q().encode(m_expected),
-                //     &ideal_sk_rlwe,
-                //     &rlwe_modop,
-                // );
-                // println!("Noise: {noise}");
-
-                let noisy_m = decrypt_lwe(&ct_out, &ideal_sk_rlwe, &rlwe_modop);
-                let noise = rlwe_modop.sub(&parameters.rlwe_q().encode(m_expected), &noisy_m);
-                stats.add_more(&vec![parameters.rlwe_q().map_element_to_i64(&noise)]);
+                let noise = measure_noise_lwe(
+                    &ct_out,
+                    parameters.rlwe_q().encode(m_expected),
+                    &ideal_sk_rlwe,
+                    &rlwe_modop,
+                );
+                stats.add_sample(parameters.rlwe_q().map_element_to_i64(&noise));
             }
 
             assert!(m_out == m_expected, "Expected {m_expected} but got {m_out}");

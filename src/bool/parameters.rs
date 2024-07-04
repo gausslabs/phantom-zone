@@ -523,62 +523,14 @@ where
     }
 }
 
-pub(crate) const MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
+pub(crate) const I_2P_LB_SR: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
-    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
-    rlwe_q: CiphertextModulus::new_non_native(1152921504606830593),
-    lwe_q: CiphertextModulus::new_non_native(1 << 20),
-    br_q: 1 << 11,
-    rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(500),
-    lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(5)),
-    rlrg_decomposer_params: (
-        DecompostionLogBase(12),
-        (DecompositionCount(5), DecompositionCount(5)),
-    ),
-    rgrg_decomposer_params: Some((
-        DecompostionLogBase(12),
-        (DecompositionCount(5), DecompositionCount(5)),
-    )),
-    auto_decomposer_params: (DecompostionLogBase(12), DecompositionCount(5)),
-    non_interactive_ui_to_s_key_switch_decomposer: None,
-    g: 5,
-    w: 10,
-    variant: ParameterVariant::InteractiveMultiParty,
-};
-
-pub(crate) const SMALL_MP_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
-    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
-    rlwe_q: CiphertextModulus::new_non_native(36028797018820609),
-    lwe_q: CiphertextModulus::new_non_native(1 << 20),
-    br_q: 1 << 11,
-    rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(600),
-    lwe_decomposer_params: (DecompostionLogBase(4), DecompositionCount(5)),
-    rlrg_decomposer_params: (
-        DecompostionLogBase(11),
-        (DecompositionCount(2), DecompositionCount(1)),
-    ),
-    rgrg_decomposer_params: Some((
-        DecompostionLogBase(11),
-        (DecompositionCount(5), DecompositionCount(4)),
-    )),
-    auto_decomposer_params: (DecompostionLogBase(11), DecompositionCount(2)),
-    non_interactive_ui_to_s_key_switch_decomposer: None,
-    g: 5,
-    w: 10,
-    variant: ParameterVariant::InteractiveMultiParty,
-};
-
-pub(crate) const I_2P: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
-    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
     rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
     lwe_q: CiphertextModulus::new_non_native(1 << 15),
     br_q: 1 << 11,
     rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(480),
+    lwe_n: LweDimension(580),
     lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(12)),
     rlrg_decomposer_params: (
         DecompostionLogBase(17),
@@ -597,12 +549,12 @@ pub(crate) const I_2P: BoolParameters<u64> = BoolParameters::<u64> {
 
 pub(crate) const I_4P: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
-    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
     rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
     lwe_q: CiphertextModulus::new_non_native(1 << 16),
     br_q: 1 << 11,
     rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(520),
+    lwe_n: LweDimension(620),
     lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(13)),
     rlrg_decomposer_params: (
         DecompostionLogBase(17),
@@ -619,38 +571,14 @@ pub(crate) const I_4P: BoolParameters<u64> = BoolParameters::<u64> {
     variant: ParameterVariant::InteractiveMultiParty,
 };
 
-pub(crate) const I_8P_HB_FR: BoolParameters<u64> = BoolParameters::<u64> {
+pub(crate) const I_8P: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
-    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
-    rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
-    lwe_q: CiphertextModulus::new_non_native(1 << 16),
-    br_q: 1 << 11,
-    rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(520),
-    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(13)),
-    rlrg_decomposer_params: (
-        DecompostionLogBase(17),
-        (DecompositionCount(1), DecompositionCount(1)),
-    ),
-    rgrg_decomposer_params: Some((
-        DecompostionLogBase(4),
-        (DecompositionCount(12), DecompositionCount(11)),
-    )),
-    auto_decomposer_params: (DecompostionLogBase(24), DecompositionCount(1)),
-    non_interactive_ui_to_s_key_switch_decomposer: None,
-    g: 5,
-    w: 10,
-    variant: ParameterVariant::InteractiveMultiParty,
-};
-
-pub(crate) const I_8P_LB_SR: BoolParameters<u64> = BoolParameters::<u64> {
-    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
-    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
     rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
     lwe_q: CiphertextModulus::new_non_native(1 << 17),
-    br_q: 1 << 11,
+    br_q: 1 << 12,
     rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(560),
+    lwe_n: LweDimension(660),
     lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(14)),
     rlrg_decomposer_params: (
         DecompostionLogBase(17),
@@ -658,7 +586,7 @@ pub(crate) const I_8P_LB_SR: BoolParameters<u64> = BoolParameters::<u64> {
     ),
     rgrg_decomposer_params: Some((
         DecompostionLogBase(5),
-        (DecompositionCount(8), DecompositionCount(7)),
+        (DecompositionCount(9), DecompositionCount(8)),
     )),
     auto_decomposer_params: (DecompostionLogBase(24), DecompositionCount(1)),
     non_interactive_ui_to_s_key_switch_decomposer: None,
@@ -671,18 +599,18 @@ pub(crate) const NI_2P: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
     lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
     rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
-    lwe_q: CiphertextModulus::new_non_native(1 << 15),
-    br_q: 1 << 11,
+    lwe_q: CiphertextModulus::new_non_native(1 << 16),
+    br_q: 1 << 12,
     rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(480),
-    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(12)),
+    lwe_n: LweDimension(520),
+    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(13)),
     rlrg_decomposer_params: (
-        DecompostionLogBase(16),
+        DecompostionLogBase(17),
         (DecompositionCount(1), DecompositionCount(1)),
     ),
     rgrg_decomposer_params: Some((
-        DecompostionLogBase(6),
-        (DecompositionCount(7), DecompositionCount(7)),
+        DecompostionLogBase(4),
+        (DecompositionCount(10), DecompositionCount(9)),
     )),
     auto_decomposer_params: (DecompostionLogBase(24), DecompositionCount(1)),
     non_interactive_ui_to_s_key_switch_decomposer: Some((
@@ -694,15 +622,42 @@ pub(crate) const NI_2P: BoolParameters<u64> = BoolParameters::<u64> {
     variant: ParameterVariant::NonInteractiveMultiParty,
 };
 
-pub(crate) const NI_4P: BoolParameters<u64> = BoolParameters::<u64> {
+pub(crate) const NI_4P_HB_FR: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
-    lwe_secret_key_dist: SecretKeyDistribution::ErrorDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
     rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
     lwe_q: CiphertextModulus::new_non_native(1 << 16),
     br_q: 1 << 11,
     rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(510),
-    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(12)),
+    lwe_n: LweDimension(620),
+    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(13)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(17),
+        (DecompositionCount(1), DecompositionCount(1)),
+    ),
+    rgrg_decomposer_params: Some((
+        DecompostionLogBase(3),
+        (DecompositionCount(13), DecompositionCount(12)),
+    )),
+    auto_decomposer_params: (DecompostionLogBase(24), DecompositionCount(1)),
+    non_interactive_ui_to_s_key_switch_decomposer: Some((
+        DecompostionLogBase(1),
+        DecompositionCount(50),
+    )),
+    g: 5,
+    w: 10,
+    variant: ParameterVariant::NonInteractiveMultiParty,
+};
+
+pub(crate) const NI_4P_LB_SR: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
+    lwe_q: CiphertextModulus::new_non_native(1 << 16),
+    br_q: 1 << 12,
+    rlwe_n: PolynomialSize(1 << 11),
+    lwe_n: LweDimension(620),
+    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(13)),
     rlrg_decomposer_params: (
         DecompostionLogBase(17),
         (DecompositionCount(1), DecompositionCount(1)),
@@ -710,6 +665,33 @@ pub(crate) const NI_4P: BoolParameters<u64> = BoolParameters::<u64> {
     rgrg_decomposer_params: Some((
         DecompostionLogBase(4),
         (DecompositionCount(10), DecompositionCount(9)),
+    )),
+    auto_decomposer_params: (DecompostionLogBase(24), DecompositionCount(1)),
+    non_interactive_ui_to_s_key_switch_decomposer: Some((
+        DecompostionLogBase(1),
+        DecompositionCount(50),
+    )),
+    g: 5,
+    w: 10,
+    variant: ParameterVariant::NonInteractiveMultiParty,
+};
+
+pub(crate) const NI_8P: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
+    lwe_q: CiphertextModulus::new_non_native(1 << 17),
+    br_q: 1 << 12,
+    rlwe_n: PolynomialSize(1 << 11),
+    lwe_n: LweDimension(660),
+    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(14)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(17),
+        (DecompositionCount(1), DecompositionCount(1)),
+    ),
+    rgrg_decomposer_params: Some((
+        DecompostionLogBase(2),
+        (DecompositionCount(20), DecompositionCount(18)),
     )),
     auto_decomposer_params: (DecompostionLogBase(24), DecompositionCount(1)),
     non_interactive_ui_to_s_key_switch_decomposer: Some((

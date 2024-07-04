@@ -1499,16 +1499,11 @@ pub(crate) mod key_size {
 
 pub(super) mod tests {
     use itertools::izip;
-    use num_traits::{FromPrimitive, PrimInt, ToPrimitive, Zero};
+    use num_traits::{FromPrimitive, PrimInt, Zero};
 
     use crate::{
-        backend::{GetModulus, Modulus},
-        bool::ClientKey,
-        decomposer::NumInfo,
-        lwe::decrypt_lwe,
-        parameters::{CiphertextModulus, I_2P},
-        utils::TryConvertFrom1,
-        ArithmeticOps, Row,
+        backend::GetModulus, bool::ClientKey, decomposer::NumInfo, lwe::decrypt_lwe,
+        parameters::CiphertextModulus, utils::TryConvertFrom1, ArithmeticOps, Row,
     };
 
     use super::SinglePartyClientKey;
@@ -1545,20 +1540,14 @@ pub(super) mod tests {
         m_expected: R::Element,
         sk: &[S],
         modop: &Modop,
-    ) -> f64
+    ) -> R::Element
     where
         R: TryConvertFrom1<[S], CiphertextModulus<R::Element>>,
         R::Element: Zero + FromPrimitive + PrimInt + NumInfo,
     {
         let noisy_m = decrypt_lwe(lwe_ct, &sk, modop);
         let noise = modop.sub(&m_expected, &noisy_m);
-        modop
-            .modulus()
-            .map_element_to_i64(&noise)
-            .abs()
-            .to_f64()
-            .unwrap()
-            .log2()
+        noise
     }
     // #[test]
     // fn trial() {

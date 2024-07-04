@@ -35,13 +35,13 @@ pub enum ParameterSelector {
 pub fn set_parameter_set(select: ParameterSelector) {
     match select {
         ParameterSelector::InteractiveLTE2Party => {
-            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(I_2P)));
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(I_2P_LB_SR)));
         }
         ParameterSelector::InteractiveLTE4Party => {
             BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(I_4P)));
         }
         ParameterSelector::InteractiveLTE8Party => {
-            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(I_8P_LB_SR)));
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(I_8P)));
         }
         _ => {
             panic!("Paramerter not supported")
@@ -311,24 +311,27 @@ mod tests {
     use rand::{thread_rng, Rng, RngCore};
 
     use crate::{
+        backend::Modulus,
         bool::{
             evaluator::BoolEncoding,
             keys::tests::{ideal_sk_rlwe, measure_noise_lwe},
             BooleanGates,
         },
-        Encryptor, MultiPartyDecryptor, SampleExtractor,
+        lwe::decrypt_lwe,
+        utils::tests::Stats,
+        Encoder, Encryptor, MultiPartyDecryptor, SampleExtractor,
     };
 
     use super::*;
 
     #[test]
     fn multi_party_bool_gates() {
-        set_parameter_set(ParameterSelector::InteractiveLTE2Party);
+        set_parameter_set(ParameterSelector::InteractiveLTE8Party);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
         set_common_reference_seed(seed);
 
-        let parties = 2;
+        let parties = 8;
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
 
         // round 1
@@ -361,7 +364,9 @@ mod tests {
         let parameters = BoolEvaluator::with_local(|e| e.parameters().clone());
         let rlwe_modop = parameters.default_rlwe_modop();
 
-        for _ in 0..500 {
+        let mut stats = Stats::new();
+
+        for _ in 0..1000 {
             let now = std::time::Instant::now();
             let ct_out =
                 BoolEvaluator::with_local_mut(|e| e.nand(&ct0, &ct1, RuntimeServerKey::global()));
@@ -376,14 +381,15 @@ mod tests {
             let m_out = cks[0].aggregate_decryption_shares(&ct_out, &decryption_shares);
 
             assert!(m_out == m_expected, "Expected {m_expected}, got {m_out}");
+
             {
-                let m_expected_el = if m_expected == true {
-                    parameters.rlwe_q().true_el()
-                } else {
-                    parameters.rlwe_q().false_el()
-                };
-                let noise = measure_noise_lwe(&ct_out, m_expected_el, &ideal_sk_rlwe, &rlwe_modop);
-                println!("NAND Noise: {noise}");
+                let noise = measure_noise_lwe(
+                    &ct_out,
+                    parameters.rlwe_q().encode(m_expected),
+                    &ideal_sk_rlwe,
+                    &rlwe_modop,
+                );
+                stats.add_sample(parameters.rlwe_q().map_element_to_i64(&noise));
             }
 
             m1 = m0;
@@ -393,7 +399,7 @@ mod tests {
             ct0 = ct_out;
         }
 
-        for _ in 0..500 {
+        for _ in 0..1000 {
             let ct_out =
                 BoolEvaluator::with_local_mut(|e| e.xnor(&ct0, &ct1, RuntimeServerKey::global()));
 
@@ -407,12 +413,24 @@ mod tests {
 
             assert!(m_out == m_expected, "Expected {m_expected}, got {m_out}");
 
+            {
+                let noise = measure_noise_lwe(
+                    &ct_out,
+                    parameters.rlwe_q().encode(m_expected),
+                    &ideal_sk_rlwe,
+                    &rlwe_modop,
+                );
+                stats.add_sample(parameters.rlwe_q().map_element_to_i64(&noise));
+            }
+
             m1 = m0;
             m0 = m_expected;
 
             ct1 = ct0;
             ct0 = ct_out;
         }
+
+        println!("Noise std_dev log2: {}", stats.std_dev().abs().log2());
     }
 
     #[test]

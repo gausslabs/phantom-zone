@@ -271,7 +271,7 @@ impl<P: Modulus> TryConvertFrom1<[P::Element], P> for Vec<i64> {
 pub(crate) mod tests {
     use std::fmt::Debug;
 
-    use num_traits::{FromPrimitive, PrimInt};
+    use num_traits::ToPrimitive;
 
     use crate::random::DefaultSecureRng;
 
@@ -288,7 +288,7 @@ pub(crate) mod tests {
         }
     }
 
-    impl<T: PrimInt + FromPrimitive + Debug> Stats<T>
+    impl<T: Copy + ToPrimitive + Debug> Stats<T>
     where
         // T: for<'a> Sum<&'a T>,
         T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
@@ -301,7 +301,7 @@ pub(crate) mod tests {
             self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
         }
 
-        pub(crate) fn std_dev(&self) -> f64 {
+        pub(crate) fn variance(&self) -> f64 {
             let mean = self.mean();
 
             // diff
@@ -315,11 +315,23 @@ pub(crate) mod tests {
                 .into_iter()
                 .sum::<f64>();
 
-            (diff_sq / (self.samples.len() as f64)).sqrt()
+            diff_sq / (self.samples.len() as f64 - 1.0)
         }
 
-        pub(crate) fn add_more(&mut self, values: &[T]) {
+        pub(crate) fn std_dev(&self) -> f64 {
+            self.variance().sqrt()
+        }
+
+        pub(crate) fn add_many_samples(&mut self, values: &[T]) {
             self.samples.extend(values.iter());
+        }
+
+        pub(crate) fn add_sample(&mut self, value: T) {
+            self.samples.push(value)
+        }
+
+        pub(crate) fn merge_in(&mut self, other: &Self) {
+            self.samples.extend(other.samples.iter());
         }
     }
 

@@ -194,6 +194,7 @@ trait SizeInBitsWithLogModulus {
     /// 2^{log_modulus-1} < Q <= `2^log_modulus`
     fn size(&self, log_modulus: usize) -> usize;
 }
+
 impl SizeInBitsWithLogModulus for Vec<Vec<u64>> {
     fn size(&self, log_modulus: usize) -> usize {
         let mut total = 0;

@@ -23,7 +23,7 @@ use super::keys::tests::{ideal_sk_lwe, ideal_sk_rlwe};
 
 pub(crate) trait CollectRuntimeServerKeyStats {
     type M;
-    /// RGSW ciphertext X^{s[s_index]} in evaluation domain where s the LWE
+    /// RGSW ciphertext X^{s[s_index]} in evaluation domain where `s` the LWE
     /// secret
     fn rgsw_cts_lwe_si(&self, s_index: usize) -> &Self::M;
     /// Auto key in evaluation domain for automorphism g^k. For auto key for
@@ -33,9 +33,20 @@ pub(crate) trait CollectRuntimeServerKeyStats {
     fn lwe_ksk(&self) -> &Self::M;
 }
 
+#[derive(Default)]
 struct ServerKeyStats<T> {
+    /// Distribution of noise in RGSW ciphertexts
+    ///
+    /// We collect statistics for RLWE'(-sm) separately from RLWE'(m) because
+    /// non-interactive protocol differents between the two. Although we expect
+    /// the distribution of noise in both to be the same.
     brk_rgsw_cts: (Stats<T>, Stats<T>),
+    /// Distribtion of noise added to RLWE ciphertext after automorphism using
+    /// Server auto keys.
     post_1_auto: Stats<T>,
+    /// Distribution of noise added in LWE key switching from LWE_{q, s} to
+    /// LWE_{q, z} where `z` is ideal LWE secret and `s` is ideal RLWE secret
+    /// using Server's LWE key switching key.
     post_lwe_key_switch: Stats<T>,
 }
 
@@ -52,19 +63,28 @@ where
     }
 
     fn add_noise_brk_rgsw_cts_nsm(&mut self, noise: &[T]) {
-        self.brk_rgsw_cts.0.add_more(noise);
+        self.brk_rgsw_cts.0.add_many_samples(noise);
     }
 
     fn add_noise_brk_rgsw_cts_m(&mut self, noise: &[T]) {
-        self.brk_rgsw_cts.1.add_more(noise);
+        self.brk_rgsw_cts.1.add_many_samples(noise);
     }
 
     fn add_noise_post_1_auto(&mut self, noise: &[T]) {
-        self.post_1_auto.add_more(&noise);
+        self.post_1_auto.add_many_samples(&noise);
     }
 
     fn add_noise_post_kwe_key_switch(&mut self, noise: &[T]) {
-        self.post_lwe_key_switch.add_more(&noise);
+        self.post_lwe_key_switch.add_many_samples(&noise);
+    }
+
+    fn merge_in(&mut self, other: &Self) {
+        self.brk_rgsw_cts.0.merge_in(&other.brk_rgsw_cts.0);
+        self.brk_rgsw_cts.1.merge_in(&other.brk_rgsw_cts.1);
+
+        self.post_1_auto.merge_in(&other.post_1_auto);
+        self.post_lwe_key_switch
+            .merge_in(&other.post_lwe_key_switch);
     }
 }
 
@@ -363,8 +383,6 @@ where
 mod tests {
     use itertools::Itertools;
 
-    use super::collect_server_key_stats;
-
     #[test]
     #[cfg(feature = "interactive_mp")]
     fn interactive_key_noise() {
@@ -382,64 +400,82 @@ mod tests {
             BoolEvaluator, DefaultDecomposer, ModularOpsU64, NttBackendU64,
         };
 
-        set_parameter_set(crate::ParameterSelector::InteractiveLTE2Party);
+        use super::*;
+
+        set_parameter_set(crate::ParameterSelector::InteractiveLTE8Party);
         set_common_reference_seed(InteractiveMultiPartyCrs::random().seed);
-        let parties = 2;
-        let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
-        let pk_shares = cks
-            .iter()
-            .map(|k| interactive_multi_party_round1_share(k))
-            .collect_vec();
+        let parties = 8;
 
-        let pk = aggregate_public_key_shares(&pk_shares);
-        let server_key_shares = cks
-            .iter()
-            .enumerate()
-            .map(|(index, k)| gen_mp_keys_phase2(k, index, parties, &pk))
-            .collect_vec();
+        let mut server_key_stats = ServerKeyStats::default();
+        let mut server_key_share_size = 0usize;
 
-        // println!("Size: {}", server_key_shares[0].size());
-        let seeded_server_key = aggregate_server_key_shares(&server_key_shares);
-        let server_key_eval =
-            ServerKeyEvaluationDomain::<_, _, DefaultSecureRng, NttBackendU64>::from(
-                &seeded_server_key,
-            );
+        for i in 0..2 {
+            let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
+            let pk_shares = cks
+                .iter()
+                .map(|k| interactive_multi_party_round1_share(k))
+                .collect_vec();
 
-        let parameters = BoolEvaluator::with_local(|e| e.parameters().clone());
-        let server_key_stats = collect_server_key_stats::<
-            _,
-            DefaultDecomposer<u64>,
-            NttBackendU64,
-            ModularOpsU64<CiphertextModulus<u64>>,
-            _,
-        >(parameters, &cks, &server_key_eval);
+            let pk = aggregate_public_key_shares(&pk_shares);
+            let server_key_shares = cks
+                .iter()
+                .enumerate()
+                .map(|(index, k)| gen_mp_keys_phase2(k, index, parties, &pk))
+                .collect_vec();
+
+            // In 0th iteration measure server key size
+            if i == 0 {
+                // Server key share size of user with last id may not equal server key share
+                // sizes of other users if LWE dimension does not divides number of parties.
+                server_key_share_size = std::cmp::max(
+                    server_key_shares.first().unwrap().size(),
+                    server_key_shares.last().unwrap().size(),
+                );
+            }
+
+            // println!("Size: {}", server_key_shares[0].size());
+            let seeded_server_key = aggregate_server_key_shares(&server_key_shares);
+            let server_key_eval =
+                ServerKeyEvaluationDomain::<_, _, DefaultSecureRng, NttBackendU64>::from(
+                    &seeded_server_key,
+                );
+
+            let parameters = BoolEvaluator::with_local(|e| e.parameters().clone());
+            server_key_stats.merge_in(&collect_server_key_stats::<
+                _,
+                DefaultDecomposer<u64>,
+                NttBackendU64,
+                ModularOpsU64<CiphertextModulus<u64>>,
+                _,
+            >(parameters, &cks, &server_key_eval));
+        }
 
         println!(
-            "Common reference seeded server key share key size size: {} Bits",
-            server_key_shares[0].size()
+            "Common reference seeded server key share key size: {} Bits",
+            server_key_share_size
         );
 
         println!(
             "Rgsw nsm std log2 {}",
-            server_key_stats.brk_rgsw_cts.0.std_dev().abs().log2()
+            server_key_stats.brk_rgsw_cts.0.std_dev().log2()
         );
         println!(
             "Rgsw m std log2 {}",
-            server_key_stats.brk_rgsw_cts.1.std_dev().abs().log2()
+            server_key_stats.brk_rgsw_cts.1.std_dev().log2()
         );
         println!(
             "rlwe post 1 auto std log2 {}",
-            server_key_stats.post_1_auto.std_dev().abs().log2()
+            server_key_stats.post_1_auto.std_dev().log2()
         );
         println!(
             "key switching noise rlwe secret s to lwe secret z std log2 {}",
-            server_key_stats.post_lwe_key_switch.std_dev().abs().log2()
+            server_key_stats.post_lwe_key_switch.std_dev().log2()
         );
     }
 
     #[test]
     #[cfg(feature = "non_interactive_mp")]
-    fn querty2() {
+    fn non_interactive_key_noise() {
         use crate::{
             aggregate_server_key_shares,
             bool::{
@@ -455,35 +491,55 @@ mod tests {
             BoolEvaluator, ModularOpsU64, NttBackendU64,
         };
 
-        set_parameter_set(crate::ParameterSelector::NonInteractiveLTE2Party);
+        use super::*;
+
+        set_parameter_set(crate::ParameterSelector::NonInteractiveLTE8Party);
         set_common_reference_seed(NonInteractiveMultiPartyCrs::random().seed);
-        let parties = 2;
-        let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
-        let server_key_shares = cks
-            .iter()
-            .enumerate()
-            .map(|(user_id, k)| gen_server_key_share(user_id, parties, k))
-            .collect_vec();
+        let parties = 8;
 
-        let server_key = aggregate_server_key_shares(&server_key_shares);
+        let mut server_key_stats = ServerKeyStats::default();
+        let mut server_key_share_size = 0;
+        for i in 0..2 {
+            let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
+            let server_key_shares = cks
+                .iter()
+                .enumerate()
+                .map(|(user_id, k)| gen_server_key_share(user_id, parties, k))
+                .collect_vec();
 
-        let server_key_eval =
-            NonInteractiveServerKeyEvaluationDomain::<_, _, DefaultSecureRng, NttBackendU64>::from(
-                &server_key,
-            );
+            // Collect server key size in the 0th iteration
+            if i == 0 {
+                // Server key share size may differ for user with last id from
+                // the share size of other users if the LWE dimension `n` is not
+                // divisible by no. of parties.
+                server_key_share_size = std::cmp::max(
+                    server_key_shares.first().unwrap().size(),
+                    server_key_shares.last().unwrap().size(),
+                );
+            }
 
-        let parameters = BoolEvaluator::with_local(|e| e.parameters().clone());
-        let server_key_stats = collect_server_key_stats::<
-            _,
-            DefaultDecomposer<u64>,
-            NttBackendU64,
-            ModularOpsU64<CiphertextModulus<u64>>,
-            _,
-        >(parameters, &cks, &server_key_eval);
+            let server_key = aggregate_server_key_shares(&server_key_shares);
+
+            let server_key_eval = NonInteractiveServerKeyEvaluationDomain::<
+                _,
+                _,
+                DefaultSecureRng,
+                NttBackendU64,
+            >::from(&server_key);
+
+            let parameters = BoolEvaluator::with_local(|e| e.parameters().clone());
+            server_key_stats.merge_in(&collect_server_key_stats::<
+                _,
+                DefaultDecomposer<u64>,
+                NttBackendU64,
+                ModularOpsU64<CiphertextModulus<u64>>,
+                _,
+            >(parameters, &cks, &server_key_eval));
+        }
 
         println!(
-            "Common reference seeded server key share key size size: {} Bits",
-            server_key_shares[0].size()
+            "Common reference seeded server key share key size: {} Bits",
+            server_key_share_size
         );
         println!(
             "Rgsw nsm std log2 {}",
@@ -565,10 +621,136 @@ mod tests {
         rlwe_q_modop.elwise_sub_mut(diff.as_mut_slice(), message.as_ref());
 
         let mut stats = Stats::new();
-        stats.add_more(&Vec::<i64>::try_convert_from(
+        stats.add_many_samples(&Vec::<i64>::try_convert_from(
             diff.as_slice(),
             parameters.rlwe_q(),
         ));
         println!("Noise std log2: {}", stats.std_dev().abs().log2());
+    }
+
+    #[test]
+    fn mod_switch_noise() {
+        // Experiment to check mod switch noise using different secret dist in
+        // multi-party setting
+
+        use itertools::izip;
+        use num_traits::ToPrimitive;
+
+        use crate::{
+            backend::{Modulus, ModulusPowerOf2},
+            parameters::SecretKeyDistribution,
+            random::{DefaultSecureRng, RandomFillGaussian, RandomFillUniformInModulus},
+            utils::{fill_random_ternary_secret_with_hamming_weight, tests::Stats},
+            ArithmeticOps, ModInit,
+        };
+
+        fn mod_switch(v: u64, q_from: u64, q_to: u64) -> f64 {
+            (v as f64) * (q_to as f64) / q_from as f64
+        }
+
+        fn mod_switch_round(v: u64, q_from: u64, q_to: u64) -> u64 {
+            mod_switch(v, q_from, q_to).round().to_u64().unwrap()
+        }
+
+        fn mod_switch_odd(v: u64, q_from: u64, q_to: u64) -> u64 {
+            let odd_v = mod_switch(v, q_from, q_to).floor().to_u64().unwrap();
+            odd_v + ((odd_v & 1) ^ 1)
+        }
+
+        fn sample_secret(n: usize, dist: &SecretKeyDistribution) -> Vec<i32> {
+            let mut s = vec![0i32; n];
+            let mut rng = DefaultSecureRng::new();
+
+            match dist {
+                SecretKeyDistribution::ErrorDistribution => {
+                    RandomFillGaussian::random_fill(&mut rng, s.as_mut_slice());
+                }
+                SecretKeyDistribution::TernaryDistribution => {
+                    fill_random_ternary_secret_with_hamming_weight(&mut s, n >> 1, &mut rng);
+                }
+            }
+
+            s
+        }
+
+        let parties = 2;
+        let q_from = 1 << 40;
+        let q_to = 1 << 20;
+        let n = 480;
+        let lweq_in_modop = ModulusPowerOf2::new(q_from);
+        let lweq_out_modop = ModulusPowerOf2::new(q_to);
+        let secret_dist = SecretKeyDistribution::ErrorDistribution;
+
+        let mut stats_ms_noise = Stats::new();
+        let mut stats_ms_rounding_err = Stats::new();
+
+        for _ in 0..1000000 {
+            let mut rng = DefaultSecureRng::new();
+
+            // sample secrets
+
+            let s = {
+                let mut s = vec![0i32; n];
+                for _ in 0..parties {
+                    let temp = sample_secret(n, &secret_dist);
+                    izip!(s.iter_mut(), temp.iter()).for_each(|(si, ti)| {
+                        *si = *si + *ti;
+                    });
+                }
+                s
+            };
+
+            let m = 10;
+
+            // LWE encryption without noise
+            let mut lwe_in = vec![0u64; n + 1];
+            {
+                RandomFillUniformInModulus::random_fill(&mut rng, &q_from, &mut lwe_in[1..]);
+                let mut b = m;
+                izip!(lwe_in.iter().skip(1), s.iter()).for_each(|(ai, si)| {
+                    b = lweq_in_modop.add(
+                        &b,
+                        &lweq_in_modop.mul(ai, &q_from.map_element_from_i64(*si as i64)),
+                    );
+                });
+                lwe_in[0] = b;
+            }
+
+            // Mod switch
+            let lwe_out = lwe_in
+                .iter()
+                .map(|v| {
+                    // mod_switch_round(*v, q_from, q_to)
+                    mod_switch_odd(*v, q_from, q_to)
+                })
+                .collect_vec();
+
+            let rounding_errors = izip!(lwe_out.iter(), lwe_in.iter())
+                .map(|(v_out, v_in)| {
+                    let r_i = mod_switch(*v_in, q_from, q_to) - (*v_out as f64);
+                    r_i
+                })
+                .collect_vec();
+            stats_ms_rounding_err.add_many_samples(&rounding_errors);
+
+            // LWE decrypt and calculate ms noise
+            let mut m_back = 0;
+            izip!(lwe_out.iter().skip(1), s.iter()).for_each(|(ai, si)| {
+                m_back = lweq_out_modop.add(
+                    &m_back,
+                    &lweq_out_modop.mul(ai, &q_from.map_element_from_i64(*si as i64)),
+                );
+            });
+            m_back = lweq_out_modop.sub(&lwe_out[0], &m_back);
+            let noise = lweq_out_modop.sub(&m_back, &m);
+            stats_ms_noise.add_many_samples(&vec![q_to.map_element_to_i64(&noise)]);
+        }
+
+        println!("ms noise variance: {}", stats_ms_noise.variance());
+        println!("ms rounding errors mean: {}", stats_ms_rounding_err.mean());
+        println!(
+            "ms rounding errors variance: {}",
+            stats_ms_rounding_err.variance()
+        );
     }
 }
