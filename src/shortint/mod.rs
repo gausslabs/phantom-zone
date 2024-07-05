@@ -22,7 +22,7 @@ pub fn div_zero_error_flag() -> Option<FheBool> {
 /// Error flags are thread local. When running multiple circuits in sequence
 /// within a single program you must prevent error flags set during the
 /// execution of previous circuit to affect error flags set during execution of
-/// the next circuit by resetting the flags before starting with next circuit.
+/// the next circuit. To do so call `reset_error_flags()`.
 pub fn reset_error_flags() {
     DIV_ZERO_ERROR.with_borrow_mut(|c| *c = None);
 }
@@ -137,6 +137,10 @@ mod frontend {
         }
 
         impl FheUint8 {
+            /// Calculates `Self += rhs` and returns `overflow`
+            ///
+            /// `overflow` is set to `True` if `Self += rhs` overflowed,
+            /// otherwise it is set to `False`
             pub fn overflowing_add_assign(&mut self, rhs: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut_mut(&mut |e| {
                     let key = RuntimeServerKey::global();
@@ -146,6 +150,10 @@ mod frontend {
                 })
             }
 
+            /// Returns (Self + rhs, overflow).
+            ///
+            /// `overflow` is set to `True` if `Self + rhs` overflowed,
+            /// otherwise it is set to `False`
             pub fn overflowing_add(self, rhs: &FheUint8) -> (FheUint8, FheBool) {
                 BoolEvaluator::with_local_mut(|e| {
                     let mut lhs = self.clone();
@@ -156,6 +164,10 @@ mod frontend {
                 })
             }
 
+            /// Returns (Self - rhs, overflow).
+            ///
+            /// `overflow` is set to `True` if `Self - rhs` overflowed,
+            /// otherwise it is set to `False`
             pub fn overflowing_sub(&self, rhs: &FheUint8) -> (FheUint8, FheBool) {
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
@@ -166,6 +178,12 @@ mod frontend {
                 })
             }
 
+            /// Returns (quotient, remainder) s.t. self = rhs x quotient +
+            /// remainder.
+            ///
+            /// If rhs is 0, then quotient = 255, remainder = self, and Div by
+            /// Zero error flag (accessible via `div_zero_error_flag`) is set to
+            /// `True`
             pub fn div_rem(&self, rhs: &FheUint8) -> (FheUint8, FheUint8) {
                 // set div by 0 error flag
                 set_div_by_zero_flag(rhs);
@@ -193,7 +211,7 @@ mod frontend {
         use super::*;
 
         impl FheUint8 {
-            /// a == b
+            /// Returns `FheBool` indicating `Self == other`
             pub fn eq(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
@@ -202,7 +220,7 @@ mod frontend {
                 })
             }
 
-            /// a != b
+            /// Returns `FheBool` indicating `Self != other`
             pub fn neq(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
@@ -212,7 +230,7 @@ mod frontend {
                 })
             }
 
-            /// a < b
+            /// Returns `FheBool` indicating `Self < other`
             pub fn lt(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
@@ -221,7 +239,7 @@ mod frontend {
                 })
             }
 
-            /// a > b
+            /// Returns `FheBool` indicating `Self > other`
             pub fn gt(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
@@ -230,7 +248,7 @@ mod frontend {
                 })
             }
 
-            /// a <= b
+            /// Returns `FheBool` indicating `Self <= other`
             pub fn le(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
@@ -241,7 +259,7 @@ mod frontend {
                 })
             }
 
-            /// a >= b
+            /// Returns `FheBool` indicating `Self >= other`
             pub fn ge(&self, other: &FheUint8) -> FheBool {
                 BoolEvaluator::with_local_mut(|e| {
                     let key = RuntimeServerKey::global();
@@ -260,13 +278,13 @@ mod frontend {
                 })
             }
 
-            /// max(`Self`, `other`)
+            /// Returns max(`Self`, `other`)
             pub fn max(&self, other: &FheUint8) -> FheUint8 {
                 let self_gt = self.gt(other);
                 self.mux(other, &self_gt)
             }
 
-            /// min(`Self`, `other`)
+            /// Returns min(`Self`, `other`)
             pub fn min(&self, other: &FheUint8) -> FheUint8 {
                 let self_lt = self.lt(other);
                 self.mux(other, &self_lt)
