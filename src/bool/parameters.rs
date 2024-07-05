@@ -725,27 +725,14 @@ pub(crate) const SP_TEST_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64
     variant: ParameterVariant::SingleParty,
 };
 
-#[cfg(test)]
-mod tests {
+// #[cfg(test)]
+// mod tests {
 
-    impl BoolParameters<u64> {
-        pub(crate) fn default_rlwe_modop(&self) -> ModularOpsU64<CiphertextModulus<u64>> {
-            ModularOpsU64::new(self.rlwe_q)
-        }
-        pub(crate) fn default_rlwe_nttop(&self) -> NttBackendU64 {
-            NttBackendU64::new(&self.rlwe_q, self.rlwe_n.0)
-        }
-    }
-
-    use crate::{utils::generate_prime, ModInit, ModularOpsU64, Ntt, NttBackendU64, NttInit};
-
-    use super::{BoolParameters, CiphertextModulus};
-
-    #[test]
-    fn find_prime() {
-        let bits = 60;
-        let ring_size = 1 << 11;
-        let prime = generate_prime(bits, ring_size * 2, 1 << bits).unwrap();
-        dbg!(prime);
-    }
-}
+//     #[test]
+//     fn find_prime() {
+//         let bits = 60;
+//         let ring_size = 1 << 11;
+//         let prime = crate::utils::generate_prime(bits, ring_size * 2, 1 <<
+// bits).unwrap();         dbg!(prime);
+//     }
+// }

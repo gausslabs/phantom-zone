@@ -1,4 +1,4 @@
-use itertools::{assert_equal, izip, Itertools};
+use itertools::{izip, Itertools};
 use num_traits::{FromPrimitive, PrimInt, ToPrimitive, WrappingAdd, WrappingSub};
 use std::fmt::{Debug, Display};
 
@@ -311,13 +311,13 @@ fn round_value<T: PrimInt + WrappingAdd>(value: T, ignore_bits: usize) -> T {
 #[cfg(test)]
 mod tests {
 
-    use itertools::{izip, Itertools};
+    use itertools::Itertools;
     use rand::{thread_rng, Rng};
 
     use crate::{
-        backend::{ModInit, ModularOpsU64, Modulus},
+        backend::{ModInit, ModularOpsU64},
         decomposer::round_value,
-        utils::{generate_prime, tests::Stats},
+        utils::generate_prime,
     };
 
     use super::{Decomposer, DefaultDecomposer};

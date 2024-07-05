@@ -16,6 +16,7 @@ pub use mp_api::*;
 use crate::RowEntity;
 
 pub type ClientKey = keys::ClientKey<[u8; 32], u64>;
+#[cfg(any(feature = "interactive_mp", feature = "non_interactive_mp"))]
 pub type FheBool = impl_bool_frontend::FheBool<Vec<u64>>;
 
 pub(crate) trait BooleanGates {
@@ -69,6 +70,7 @@ pub(crate) trait BooleanGates {
     fn not(&self, c: &Self::Ciphertext) -> Self::Ciphertext;
 }
 
+#[cfg(any(feature = "interactive_mp", feature = "non_interactive_mp"))]
 mod impl_bool_frontend {
     use crate::MultiPartyDecryptor;
 
@@ -193,6 +195,7 @@ mod impl_bool_frontend {
     }
 }
 
+#[cfg(any(feature = "interactive_mp", feature = "non_interactive_mp"))]
 mod common_mp_enc_dec {
     use itertools::Itertools;
 
@@ -200,7 +203,7 @@ mod common_mp_enc_dec {
     use crate::{
         pbs::{sample_extract, PbsInfo},
         utils::WithLocal,
-        Matrix, MultiPartyDecryptor, RowEntity, SampleExtractor,
+        Matrix, RowEntity, SampleExtractor,
     };
 
     type Mat = Vec<Vec<u64>>;

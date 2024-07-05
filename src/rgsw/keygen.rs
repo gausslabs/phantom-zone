@@ -625,7 +625,7 @@ pub(crate) fn decrypt_rlwe<
 }
 
 // Measures maximum noise in degree 1 RLWE ciphertext against message `want_m`
-pub(crate) fn measure_max_noise<
+fn measure_max_noise<
     Mmut: MatrixMut + Matrix,
     ModOp: VectorOps<Element = Mmut::MatElement> + GetModulus<Element = Mmut::MatElement>,
     NttOp: Ntt<Element = Mmut::MatElement>,

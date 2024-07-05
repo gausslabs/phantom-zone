@@ -1642,7 +1642,7 @@ where
         // TODO:  check whether parameters support `total_users`
         let nttop = self.pbs_info().nttop_rlweq();
         let rlwe_modop = self.pbs_info().modop_rlweq();
-        let ring_size = self.pbs_info().rlwe_n();
+        // let ring_size = self.pbs_info().rlwe_n();
         let rlwe_q = self.parameters().rlwe_q();
 
         let sk_rlwe = client_key.sk_rlwe();

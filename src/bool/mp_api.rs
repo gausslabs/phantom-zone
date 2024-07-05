@@ -43,9 +43,6 @@ pub fn set_parameter_set(select: ParameterSelector) {
         ParameterSelector::InteractiveLTE8Party => {
             BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(I_8P)));
         }
-        _ => {
-            panic!("Paramerter not supported")
-        }
     }
 }
 
