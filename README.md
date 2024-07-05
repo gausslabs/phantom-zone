@@ -1,4 +1,4 @@
-"Phantom zone" is similar to the zone in which superman gets locked, but it's not meant to lock anyone. It's meant to be a new zone that in parallel to reality. It's the zone to which you port yourself, with others, to, and take arbitrary actions but only remember the things you preconditioned yourself to rememeber when you are back. Think of the zone as a computer that erases itself off of the face of the earth after it returns the output, leaving behind no trace.
+"Phantom zone" is similar to the zone in which superman gets locked, but it's not meant to lock anyone. It's meant to be a new zone in parallel to reality. It's the zone to which you port yourself, with others, to, and take arbitrary actions but only remember the things you preconditioned yourself to rememeber when you are back. Think of the zone as a computer that erases itself off of the face of the earth after it returns the output, leaving no trace behind.
 
 More formally, phantom-zone is a experimental multi-party computation library that uses fully homomorphic encryption to compute arbitrary functions on private inputs from several parties.
 

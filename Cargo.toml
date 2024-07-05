@@ -44,3 +44,13 @@ required-features = ["non_interactive_mp"]
 name = "bomberman"
 path = "./examples/bomberman.rs"
 required-features = ["non_interactive_mp"]
+
+[[example]]
+name = "div_by_zero"
+path = "./examples/div_by_zero.rs"
+required-features = ["non_interactive_mp"]
+
+[[example]]
+name = "if_and_else"
+path = "./examples/if_and_else.rs"
+required-features = ["non_interactive_mp"]
