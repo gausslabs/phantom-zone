@@ -30,19 +30,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1fdabc7756949593fe60f30ec81974b613357de856987752631dea1e3394c80"
 
 [[package]]
-name = "bin-rs"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "itertools 0.12.1",
- "num-bigint-dig",
- "num-traits",
- "rand",
- "rand_chacha",
- "rand_distr",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -353,6 +340,19 @@ name = "oorandom"
 version = "11.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ab1bc2a289d34bd04a330323ac98a1b4bc82c9d9fcb1e66b63caa84da26b575"
+
+[[package]]
+name = "phantom-zone"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "itertools 0.12.1",
+ "num-bigint-dig",
+ "num-traits",
+ "rand",
+ "rand_chacha",
+ "rand_distr",
+]
 
 [[package]]
 name = "plotters"
