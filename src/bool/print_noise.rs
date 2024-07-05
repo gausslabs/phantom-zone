@@ -473,6 +473,148 @@ mod tests {
         );
     }
 
+    const K: usize = 100000;
+
+    // #[test]
+    // #[cfg(feature = "interactive_mp")]
+    // fn interactive_mp_bool_gates() {}
+
+    #[test]
+    #[cfg(feature = "non_interactive_mp")]
+    fn non_interactive_mp_bool_gates() {
+        use rand::{thread_rng, RngCore};
+
+        use crate::{
+            aggregate_server_key_shares,
+            backend::Modulus,
+            bool::{
+                keys::{
+                    tests::{ideal_sk_rlwe, measure_noise_lwe},
+                    NonInteractiveServerKeyEvaluationDomain,
+                },
+                print_noise::collect_server_key_stats,
+                NonInteractiveBatchedFheBools,
+            },
+            gen_client_key, gen_server_key_share,
+            parameters::CiphertextModulus,
+            random::DefaultSecureRng,
+            set_common_reference_seed, set_parameter_set,
+            utils::{tests::Stats, Global, WithLocal},
+            BoolEvaluator, BooleanGates, DefaultDecomposer, Encoder, Encryptor, KeySwitchWithId,
+            ModInit, ModularOpsU64, MultiPartyDecryptor, NttBackendU64, ParameterSelector,
+            RuntimeServerKey,
+        };
+
+        set_parameter_set(ParameterSelector::NonInteractiveLTE8Party);
+        let mut seed = [0u8; 32];
+        thread_rng().fill_bytes(&mut seed);
+        set_common_reference_seed(seed);
+
+        let parties = 8;
+
+        let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
+
+        let server_key_shares = cks
+            .iter()
+            .enumerate()
+            .map(|(user_index, ck)| gen_server_key_share(user_index, parties, ck))
+            .collect_vec();
+
+        let seeded_server_key = aggregate_server_key_shares(&server_key_shares);
+        seeded_server_key.set_server_key();
+
+        let parameters = BoolEvaluator::with_local(|e| e.parameters().clone());
+        let rlwe_modop = ModularOpsU64::new(*parameters.rlwe_q());
+
+        let ideal_sk_rlwe = ideal_sk_rlwe(&cks);
+
+        let mut m0 = false;
+        let mut m1 = true;
+
+        let mut ct0 = {
+            let ct: NonInteractiveBatchedFheBools<_> = cks[0].encrypt(vec![m0].as_slice());
+            let ct = ct.key_switch(0);
+            ct.extract(0)
+        };
+        let mut ct1 = {
+            let ct: NonInteractiveBatchedFheBools<_> = cks[1].encrypt(vec![m1].as_slice());
+            let ct = ct.key_switch(1);
+            ct.extract(0)
+        };
+
+        let mut stats = Stats::new();
+
+        for _ in 0..K {
+            // let now = std::time::Instant::now();
+            let ct_out =
+                BoolEvaluator::with_local_mut(|e| e.xor(&ct0, &ct1, RuntimeServerKey::global()));
+            // println!("Time: {:?}", now.elapsed());
+
+            let decryption_shares = cks
+                .iter()
+                .map(|k| k.gen_decryption_share(&ct_out))
+                .collect_vec();
+            let m_out = cks[0].aggregate_decryption_shares(&ct_out, &decryption_shares);
+
+            let m_expected = m0 ^ m1;
+
+            {
+                let noise = measure_noise_lwe(
+                    &ct_out,
+                    parameters.rlwe_q().encode(m_expected),
+                    &ideal_sk_rlwe,
+                    &rlwe_modop,
+                );
+                stats.add_sample(parameters.rlwe_q().map_element_to_i64(&noise));
+            }
+
+            assert!(m_out == m_expected, "Expected {m_expected} but got {m_out}");
+
+            m1 = m0;
+            m0 = m_out;
+
+            ct1 = ct0;
+            ct0 = ct_out;
+        }
+
+        // server key statistics
+        let server_key_stats = collect_server_key_stats::<
+            _,
+            DefaultDecomposer<u64>,
+            NttBackendU64,
+            ModularOpsU64<CiphertextModulus<u64>>,
+            _,
+        >(
+            parameters,
+            &cks,
+            &NonInteractiveServerKeyEvaluationDomain::<_, _, DefaultSecureRng, NttBackendU64>::from(
+                &seeded_server_key,
+            ),
+        );
+
+        println!("## Bootstrapping Statistics ##");
+        println!("Bootstrapped ciphertext noise std_dev: {}", stats.std_dev());
+
+        println!("## Key Statistics ##");
+        println!(
+            "Rgsw nsm std_dev {}",
+            server_key_stats.brk_rgsw_cts.0.std_dev()
+        );
+        println!(
+            "Rgsw m std_dev {}",
+            server_key_stats.brk_rgsw_cts.1.std_dev()
+        );
+        println!(
+            "rlwe post 1 auto std_dev {}",
+            server_key_stats.post_1_auto.std_dev()
+        );
+        println!(
+            "key switching noise rlwe secret s to lwe secret z std_dev {}",
+            server_key_stats.post_lwe_key_switch.std_dev()
+        );
+        println!();
+    }
+
     #[test]
     #[cfg(feature = "non_interactive_mp")]
     fn non_interactive_key_noise() {
