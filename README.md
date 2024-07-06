@@ -1,6 +1,6 @@
-"Phantom zone" is similar to the zone in which superman gets locked, but it's not meant to lock anyone. It's meant to be a new zone in parallel to reality. It's the zone to which you port yourself, with others, to, and take arbitrary actions but only remember the things you preconditioned yourself to rememeber when you are back. Think of the zone as a computer that erases itself off of the face of the earth after it returns the output, leaving no trace behind.
+"**Phantom zone**" is similar to the zone in which superman gets locked, but it's not meant to lock anyone. It's meant to be a new zone in parallel to reality. It's the zone to which you teleport yourself with others, perform arbitrary actions together, and remember only predefined set of memories when you're back. Think of the zone as a computer that erases itself off of the face of the earth after it returns the output, leaving no trace behind.
 
-More formally, phantom-zone is a experimental multi-party computation library that uses fully homomorphic encryption to compute arbitrary functions on private inputs from several parties.
+**More formally, phantom-zone is a experimental multi-party computation library that uses multi-party fully homomorphic encryption to compute arbitrary functions on private inputs from several parties.**
 
 At the moment phantom-zone is pretty limited in its functionality. It offers to write circuits with encrypted 8 bit unsigned integers (referred to as FheUint8). You can work with FheUint8 like any normal Uint8 with a few exceptions mentioned below. We don't plan to just stick with 8 bit types and have plans to extend the APIs to more unsigned / signed types.
 
@@ -28,7 +28,7 @@ To decrypt encrypted outputs obtained as result of some computation, the clients
 
 We provide parameters to run both multi-party protocols for upto 8 parties.
 
-| <= # Parties | Interactive multi-party | Non-interactive multi-party |
+| $\leq$ # Parties | Interactive multi-party | Non-interactive multi-party |
 | ------------ | ----------------------- | --------------------------- |
 | 2            | InteractiveLTE2Party    | NonInteractiveLTE2Party     |
 | 4            | InteractiveLTE4Party    | NonInteractiveLTE4Party     |
@@ -67,7 +67,7 @@ Branching in encrypted domain is expensive because the code must execute all the
 > [!WARNING]
 > Code has not been audited and, at the moment, we don't provide any security guarantees. We don't recommend to deploy it in production or to be used to handle important data.
 
-All provided parameters are $2^{128}$ ring operations secure and have failure probability of at-least $2^{-40}$. However, there are two vital points to keep in mind:
+All provided parameters are $2^{128}$ ring operations secure and have failure probability of $ \leq 2^{-40}$. However, there are two vital points to keep in mind:
 
 1. Any user, without refreshing secrets, must not generate decryption shares for a given ciphertext more than once. Technically, it is insecure if a secret key generates two different decryption shares for the same ciphertext because it may lead to recovery of the ideal secret key with certain probability. At the moment, we recommend the users to maintain a local table that tracks ciphertexts for which they have generated decryption shares using their secret. And only generate a new decryption share for a ciphertext if the ciphertext does not exists in the local table.
 2. At the moment, users, without refreshing secrets, must not run the protocol twice using the same application seed and produce different outputs. Technically, it is insecure if two different MPC transcripts are produced using same application seed and user secret. However, this must be handled within the library and is a pending feature to be implemented in future.

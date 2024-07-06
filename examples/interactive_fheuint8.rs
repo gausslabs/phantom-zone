@@ -1,5 +1,5 @@
-use bin_rs::*;
 use itertools::Itertools;
+use phantom_zone::*;
 use rand::{thread_rng, Rng, RngCore};
 
 fn function1(a: u8, b: u8, c: u8, d: u8) -> u8 {
@@ -39,9 +39,9 @@ fn main() {
 
     // -- Round 1 -- //
     // In round 1 each client generates their share for the collective public key.
-    // They send public key shares to each other with out without server. After
-    // receiving others public key shares client independently aggregates the share
-    // and produces the collective public key `pk`
+    // They send public key shares to each other with or out without the server.
+    // After receiving others public key shares clients independently aggregate
+    // the shares and produce the collective public key `pk`
 
     let pk_shares = cks
         .iter()
@@ -52,7 +52,7 @@ fn main() {
     let pk = aggregate_public_key_shares(&pk_shares);
 
     // -- Round 2 -- //
-    // In round 2 each client generates server key shares using the public key `pk`.
+    // In round 2 each client generates server key share using the public key `pk`.
     // Clients may also encrypt their private inputs using collective public key
     // `pk`. Each client then uploads their server key share and private input
     // ciphertexts to the server.
@@ -71,9 +71,8 @@ fn main() {
         .collect_vec();
 
     // Each client encrypts their private inputs using the collective public key
-    // `pk`. Unlike non-inteactive MPC protocol, given that private inputs are
-    // encrypted using collective public key, the private inputs are directly
-    // encrypted under the ideal RLWE secret `s`.
+    // `pk`. Unlike non-inteactive MPC protocol, private inputs are
+    // encrypted using collective public key.
     let c0_a = thread_rng().gen::<u8>();
     let c0_enc = pk.encrypt(vec![c0_a].as_slice());
     let c1_a = thread_rng().gen::<u8>();
@@ -89,7 +88,7 @@ fn main() {
     // Server side //
 
     // Server receives server key shares from each client and proceeds to
-    // aggregated the shares and produce the server key
+    // aggregate the shares and produce the server key
     let server_key = aggregate_server_key_shares(&server_key_shares);
     server_key.set_server_key();
 
@@ -98,8 +97,8 @@ fn main() {
     // Clients encrypt their FheUint8s inputs packed in a batched ciphertext.
     // The server must extract clients private inputs from the batch ciphertext
     // either (1) using `extract_at(index)` to extract `index`^{th} FheUint8
-    // ciphertext (2) `extract_all()` to extract all available FheUint8s (3)
-    // `extract_many(many)` to extract first `many` available FheUint8s
+    // ciphertext (2) or using `extract_all()` to extract all available FheUint8s
+    // (3) or using `extract_many(many)` to extract first `many` available FheUint8s
     let c0_a_enc = c0_enc.extract_at(0);
     let c1_a_enc = c1_enc.extract_at(0);
     let c2_a_enc = c2_enc.extract_at(0);
@@ -109,25 +108,25 @@ fn main() {
     let ct_out_f1 = function1_fhe(&c0_a_enc, &c1_a_enc, &c2_a_enc, &c3_a_enc);
 
     // After server has finished evaluating the circuit on client private
-    // inputs. Clients can proceed to multi-party decryption protocol to
-    // decryption output ciphertext
+    // inputs, clients can proceed to multi-party decryption protocol to
+    // decrypt output ciphertext
 
     // Client Side //
 
     // In multi-party decryption protocol, client must come online, download the
     // output ciphertext from the server, product "output ciphertext" dependent
     // decryption share, and send it to other parties. After receiving
-    // decryption shares of other parties, client independently aggregates the
-    // decrytion shares and decrypts the output ciphertext.
+    // decryption shares of other parties, clients independently aggregate the
+    // decrytion shares and decrypt the output ciphertext.
 
-    // Client generate decryption shares
+    // Clients generate decryption shares
     let decryption_shares = cks
         .iter()
         .map(|k| k.gen_decryption_share(&ct_out_f1))
         .collect_vec();
 
-    // After receiving decryption shares from other parties, client aggregates the
-    // shares and decryption output ciphertext
+    // After receiving decryption shares from other parties, clients aggregate the
+    // shares and decrypt output ciphertext
     let out_f1 = cks[0].aggregate_decryption_shares(&ct_out_f1, &decryption_shares);
 
     // Check correctness of function1 output
@@ -158,7 +157,7 @@ fn main() {
 
     // Server side //
 
-    // Server receives private inputs from the clients, extract them, and
+    // Server receives private inputs from the clients, extracts them, and
     // proceeds to evaluate `function2_fhe`
     let c0_a_enc = c0_enc.extract_at(0);
     let c1_a_enc = c1_enc.extract_at(0);

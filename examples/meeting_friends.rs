@@ -1,5 +1,5 @@
-use bin_rs::*;
 use itertools::Itertools;
+use phantom_zone::*;
 use rand::{thread_rng, Rng, RngCore};
 
 struct Location<T>(T, T);
@@ -39,7 +39,7 @@ fn should_meet_fhe(
     d_sq.le(b_threshold)
 }
 
-// Even wondered who are the long distance friends (friends of friends or
+// Ever wondered who are the long distance friends (friends of friends or
 // friends of friends of friends...) that live nearby ? But how do you find
 // them? Surely no-one will simply reveal their exact location just because
 // there's a slight chance that a long distance friend lives nearby.
@@ -49,7 +49,7 @@ fn should_meet_fhe(
 // open to meeting new friends within some distance of their location. Both user
 // `a` and `b` encrypt their locations and upload their encrypted locations to
 // the server. User `b` also encrypts the distance square threshold within which
-// they are interested in meeting new friends. and send encrypted distance
+// they are interested in meeting new friends and sends encrypted distance
 // square threshold to the server.
 // The server calculates the square of the distance between user a's location
 // and user b's location and produces encrypted boolean output indicating
@@ -75,36 +75,36 @@ fn main() {
     // Generate client keys
     let cks = (0..no_of_parties).map(|_| gen_client_key()).collect_vec();
 
-    // We assign user_id 0 to client 0 and user_id 1 to client 1
+    // We assign user_id 0 to user `a` and user_id 1 user `b`
     let a_id = 0;
     let b_id = 1;
     let user_a_secret = &cks[0];
     let user_b_secret = &cks[1];
 
-    // User a and b generate server key shares
+    // User `a` and `b` generate server key shares
     let a_server_key_share = gen_server_key_share(a_id, no_of_parties, user_a_secret);
     let b_server_key_share = gen_server_key_share(b_id, no_of_parties, user_b_secret);
 
-    // User a and b encrypt their locations
+    // User `a` and `b` encrypt their locations
     let user_a_secret = &cks[0];
     let user_a_location = Location::new(thread_rng().gen::<u8>(), thread_rng().gen::<u8>());
     let user_a_enc =
         user_a_secret.encrypt(vec![*user_a_location.x(), *user_a_location.y()].as_slice());
 
     let user_b_location = Location::new(thread_rng().gen::<u8>(), thread_rng().gen::<u8>());
-    // User b also encrypts the distance square threshold
+    // User `b` also encrypts the distance square threshold
     let user_b_threshold = 40;
     let user_b_enc = user_b_secret
         .encrypt(vec![*user_b_location.x(), *user_b_location.y(), user_b_threshold].as_slice());
 
     // Server Side //
 
-    // Both user a and b upload their private inputs and server key shares to
+    // Both user `a` and `b` upload their private inputs and server key shares to
     // the server in single shot message
     let server_key = aggregate_server_key_shares(&vec![a_server_key_share, b_server_key_share]);
     server_key.set_server_key();
 
-    // Server parses private inputs from user a and b
+    // Server parses private inputs from user `a` and `b`
     let user_a_location_enc = {
         let c = user_a_enc.unseed::<Vec<Vec<u64>>>().key_switch(a_id);
         Location::new(c.extract_at(0), c.extract_at(1))
@@ -132,7 +132,7 @@ fn main() {
 
     // user `b` comes online downloads user `a`'s decryption share, generates their
     // own decryption share, decrypts the output ciphertext. If the output is
-    // True, they contact user `a` to meet.
+    // True, user `b` contacts user `a` to meet.
     let b_dec_share = user_b_secret.gen_decryption_share(&out_c);
     let out_bool =
         user_b_secret.aggregate_decryption_shares(&out_c, &vec![b_dec_share, a_dec_share]);

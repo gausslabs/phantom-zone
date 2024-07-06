@@ -1,5 +1,5 @@
-use bin_rs::*;
 use itertools::Itertools;
+use phantom_zone::*;
 use rand::{thread_rng, Rng, RngCore};
 
 fn main() {
@@ -44,7 +44,7 @@ fn main() {
 
     let (quotient_enc, remainder_enc) = numerator_enc.div_rem(&zero_enc);
 
-    // When attempting to divide by zero, for uint8, quotient is always 255 and
+    // When attempting to divide by zero, for uint8 quotient is always 255 and
     // remainder = numerator
     let quotient = cks[0].aggregate_decryption_shares(
         &quotient_enc,
@@ -83,7 +83,10 @@ fn main() {
     // We divide again but with non-zero denominator this time and check that div
     // by zero flag is set to False
     let numerator = thread_rng().gen::<u8>();
-    let denominator = thread_rng().gen::<u8>();
+    let mut denominator = thread_rng().gen::<u8>();
+    while denominator == 0 {
+        denominator = thread_rng().gen::<u8>();
+    }
     let numerator_enc = cks[0]
         .encrypt(vec![numerator].as_slice())
         .unseed::<Vec<Vec<u64>>>()

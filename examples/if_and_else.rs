@@ -1,13 +1,13 @@
-use bin_rs::*;
 use itertools::Itertools;
+use phantom_zone::*;
 use rand::{thread_rng, Rng, RngCore};
 
-/// Code that runs if condition of conditional branch is `True`
+/// Code that runs when conditional branch is `True`
 fn circuit_branch_true(a: &FheUint8, b: &FheUint8) -> FheUint8 {
     a + b
 }
 
-/// Code that runs if condition of conditional branch is `False`
+/// Code that runs when conditional branch is `False`
 fn circuit_branch_false(a: &FheUint8, b: &FheUint8) -> FheUint8 {
     a * b
 }

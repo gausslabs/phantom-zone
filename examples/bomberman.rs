@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
-use bin_rs::*;
 use itertools::Itertools;
+use phantom_zone::*;
 use rand::{thread_rng, Rng, RngCore};
 
 struct Coordinates<T>(T, T);

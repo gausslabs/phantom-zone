@@ -1,5 +1,5 @@
-use bin_rs::*;
 use itertools::Itertools;
+use phantom_zone::*;
 use rand::{thread_rng, Rng, RngCore};
 
 fn function1(a: u8, b: u8, c: u8, d: u8) -> u8 {
@@ -81,7 +81,7 @@ fn main() {
     // Server proceeds to extract private inputs sent by clients
     //
     // To extract client 0's (with user_id=0) private inputs we first key switch
-    // client 0's private inputs from theit secret to ideal secret of the mpc
+    // client 0's private inputs from theit secret `u_j` to ideal secret of the mpc
     // protocol. To indicate we're key switching client 0's private input we
     // supply client 0's `user_id` i.e. we call `key_switch(0)`. Then we extract
     // the first ciphertext by calling `extract_at(0)`.
@@ -119,7 +119,7 @@ fn main() {
         .map(|k| k.gen_decryption_share(&ct_out_f1))
         .collect_vec();
 
-    // With all decrytpion shares, clients can aggregate the shares and decrypt the
+    // With all decryption shares, clients can aggregate the shares and decrypt the
     // ciphertext
     let out_f1 = cks[0].aggregate_decryption_shares(&ct_out_f1, &decryption_shares);
 
