@@ -1,4 +1,4 @@
-"**Phantom zone**" is similar to the zone in which superman gets locked, but it's not meant to lock anyone. It's meant to be a new zone in parallel to reality. It's the zone to which you teleport yourself with others, perform arbitrary actions together, and remember only predefined set of memories when you're back. Think of the zone as a computer that erases itself off of the face of the earth after it returns the output, leaving no trace behind.
+**Phantom zone** is similar to the zone in which superman gets locked, but it's not meant to lock anyone. It's meant to be a new zone in parallel to reality. It's the zone to which you teleport yourself with others, perform arbitrary actions together, and remember only predefined set of memories when you're back. Think of the zone as a computer that erases itself off of the face of the earth after it returns the output, leaving no trace behind.
 
 **More formally, phantom-zone is a experimental multi-party computation library that uses multi-party fully homomorphic encryption to compute arbitrary functions on private inputs from several parties.**
 
@@ -62,12 +62,19 @@ Please refer to [div_by_zero](./examples/div_by_zero.rs) example for more detail
 
 Branching in encrypted domain is expensive because the code must execute all the branches. Hence cost grows exponentially with no. of conditional branches. In general we recommend to modify the code to minimise conditional branches. However, if a code cannot be modified to made branchless, we provide `mux` API for FheUint8s. `mux` selects one of the two FheUint8s based on a selector bit. Please refer to [if_and_else](./examples/if_and_else.rs) example for more details.
 
-### Security
+## Security
 
 > [!WARNING]
 > Code has not been audited and, at the moment, we don't provide any security guarantees. We don't recommend to deploy it in production or to be used to handle important data.
 
 All provided parameters are $2^{128}$ ring operations secure and have failure probability of $ \leq 2^{-40}$. However, there are two vital points to keep in mind:
 
-1. Any user, without refreshing secrets, must not generate decryption shares for a given ciphertext more than once. Technically, it is insecure if a secret key generates two different decryption shares for the same ciphertext because it may lead to recovery of the ideal secret key with certain probability. At the moment, we recommend the users to maintain a local table that tracks ciphertexts for which they have generated decryption shares using their secret. And only generate a new decryption share for a ciphertext if the ciphertext does not exists in the local table.
+1. Any user, without refreshing secrets, must not generate decryption share for any ciphertext more than once. Technically, it is insecure if a secret key generates two different decryption shares for the same ciphertext because it may lead to recovery of the ideal secret key with certain probability. At the moment, we recommend the users to maintain a local table that tracks ciphertexts for which they have generated decryption shares. And only generate a new decryption share for a ciphertext if the ciphertext does not exists in the local table.
 2. At the moment, users, without refreshing secrets, must not run the protocol twice using the same application seed and produce different outputs. Technically, it is insecure if two different MPC transcripts are produced using same application seed and user secret. However, this must be handled within the library and is a pending feature to be implemented in future.
+
+## Credits
+
+- We thank Barry Whitehat and Brian Lawrence for many helpful discussions.
+- We thank Vivek Bhupatiraju and Andrew Lu from for many insightful discussions on fascinating phantom-zone applications.
+- We thank Christian Mouchet for collaborating with us (Jean-Philippe and Janmajaya) in designing the non-interactive multi-party protocol suitable for all RLWE schemes.
+- We thank Yao Wang for his help with rust compiler troubles. 
