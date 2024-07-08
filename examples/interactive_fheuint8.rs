@@ -43,10 +43,7 @@ fn main() {
     // After receiving others public key shares clients independently aggregate
     // the shares and produce the collective public key `pk`
 
-    let pk_shares = cks
-        .iter()
-        .map(|k| interactive_multi_party_round1_share(k))
-        .collect_vec();
+    let pk_shares = cks.iter().map(|k| collective_pk_share(k)).collect_vec();
 
     // Clients aggregate public key shares to produce collective public key `pk`
     let pk = aggregate_public_key_shares(&pk_shares);
@@ -67,7 +64,7 @@ fn main() {
     let server_key_shares = cks
         .iter()
         .enumerate()
-        .map(|(user_id, k)| gen_mp_keys_phase2(k, user_id, no_of_parties, &pk))
+        .map(|(user_id, k)| collective_server_key_share(k, user_id, no_of_parties, &pk))
         .collect_vec();
 
     // Each client encrypts their private inputs using the collective public key

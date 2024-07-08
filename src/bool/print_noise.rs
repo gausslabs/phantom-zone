@@ -392,7 +392,7 @@ mod tests {
                 evaluator::InteractiveMultiPartyCrs,
                 keys::{key_size::KeySize, ServerKeyEvaluationDomain},
             },
-            gen_client_key, gen_mp_keys_phase2, interactive_multi_party_round1_share,
+            collective_pk_share, collective_server_key_share, gen_client_key,
             parameters::CiphertextModulus,
             random::DefaultSecureRng,
             set_common_reference_seed, set_parameter_set,
@@ -411,16 +411,13 @@ mod tests {
 
         for i in 0..2 {
             let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
-            let pk_shares = cks
-                .iter()
-                .map(|k| interactive_multi_party_round1_share(k))
-                .collect_vec();
+            let pk_shares = cks.iter().map(|k| collective_pk_share(k)).collect_vec();
 
             let pk = aggregate_public_key_shares(&pk_shares);
             let server_key_shares = cks
                 .iter()
                 .enumerate()
-                .map(|(index, k)| gen_mp_keys_phase2(k, index, parties, &pk))
+                .map(|(index, k)| collective_server_key_share(k, index, parties, &pk))
                 .collect_vec();
 
             // In 0th iteration measure server key size
@@ -490,7 +487,7 @@ mod tests {
                 },
                 print_noise::collect_server_key_stats,
             },
-            gen_client_key, gen_mp_keys_phase2, interactive_multi_party_round1_share,
+            collective_pk_share, collective_server_key_share, gen_client_key,
             parameters::CiphertextModulus,
             random::DefaultSecureRng,
             set_common_reference_seed, set_parameter_set,
@@ -510,10 +507,7 @@ mod tests {
         let cks = (0..no_of_parties).map(|_| gen_client_key()).collect_vec();
 
         // round 1
-        let pk_shares = cks
-            .iter()
-            .map(|k| interactive_multi_party_round1_share(k))
-            .collect_vec();
+        let pk_shares = cks.iter().map(|k| collective_pk_share(k)).collect_vec();
 
         let pk = aggregate_public_key_shares(&pk_shares);
 
@@ -521,7 +515,7 @@ mod tests {
         let server_key_shares = cks
             .iter()
             .enumerate()
-            .map(|(user_id, k)| gen_mp_keys_phase2(k, user_id, no_of_parties, &pk))
+            .map(|(user_id, k)| collective_server_key_share(k, user_id, no_of_parties, &pk))
             .collect_vec();
 
         let server_key = aggregate_server_key_shares(&server_key_shares);

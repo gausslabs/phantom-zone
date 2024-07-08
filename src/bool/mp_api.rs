@@ -61,9 +61,9 @@ pub fn gen_client_key() -> ClientKey {
     BoolEvaluator::with_local(|e| e.client_key())
 }
 
-/// Generate client's share for collective public key, i.e round 1 share, in
-/// round 1 of the 2 round protocol
-pub fn interactive_multi_party_round1_share(
+/// Generate client's share for collective public key, i.e round 1 share, of the
+/// 2 round protocol
+pub fn collective_pk_share(
     ck: &ClientKey,
 ) -> CommonReferenceSeededCollectivePublicKeyShare<Vec<u64>, [u8; 32], BoolParameters<u64>> {
     BoolEvaluator::with_local(|e| {
@@ -73,8 +73,8 @@ pub fn interactive_multi_party_round1_share(
 }
 
 /// Generate clients share for collective server key, i.e. round 2, of the
-/// protocol
-pub fn gen_mp_keys_phase2<R, ModOp>(
+/// 2 round protocol
+pub fn collective_server_key_share<R, ModOp>(
     ck: &ClientKey,
     user_id: usize,
     total_users: usize,
@@ -322,10 +322,7 @@ mod tests {
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
 
         // round 1
-        let pk_shares = cks
-            .iter()
-            .map(|k| interactive_multi_party_round1_share(k))
-            .collect_vec();
+        let pk_shares = cks.iter().map(|k| collective_pk_share(k)).collect_vec();
 
         // collective pk
         let pk = aggregate_public_key_shares(&pk_shares);
