@@ -1,33 +1,69 @@
 use std::cell::RefCell;
 
 use itertools::izip;
-use rand::{distributions::Uniform, thread_rng, CryptoRng, Rng, RngCore, SeedableRng};
+use num_traits::{FromPrimitive, PrimInt, Zero};
+use rand::{distributions::Uniform, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use rand_distr::Distribution;
+use rand_distr::{uniform::SampleUniform, Distribution};
 
-use crate::utils::WithLocal;
+use crate::{backend::Modulus, utils::WithLocal};
 
 thread_local! {
     pub(crate) static DEFAULT_RNG: RefCell<DefaultSecureRng> = RefCell::new(DefaultSecureRng::new());
 }
 
-pub trait RandomGaussianDist<M>
+pub trait NewWithSeed {
+    type Seed;
+    fn new_with_seed(seed: Self::Seed) -> Self;
+}
+
+pub trait RandomElementInModulus<T, M> {
+    /// Sample Random element of type T in range [0, modulus)
+    fn random(&mut self, modulus: &M) -> T;
+}
+
+pub trait RandomGaussianElementInModulus<T, M> {
+    /// Sample Random gaussian element from \mu = 0.0 and \sigma = 3.19. Sampled
+    /// element is converted to signed representation in modulus.
+    fn random(&mut self, modulus: &M) -> T;
+}
+
+pub trait RandomFill<M>
 where
     M: ?Sized,
 {
-    type Parameters: ?Sized;
-    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut M);
+    /// Fill container with random elements of type of its elements
+    fn random_fill(&mut self, container: &mut M);
 }
 
-pub trait RandomUniformDist<M>
+pub trait RandomFillGaussian<M>
 where
     M: ?Sized,
 {
-    type Parameters: ?Sized;
-    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut M);
+    /// Fill container with random elements sampled from normal distribtuion
+    /// with \mu = 0.0 and \sigma = 3.19.
+    fn random_fill(&mut self, container: &mut M);
 }
 
-pub(crate) struct DefaultSecureRng {
+pub trait RandomFillUniformInModulus<M, P>
+where
+    M: ?Sized,
+{
+    /// Fill container with random elements in range [0, modulus)
+    fn random_fill(&mut self, modulus: &P, container: &mut M);
+}
+
+pub trait RandomFillGaussianInModulus<M, P>
+where
+    M: ?Sized,
+{
+    /// Fill container with gaussian elements sampled from normal distribution
+    /// with \mu = 0.0 and \sigma = 3.19. Elements are converted to signed
+    /// represented in the modulus.
+    fn random_fill(&mut self, modulus: &P, container: &mut M);
+}
+
+pub struct DefaultSecureRng {
     rng: ChaCha8Rng,
 }
 
@@ -41,27 +77,30 @@ impl DefaultSecureRng {
         let rng = ChaCha8Rng::from_entropy();
         DefaultSecureRng { rng }
     }
-}
 
-impl RandomUniformDist<usize> for DefaultSecureRng {
-    type Parameters = usize;
-    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut usize) {
-        *container = self.rng.gen_range(0..*parameters);
+    pub fn fill_bytes(&mut self, a: &mut [u8; 32]) {
+        self.rng.fill_bytes(a);
     }
 }
 
-impl RandomUniformDist<[u8]> for DefaultSecureRng {
-    type Parameters = u8;
-    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u8]) {
-        self.rng.fill_bytes(container);
+impl NewWithSeed for DefaultSecureRng {
+    type Seed = <ChaCha8Rng as SeedableRng>::Seed;
+    fn new_with_seed(seed: Self::Seed) -> Self {
+        DefaultSecureRng::new_seeded(seed)
     }
 }
 
-impl RandomUniformDist<[u32]> for DefaultSecureRng {
-    type Parameters = u32;
-    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u32]) {
+impl<T, C> RandomFillUniformInModulus<[T], C> for DefaultSecureRng
+where
+    T: PrimInt + SampleUniform,
+    C: Modulus<Element = T>,
+{
+    fn random_fill(&mut self, modulus: &C, container: &mut [T]) {
         izip!(
-            (&mut self.rng).sample_iter(Uniform::new(0, parameters)),
+            (&mut self.rng).sample_iter(Uniform::new_inclusive(
+                T::zero(),
+                modulus.largest_unsigned_value()
+            )),
             container.iter_mut()
         )
         .for_each(|(from, to)| {
@@ -70,11 +109,31 @@ impl RandomUniformDist<[u32]> for DefaultSecureRng {
     }
 }
 
-impl RandomUniformDist<[u64]> for DefaultSecureRng {
-    type Parameters = u64;
-    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u64]) {
+impl<T, C> RandomFillGaussianInModulus<[T], C> for DefaultSecureRng
+where
+    T: PrimInt,
+    C: Modulus<Element = T>,
+{
+    fn random_fill(&mut self, modulus: &C, container: &mut [T]) {
         izip!(
-            (&mut self.rng).sample_iter(Uniform::new(0, parameters)),
+            rand_distr::Normal::new(0.0, 3.19f64)
+                .unwrap()
+                .sample_iter(&mut self.rng),
+            container.iter_mut()
+        )
+        .for_each(|(from, to)| {
+            *to = modulus.map_element_from_f64(from);
+        });
+    }
+}
+
+impl<T> RandomFill<[T]> for DefaultSecureRng
+where
+    T: PrimInt + SampleUniform,
+{
+    fn random_fill(&mut self, container: &mut [T]) {
+        izip!(
+            (&mut self.rng).sample_iter(Uniform::new_inclusive(T::zero(), T::max_value())),
             container.iter_mut()
         )
         .for_each(|(from, to)| {
@@ -83,83 +142,54 @@ impl RandomUniformDist<[u64]> for DefaultSecureRng {
     }
 }
 
-impl RandomGaussianDist<u64> for DefaultSecureRng {
-    type Parameters = u64;
-    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut u64) {
-        let o = rand_distr::Normal::new(0.0, 3.2f64)
-            .unwrap()
-            .sample(&mut self.rng)
-            .round();
-
-        // let o = 0.0f64;
-
-        let is_neg = o.is_sign_negative() && o != 0.0;
-        if is_neg {
-            *container = parameters - (o.abs() as u64);
-        } else {
-            *container = o as u64;
-        }
-    }
-}
-
-impl RandomGaussianDist<u32> for DefaultSecureRng {
-    type Parameters = u32;
-    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut u32) {
-        let o = rand_distr::Normal::new(0.0, 3.2f32)
-            .unwrap()
-            .sample(&mut self.rng)
-            .round();
-
-        // let o = 0.0f32;
-        let is_neg = o.is_sign_negative() && o != 0.0;
-
-        if is_neg {
-            *container = parameters - (o.abs() as u32);
-        } else {
-            *container = o as u32;
-        }
-    }
-}
-
-impl RandomGaussianDist<[u64]> for DefaultSecureRng {
-    type Parameters = u64;
-    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u64]) {
+impl<T> RandomFillGaussian<[T]> for DefaultSecureRng
+where
+    T: FromPrimitive,
+{
+    fn random_fill(&mut self, container: &mut [T]) {
         izip!(
-            rand_distr::Normal::new(0.0, 3.2f64)
+            rand_distr::Normal::new(0.0, 3.19f64)
                 .unwrap()
                 .sample_iter(&mut self.rng),
             container.iter_mut()
         )
-        .for_each(|(oi, v)| {
-            let oi = oi.round();
-            let is_neg = oi.is_sign_negative() && oi != 0.0;
-            if is_neg {
-                *v = parameters - (oi.abs() as u64);
-            } else {
-                *v = oi as u64;
-            }
+        .for_each(|(from, to)| {
+            *to = T::from_f64(from).unwrap();
         });
     }
 }
 
-impl RandomGaussianDist<[u32]> for DefaultSecureRng {
-    type Parameters = u32;
-    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u32]) {
+impl<T> RandomFill<[T; 32]> for DefaultSecureRng
+where
+    T: PrimInt + SampleUniform,
+{
+    fn random_fill(&mut self, container: &mut [T; 32]) {
         izip!(
-            rand_distr::Normal::new(0.0, 3.2f32)
-                .unwrap()
-                .sample_iter(&mut self.rng),
+            (&mut self.rng).sample_iter(Uniform::new_inclusive(T::zero(), T::max_value())),
             container.iter_mut()
         )
-        .for_each(|(oi, v)| {
-            let oi = oi.round();
-            let is_neg = oi.is_sign_negative() && oi != 0.0;
-            if is_neg {
-                *v = parameters - (oi.abs() as u32);
-            } else {
-                *v = oi as u32;
-            }
+        .for_each(|(from, to)| {
+            *to = from;
         });
+    }
+}
+
+impl<T> RandomElementInModulus<T, T> for DefaultSecureRng
+where
+    T: Zero + SampleUniform,
+{
+    fn random(&mut self, modulus: &T) -> T {
+        Uniform::new(T::zero(), modulus).sample(&mut self.rng)
+    }
+}
+
+impl<T, M: Modulus<Element = T>> RandomGaussianElementInModulus<T, M> for DefaultSecureRng {
+    fn random(&mut self, modulus: &M) -> T {
+        modulus.map_element_from_f64(
+            rand_distr::Normal::new(0.0, 3.19f64)
+                .unwrap()
+                .sample(&mut self.rng),
+        )
     }
 }
 
@@ -174,6 +204,13 @@ impl WithLocal for DefaultSecureRng {
     fn with_local_mut<F, R>(func: F) -> R
     where
         F: Fn(&mut Self) -> R,
+    {
+        DEFAULT_RNG.with_borrow_mut(|r| func(r))
+    }
+
+    fn with_local_mut_mut<F, R>(func: &mut F) -> R
+    where
+        F: FnMut(&mut Self) -> R,
     {
         DEFAULT_RNG.with_borrow_mut(|r| func(r))
     }

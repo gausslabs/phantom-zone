@@ -1,7 +1,12 @@
 [package]
-name = "bin-rs"
+name = "phantom-zone"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
+repository = "https://github.com/gausslabs/phantom-zone"
+license = "MIT"
+keywords = ["fhe", "mpc", "cryptography"]
+description = "Library for multi-party computation using fully-homomorphic encryption"
 
 [dependencies]
 itertools = "0.12.0"
@@ -10,3 +15,47 @@ rand = "0.8.5"
 rand_chacha = "0.3.1"
 rand_distr = "0.4.3"
 num-bigint-dig = { version = "0.8.4", features = ["prime"] }
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[features]
+interactive_mp = []
+non_interactive_mp = []
+
+[[bench]]
+name = "ntt"
+harness = false
+
+[[bench]]
+name = "modulus"
+harness = false
+
+[[example]]
+name = "interactive_fheuint8"
+path = "./examples/interactive_fheuint8.rs"
+
+[[example]]
+name = "non_interactive_fheuint8"
+path = "./examples/non_interactive_fheuint8.rs"
+required-features = ["non_interactive_mp"]
+
+[[example]]
+name = "meeting_friends"
+path = "./examples/meeting_friends.rs"
+required-features = ["non_interactive_mp"]
+
+[[example]]
+name = "bomberman"
+path = "./examples/bomberman.rs"
+required-features = ["non_interactive_mp"]
+
+[[example]]
+name = "div_by_zero"
+path = "./examples/div_by_zero.rs"
+required-features = ["non_interactive_mp"]
+
+[[example]]
+name = "if_and_else"
+path = "./examples/if_and_else.rs"
+required-features = ["non_interactive_mp"]
