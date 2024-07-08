@@ -2,6 +2,11 @@
 name = "phantom-zone"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
+repository = "https://github.com/gausslabs/phantom-zone"
+license = "MIT"
+keywords = ["fhe", "mpc", "cryptography"]
+description = "Library for multi-party computation using fully-homomorphic encryption"
 
 [dependencies]
 itertools = "0.12.0"
