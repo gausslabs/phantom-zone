@@ -19,6 +19,8 @@ fn function2_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, d: &FheUint8) -> FheU
 }
 
 fn main() {
+    println!("Interactive MP-FHE Setup");
+
     // Select parameter set
     set_parameter_set(ParameterSelector::InteractiveLTE4Party);
 
@@ -32,10 +34,15 @@ fn main() {
     // Client side //
 
     // Clients generate their private keys
+    let mut now = std::time::Instant::now();
     let cks = (0..no_of_parties)
         .into_iter()
         .map(|_| gen_client_key())
         .collect_vec();
+    println!(
+        "(1) Client keys generated, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
     // -- Round 1 -- //
     // In round 1 each client generates their share for the collective public key.
@@ -43,10 +50,20 @@ fn main() {
     // After receiving others public key shares clients independently aggregate
     // the shares and produce the collective public key `pk`
 
+    now = std::time::Instant::now();
     let pk_shares = cks.iter().map(|k| collective_pk_share(k)).collect_vec();
+    println!(
+        "(2) Public key shares generated, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
     // Clients aggregate public key shares to produce collective public key `pk`
+    now = std::time::Instant::now();
     let pk = aggregate_public_key_shares(&pk_shares);
+    println!(
+        "(3) Aggregated public key shares generated, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
     // -- Round 2 -- //
     // In round 2 each client generates server key share using the public key `pk`.
@@ -61,15 +78,33 @@ fn main() {
     //
     // Note that `user_id`'s must be unique among the clients and must be less than
     // total number of clients.
+    now = std::time::Instant::now();
     let server_key_shares = cks
         .iter()
         .enumerate()
         .map(|(user_id, k)| collective_server_key_share(k, user_id, no_of_parties, &pk))
         .collect_vec();
+    println!(
+        "(4) Server key shares generated, {:?}ms",
+        now.elapsed().as_millis()
+    );
+
+    // Server receives server key shares from each client and proceeds to
+    // aggregate the shares and produce the server key
+    now = std::time::Instant::now();
+    let server_key = aggregate_server_key_shares(&server_key_shares);
+    server_key.set_server_key();
+    println!(
+        "(5) Server key aggregated from shares, {:?}ms",
+        now.elapsed().as_millis()
+    );
+
+    println!("\nF1 computation");
 
     // Each client encrypts their private inputs using the collective public key
     // `pk`. Unlike non-inteactive MPC protocol, private inputs are
     // encrypted using collective public key.
+    now = std::time::Instant::now();
     let c0_a = thread_rng().gen::<u8>();
     let c0_enc = pk.encrypt(vec![c0_a].as_slice());
     let c1_a = thread_rng().gen::<u8>();
@@ -78,16 +113,13 @@ fn main() {
     let c2_enc = pk.encrypt(vec![c2_a].as_slice());
     let c3_a = thread_rng().gen::<u8>();
     let c3_enc = pk.encrypt(vec![c3_a].as_slice());
+    println!(
+        "(1) All client inputs encrypted with collective public key, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
     // Clients upload their server key along with private encrypted inputs to
     // the server
-
-    // Server side //
-
-    // Server receives server key shares from each client and proceeds to
-    // aggregate the shares and produce the server key
-    let server_key = aggregate_server_key_shares(&server_key_shares);
-    server_key.set_server_key();
 
     // Server proceeds to extract clients private inputs
     //
@@ -96,13 +128,20 @@ fn main() {
     // either (1) using `extract_at(index)` to extract `index`^{th} FheUint8
     // ciphertext (2) or using `extract_all()` to extract all available FheUint8s
     // (3) or using `extract_many(many)` to extract first `many` available FheUint8s
+    now = std::time::Instant::now();
     let c0_a_enc = c0_enc.extract_at(0);
     let c1_a_enc = c1_enc.extract_at(0);
     let c2_a_enc = c2_enc.extract_at(0);
     let c3_a_enc = c3_enc.extract_at(0);
+    println!(
+        "(2) Client inputs extracted from batched ciphertext, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
     // Server proceeds to evaluate function1 on clients private inputs
+    now = std::time::Instant::now();
     let ct_out_f1 = function1_fhe(&c0_a_enc, &c1_a_enc, &c2_a_enc, &c3_a_enc);
+    println!("(3) f1 evaluated, {:?}ms", now.elapsed().as_millis());
 
     // After server has finished evaluating the circuit on client private
     // inputs, clients can proceed to multi-party decryption protocol to
@@ -117,14 +156,24 @@ fn main() {
     // decrytion shares and decrypt the output ciphertext.
 
     // Clients generate decryption shares
+    now = std::time::Instant::now();
     let decryption_shares = cks
         .iter()
         .map(|k| k.gen_decryption_share(&ct_out_f1))
         .collect_vec();
+    println!(
+        "(4) Decryption shares generated, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
     // After receiving decryption shares from other parties, clients aggregate the
     // shares and decrypt output ciphertext
+    now = std::time::Instant::now();
     let out_f1 = cks[0].aggregate_decryption_shares(&ct_out_f1, &decryption_shares);
+    println!(
+        "(5) Decryption shares aggregated, data decrypted by client, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
     // Check correctness of function1 output
     let want_f1 = function1(c0_a, c1_a, c2_a, c3_a);
@@ -140,7 +189,10 @@ fn main() {
     // protocol again, instead they only upload their new private inputs to the
     // server.
 
+    println!("\nF2 computation");
+
     // Clients encrypt their private inputs
+    now = std::time::Instant::now();
     let c0_a = thread_rng().gen::<u8>();
     let c0_enc = pk.encrypt(vec![c0_a].as_slice());
     let c1_a = thread_rng().gen::<u8>();
@@ -149,6 +201,10 @@ fn main() {
     let c2_enc = pk.encrypt(vec![c2_a].as_slice());
     let c3_a = thread_rng().gen::<u8>();
     let c3_enc = pk.encrypt(vec![c3_a].as_slice());
+    println!(
+        "(1) All client inputs encrypted with collective public key, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
     // Clients uploads only their new private inputs to the server
 
@@ -156,23 +212,40 @@ fn main() {
 
     // Server receives private inputs from the clients, extracts them, and
     // proceeds to evaluate `function2_fhe`
+    now = std::time::Instant::now();
     let c0_a_enc = c0_enc.extract_at(0);
     let c1_a_enc = c1_enc.extract_at(0);
     let c2_a_enc = c2_enc.extract_at(0);
     let c3_a_enc = c3_enc.extract_at(0);
+    println!(
+        "(2) Client inputs extracted from batched ciphertext, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
+    now = std::time::Instant::now();
     let ct_out_f2 = function2_fhe(&c0_a_enc, &c1_a_enc, &c2_a_enc, &c3_a_enc);
+    println!("(3) f2 evaluated, {:?}ms", now.elapsed().as_millis());
 
     // Client side //
 
     // Clients generate decryption shares for `ct_out_f2`
+    now = std::time::Instant::now();
     let decryption_shares = cks
         .iter()
         .map(|k| k.gen_decryption_share(&ct_out_f2))
         .collect_vec();
+    println!(
+        "(4) Decryption shares generated, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
     // Clients aggregate decryption shares and decrypt `ct_out_f2`
+    now = std::time::Instant::now();
     let out_f2 = cks[0].aggregate_decryption_shares(&ct_out_f2, &decryption_shares);
+    println!(
+        "(5) Decryption shares aggregated, data decrypted by client, {:?}ms",
+        now.elapsed().as_millis()
+    );
 
     // We check correctness of function2
     let want_f2 = function2(c0_a, c1_a, c2_a, c3_a);

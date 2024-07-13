@@ -1135,7 +1135,7 @@ where
             let lwe_n = self.parameters().lwe_n().0;
             let (users_segments, users_segments_sizes): (Vec<(usize, usize)>, Vec<usize>) = (0
                 ..total_users)
-                .map(|(user_id)| {
+                .map(|user_id| {
                     let (start_index, end_index) =
                         multi_party_user_id_lwe_segment(user_id, total_users, lwe_n);
                     ((start_index, end_index), end_index - start_index)
