@@ -1,5 +1,7 @@
 use std::{collections::HashMap, marker::PhantomData};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     backend::{ModInit, VectorOps},
     pbs::WithShoupRepr,
@@ -1237,6 +1239,7 @@ mod shoup_server_key_eval_domain {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix, P, S> {
     /// Non-interactive RGSW ciphertexts for LWE secret indices for which user
     /// is the leader
