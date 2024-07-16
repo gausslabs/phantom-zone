@@ -179,7 +179,7 @@ impl Global for RuntimeServerKey {
 /// `self.key_switch(user_id)` where `user_id` is user j's id. Key switch
 /// returns `BatchedFheBools` that stored key vector of key switched RLWE
 /// ciphertext.
-pub(super) struct NonInteractiveBatchedFheBools<C> {
+pub struct NonInteractiveBatchedFheBools<C> {
     data: Vec<C>,
 }
 
@@ -191,7 +191,7 @@ pub(super) struct NonInteractiveBatchedFheBools<C> {
 ///
 /// To extract bool ciphertext at `index` as LWE ciphertext use
 /// `self.extract(index)`
-pub(super) struct BatchedFheBools<C> {
+pub struct BatchedFheBools<C> {
     pub(in super::super) data: Vec<C>,
 }
 
@@ -222,7 +222,7 @@ mod impl_enc_dec {
     where
         C::R: RowEntity + RowMut,
     {
-        pub(crate) fn extract(&self, index: usize) -> C::R {
+        pub fn extract(&self, index: usize) -> C::R {
             BoolEvaluator::with_local(|e| {
                 let ring_size = e.parameters().rlwe_n().0;
                 let ct_index = index / ring_size;
