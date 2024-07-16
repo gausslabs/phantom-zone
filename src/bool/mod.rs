@@ -77,7 +77,7 @@ mod impl_bool_frontend {
     /// Fhe Bool ciphertext
     #[derive(Clone)]
     pub struct FheBool<C> {
-        pub(crate) data: C,
+        pub data: C,
     }
 
     impl<C> FheBool<C> {
