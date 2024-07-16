@@ -1,5 +1,5 @@
 use num_traits::{ConstZero, FromPrimitive, PrimInt};
-use serde::{ser::SerializeStruct, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     backend::Modulus,
@@ -374,16 +374,6 @@ impl<El> BoolParameters<El> {
         &self.variant
     }
 }
-
-// impl<El> Serialize for BoolParameters<El> where El: Serialize{
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//         where
-//             S: serde::Serializer {
-//         let mut state = serializer.serialize_struct("BoolParameters", 15)?;
-//         state.serialize_field("key", value)
-//     }
-// }
-
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct DecompostionLogBase(pub(crate) usize);
