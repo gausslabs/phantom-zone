@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     bool::BoolEvaluator,
@@ -225,6 +226,7 @@ where
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SeededBatchedFheUint8<C, S> {
     /// Vector of Seeded RLWE ciphertexts `C`.
     ///
