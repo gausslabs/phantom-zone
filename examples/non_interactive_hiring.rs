@@ -5,34 +5,67 @@ use rand::{thread_rng, Rng, RngCore};
 /**
  * HIRING MP-FHE MATCHING SPEC
  * - match two people in job market (recruiters, job hunters)
- * - match "looking for job" with "hiring" (XOR)
- * - match salary request < max salary provided
- * - match skillset + criteria of job above threshold
+ * - match hunter with recruiter
+ * - match hunter salary request < recruiter salary provided
+ * - hunter fits all requirements of recruiter
  */
 
+const NUM_CRITERIA: usize = 3;
+
 struct JobCriteria {
-    queryable: bool, // 0 = not in market, 1 = in market
-    position: bool,  // 0 = looking for job, 1 = hiring for job
-    salary: u8,      // x * $10,000
+    in_market: bool,                // 0 = not in market, 1 = in market
+    position: bool,                 // 0 = hunter, 1 = recruiter
+    salary: u8,                     // x * $10,000
+    criteria: [bool; NUM_CRITERIA], // job criteria as boolean
 }
-// criteria: Vec<bool>, // job criteria as boolean
-// threshold: u8,       // threshold of criteria to hit
 
 struct FheJobCriteria {
-    queryable: FheBool,
+    in_market: FheBool,
     position: FheBool,
     salary: FheUint8,
+    criteria: [FheBool; NUM_CRITERIA],
 }
-// criteria: Vec<&FheBool>,
-// threshold: FheUint8,
 
 fn hiring_match(a: JobCriteria, b: JobCriteria) -> bool {
-    (a.queryable & b.queryable) & (a.position ^ b.position) & ((a.salary > b.salary) ^ b.position)
+    // both need to be in the market
+    let both_in_market = a.in_market & b.in_market;
+
+    // need to match recruiter with hunter
+    let compatible_pos = a.position ^ b.position;
+
+    // if a is recruiter, a's salary upper bound should be higher
+    // than b's salary lower bound. vice versa if b is recruiter
+    let salary_match = (a.salary > b.salary) ^ b.position;
+
+    // if a is recruiter, their criteria is required to be met for a match
+    // to be made, vice versa if b is recruiter
+    let mut criteria_match = (!a.position | (!a.criteria[0] | b.criteria[0]))
+        | (!b.position | (!b.criteria[0] | a.criteria[0]));
+
+    for i in 1..NUM_CRITERIA {
+        criteria_match &= (!a.position | (!a.criteria[i] | b.criteria[i]))
+            | (!b.position | (!b.criteria[i] | a.criteria[i]));
+    }
+
+    both_in_market & compatible_pos & salary_match & criteria_match
 }
 
 fn hiring_match_fhe(a: FheJobCriteria, b: FheJobCriteria) -> FheBool {
-    &(&(&a.queryable & &b.queryable) & &(&a.position ^ &b.position))
-        & &((&a.salary.gt(&b.salary)) ^ &b.position)
+    let both_in_market: &FheBool = &(&a.in_market & &b.in_market);
+
+    let compatible_pos: &FheBool = &(&a.position ^ &b.position);
+
+    let salary_match: &FheBool = &((&a.salary.gt(&b.salary)) ^ &b.position);
+
+    let mut criteria_match: FheBool = &(&!&a.position | &(&!&a.criteria[0] | &b.criteria[0]))
+        | &(&!&b.position | &(&!&b.criteria[0] | &a.criteria[0]));
+
+    for i in 1..NUM_CRITERIA {
+        criteria_match &= &(&!&a.position | &(&!&a.criteria[i] | &b.criteria[i]))
+            | &(&!&b.position | &(&!&b.criteria[i] | &a.criteria[i]));
+    }
+
+    &(&(both_in_market & compatible_pos) & salary_match) & &criteria_match
 }
 
 fn main() {
@@ -96,19 +129,33 @@ fn main() {
 
     // client 0 encrypts its private inputs
     now = std::time::Instant::now();
-    let a_queryable = true; // in market
+    let a_in_market = true; // in market
     let a_position = false; // looking for job
+    let a_criteria = [true; NUM_CRITERIA]; // what they match
     let a_salary: u8 = 100; // requesting 1 million
-    let a_q_enc: NonInteractiveBatchedFheBools<_> = cks[0].encrypt(vec![a_queryable].as_slice());
-    let a_p_enc: NonInteractiveBatchedFheBools<_> = cks[0].encrypt(vec![a_position].as_slice());
+    let a_bool_enc: NonInteractiveBatchedFheBools<_> = cks[0].encrypt(
+        [a_in_market, a_position]
+            .iter()
+            .copied()
+            .chain(a_criteria.iter().copied())
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
     let a_s_enc = cks[0].encrypt(vec![a_salary].as_slice());
 
     // client 1 encrypts its private inputs
-    let b_queryable = true; // in market
+    let b_in_market = true; // in market
     let b_position = true; // hiring
+    let b_criteria = [true; NUM_CRITERIA];
     let b_salary: u8 = 150; // can pay up to 1.5 million
-    let b_q_enc: NonInteractiveBatchedFheBools<_> = cks[1].encrypt(vec![b_queryable].as_slice());
-    let b_p_enc: NonInteractiveBatchedFheBools<_> = cks[1].encrypt(vec![b_position].as_slice());
+    let b_bool_enc: NonInteractiveBatchedFheBools<_> = cks[1].encrypt(
+        [b_in_market, b_position]
+            .iter()
+            .copied()
+            .chain(b_criteria.iter().copied())
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
     let b_s_enc = cks[1].encrypt(vec![b_salary].as_slice());
 
     println!(
@@ -130,46 +177,74 @@ fn main() {
     // first `many` of them with `extract_many(many)`
 
     now = std::time::Instant::now();
-    let a_q_ct = a_q_enc.key_switch(0).extract(0);
-    let a_p_ct = a_p_enc.key_switch(0).extract(0);
+
+    let a_bool_enc_ks = a_bool_enc.key_switch(0);
+    let a_m_ct = FheBool {
+        data: a_bool_enc_ks.extract(0),
+    };
+    let a_p_ct = FheBool {
+        data: a_bool_enc_ks.extract(1),
+    };
+    let mut a_criteria_ct: [FheBool; NUM_CRITERIA] = Default::default();
+    for i in 0..NUM_CRITERIA {
+        a_criteria_ct[i] = FheBool {
+            data: a_bool_enc_ks.extract(i + 2),
+        };
+    }
     let a_s_ct = a_s_enc
         .unseed::<Vec<Vec<u64>>>()
         .key_switch(0)
         .extract_at(0);
-    let b_q_ct = b_q_enc.key_switch(1).extract(0);
-    let b_p_ct = b_p_enc.key_switch(1).extract(0);
+
+    let b_bool_enc_ks = b_bool_enc.key_switch(1);
+    let b_m_ct = FheBool {
+        data: b_bool_enc_ks.extract(0),
+    };
+    let b_p_ct = FheBool {
+        data: b_bool_enc_ks.extract(1),
+    };
+    let mut b_criteria_ct: [FheBool; NUM_CRITERIA] = Default::default();
+    for i in 0..NUM_CRITERIA {
+        b_criteria_ct[i] = FheBool {
+            data: b_bool_enc_ks.extract(i + 2),
+        };
+    }
     let b_s_ct = b_s_enc
         .unseed::<Vec<Vec<u64>>>()
         .key_switch(1)
         .extract_at(0);
+
     println!(
         "(2) Client inputs extracted after key switch, {:?}ms",
         now.elapsed().as_millis()
     );
 
     let a_criteria = JobCriteria {
-        queryable: a_queryable,
+        in_market: a_in_market,
         position: a_position,
         salary: a_salary,
+        criteria: a_criteria,
     };
     let b_criteria = JobCriteria {
-        queryable: b_queryable,
+        in_market: b_in_market,
         position: b_position,
         salary: b_salary,
+        criteria: b_criteria,
     };
 
     let match_res = hiring_match(a_criteria, b_criteria);
-    println!("plaintext {}", match_res);
 
     let a_criteria_fhe = FheJobCriteria {
-        queryable: FheBool { data: a_q_ct },
-        position: FheBool { data: a_p_ct },
+        in_market: a_m_ct,
+        position: a_p_ct,
         salary: a_s_ct,
+        criteria: a_criteria_ct,
     };
     let b_criteria_fhe = FheJobCriteria {
-        queryable: FheBool { data: b_q_ct },
-        position: FheBool { data: b_p_ct },
+        in_market: b_m_ct,
+        position: b_p_ct,
         salary: b_s_ct,
+        criteria: b_criteria_ct,
     };
 
     // After extracting each client's private inputs, server proceeds to evaluate
@@ -209,9 +284,7 @@ fn main() {
         now.elapsed().as_millis()
     );
 
-    println!("fhe {}", out_f1);
-
-    // we check correctness of function1
-    // let want_out_f1 = function1(c0_a, c1_a);
-    // assert_eq!(out_f1, want_out_f1);
+    println!("\nResult comparison");
+    println!("Plaintext result: {}", match_res);
+    println!("FHE result: {}", out_f1);
 }
