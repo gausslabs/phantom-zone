@@ -209,6 +209,7 @@ fn main() {
         now.elapsed().as_millis()
     );
 
+    // Server extracting data from ciphertext
     now = std::time::Instant::now();
     let jc_fhe_0 = server_extract_job_criteria(0, data_0);
     let jc_fhe_1 = server_extract_job_criteria(1, data_1);
@@ -217,25 +218,13 @@ fn main() {
         now.elapsed().as_millis()
     );
 
-    // After extracting each client's private inputs, server proceeds to evaluate
-    // function1
+    // Server evaluating function
     now = std::time::Instant::now();
     let match_res = hiring_match(jc_0, jc_1);
     let match_res_fhe = hiring_match_fhe(jc_fhe_0, jc_fhe_1);
     println!("(3) f1 evaluated, {:?}ms", now.elapsed().as_millis());
 
-    // Server has finished running compute. Clients can proceed to decrypt the
-    // output ciphertext using multi-party decryption.
-
-    // Client side //
-
-    // In multi-party decryption, each client needs to come online, download output
-    // ciphertext from the server, produce "output ciphertext" dependent decryption
-    // share, and send it to other parties (either via p2p or via server). After
-    // receving decryption shares from other parties, clients can independently
-    // decrypt output ciphertext.
-
-    // each client produces decryption share
+    // Clients produce decryption share
     now = std::time::Instant::now();
     let decryption_shares = [
         ck_0.client_key.gen_decryption_share(&match_res_fhe),
@@ -246,8 +235,7 @@ fn main() {
         now.elapsed().as_millis()
     );
 
-    // With all decryption shares, clients can aggregate the shares and decrypt the
-    // ciphertext
+    // Clients aggregate shares to decrypt
     now = std::time::Instant::now();
     let out_f1 = ck_0
         .client_key
