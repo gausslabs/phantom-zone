@@ -20,7 +20,7 @@ pub use backend::{
 pub use bool::*;
 pub use ntt::{Ntt, NttBackendU64, NttInit};
 #[cfg(any(feature = "interactive_mp", feature = "non_interactive_mp"))]
-pub use shortint::{div_zero_error_flag, reset_error_flags, FheUint8};
+pub use shortint::{div_zero_error_flag, reset_error_flags, EncFheUint8, FheUint8};
 
 pub use decomposer::{Decomposer, DecomposerIter, DefaultDecomposer};
 

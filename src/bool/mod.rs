@@ -14,14 +14,17 @@ pub use ni_mp_api::*;
 pub use mp_api::*;
 
 use crate::RowEntity;
-use crate::bool::evaluator::NonInteractiveMultiPartyCrs
 
 pub type ClientKey = keys::ClientKey<[u8; 32], u64>;
 #[cfg(any(feature = "interactive_mp", feature = "non_interactive_mp"))]
 pub type FheBool = impl_bool_frontend::FheBool<Vec<u64>>;
 
 #[cfg(any(feature = "non_interactive_mp"))]
-pub type ServerKeyShare = keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<Vec<Vec<u64>>, parameters::BoolParameters<u64>, NonInteractiveMultiPartyCrs<[u8; 32]>>;
+pub type ServerKeyShare = keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
+    Vec<Vec<u64>>,
+    parameters::BoolParameters<u64>,
+    evaluator::NonInteractiveMultiPartyCrs<[u8; 32]>,
+>;
 
 pub(crate) trait BooleanGates {
     type Ciphertext: RowEntity;

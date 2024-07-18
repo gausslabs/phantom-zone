@@ -1237,6 +1237,7 @@ mod shoup_server_key_eval_domain {
     }
 }
 
+#[derive(Clone)]
 pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix, P, S> {
     /// Non-interactive RGSW ciphertexts for LWE secret indices for which user
     /// is the leader

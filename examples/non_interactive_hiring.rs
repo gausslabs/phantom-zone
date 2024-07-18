@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use phantom_zone::*;
-use rand::{thread_rng, Rng, RngCore};
+use rand::{thread_rng, RngCore};
 
 /**
  * HIRING MP-FHE MATCHING SPEC
@@ -12,6 +12,7 @@ use rand::{thread_rng, Rng, RngCore};
 
 const NUM_CRITERIA: usize = 3;
 
+#[derive(Clone)]
 struct JobCriteria {
     in_market: bool,                // 0 = not in market, 1 = in market
     position: bool,                 // 0 = hunter, 1 = recruiter
@@ -19,6 +20,7 @@ struct JobCriteria {
     criteria: [bool; NUM_CRITERIA], // job criteria as boolean
 }
 
+#[derive(Clone)]
 struct FheJobCriteria {
     in_market: FheBool,
     position: FheBool,
@@ -68,189 +70,158 @@ fn hiring_match_fhe(a: FheJobCriteria, b: FheJobCriteria) -> FheBool {
     &(&(both_in_market & compatible_pos) & salary_match) & &criteria_match
 }
 
+/**
+ * FHE SETUP CODE
+ */
+
+#[derive(Clone)]
+struct ClientKeys {
+    client_key: ClientKey,
+    server_key_share: ServerKeyShare,
+}
+
+fn client_setup(id: usize, num_parties: usize) -> ClientKeys {
+    let client_key = gen_client_key();
+    let server_key_share = gen_server_key_share(id, num_parties, &client_key); // Changed `ck` to `client_key`
+
+    ClientKeys {
+        client_key,
+        server_key_share,
+    }
+}
+
+fn server_setup(server_key_shares: Vec<ServerKeyShare>) {
+    let server_key = aggregate_server_key_shares(&server_key_shares);
+    server_key.set_server_key();
+}
+
+/**
+ * FHE FUNCTION EVAL CODE
+ */
+
+struct ClientEncryptedData {
+    bool_enc: NonInteractiveBatchedFheBools<Vec<Vec<u64>>>,
+    salary_enc: EncFheUint8,
+}
+
+fn client_encrypt_job_criteria(jc: JobCriteria, ck: ClientKeys) -> ClientEncryptedData {
+    let bool_enc: NonInteractiveBatchedFheBools<_> = ck.client_key.encrypt(
+        [jc.in_market, jc.position]
+            .iter()
+            .copied()
+            .chain(jc.criteria.iter().copied())
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
+    let salary_enc = ck.client_key.encrypt(vec![jc.salary].as_slice());
+
+    ClientEncryptedData {
+        bool_enc,
+        salary_enc,
+    }
+}
+
+fn server_extract_job_criteria(id: usize, data: ClientEncryptedData) -> FheJobCriteria {
+    let bool_enc_ks = data.bool_enc.key_switch(id);
+    let in_market = FheBool {
+        data: bool_enc_ks.extract(0),
+    };
+    let position = FheBool {
+        data: bool_enc_ks.extract(1),
+    };
+    let mut criteria: [FheBool; NUM_CRITERIA] = Default::default();
+    for i in 0..NUM_CRITERIA {
+        criteria[i] = FheBool {
+            data: bool_enc_ks.extract(i + 2),
+        };
+    }
+
+    let salary = data
+        .salary_enc
+        .unseed::<Vec<Vec<u64>>>()
+        .key_switch(0)
+        .extract_at(0);
+
+    FheJobCriteria {
+        in_market,
+        position,
+        salary,
+        criteria,
+    }
+}
+
 fn main() {
-    println!("Noninteractive MP-FHE Setup");
     set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
+
+    /*
+     * Phase 1: KEY SETUP
+     */
+    println!("Noninteractive MP-FHE Key Setup");
 
     // set application's common reference seed
     let mut seed = [0u8; 32];
     thread_rng().fill_bytes(&mut seed);
     set_common_reference_seed(seed);
 
-    let no_of_parties = 2;
-
-    // Generate client keys
+    // Client setup
     let mut now = std::time::Instant::now();
-    let cks = (0..no_of_parties).map(|_| gen_client_key()).collect_vec();
+    let ck_0 = client_setup(0, 2);
+    let ck_1 = client_setup(1, 2);
     println!(
-        "(1) Client keys generated, {:?}ms",
+        "(1) Client keys + server shares generated, {:?}ms",
         now.elapsed().as_millis()
     );
 
-    // Clients independently generate their server key shares
-    //
-    // We assign user_id 0 to client 0, user_id 1 to client 1
-    // Note that `user_id`s must be unique among the clients and must be less than
-    // total number of clients.
+    // Server setup
     now = std::time::Instant::now();
-    let server_key_shares = cks
-        .iter()
-        .enumerate()
-        .map(|(id, k)| gen_server_key_share(id, no_of_parties, k))
-        .collect_vec();
+    server_setup(vec![
+        ck_0.clone().server_key_share,
+        ck_1.clone().server_key_share,
+    ]);
     println!(
-        "(2) Clients generate server key shares, {:?}ms",
+        "(2) Server key aggregated, {:?}ms",
         now.elapsed().as_millis()
     );
 
-    // Server side //
+    /*
+     * Phase 2: FUNCTION COMPUTATION
+     */
+    println!("\nFunction computation");
 
-    // Server receives server key shares from each client and proceeds to aggregate
-    // them to produce the server key. After this point, server can use the server
-    // key to evaluate any arbitrary function on encrypted private inputs from
-    // the fixed set of clients
-
-    // aggregate server shares and generate the server key
+    // Client encryption
     now = std::time::Instant::now();
-    let server_key = aggregate_server_key_shares(&server_key_shares);
-    server_key.set_server_key();
-    println!(
-        "(3) Server key aggregated, {:?}ms",
-        now.elapsed().as_millis()
-    );
-
-    println!("\nF1 computation");
-
-    // In practice, each client would upload their server key shares and encrypted
-    // private inputs to the server in a single shot message.
-
-    // Clients encrypt their private inputs in a seeded batched ciphertext using
-    // their private RLWE secret `u_j`.
-
-    // client 0 encrypts its private inputs
-    now = std::time::Instant::now();
-    let a_in_market = true; // in market
-    let a_position = false; // looking for job
-    let a_criteria = [true; NUM_CRITERIA]; // what they match
-    let a_salary: u8 = 100; // requesting 1 million
-    let a_bool_enc: NonInteractiveBatchedFheBools<_> = cks[0].encrypt(
-        [a_in_market, a_position]
-            .iter()
-            .copied()
-            .chain(a_criteria.iter().copied())
-            .collect::<Vec<_>>()
-            .as_slice(),
-    );
-    let a_s_enc = cks[0].encrypt(vec![a_salary].as_slice());
-
-    // client 1 encrypts its private inputs
-    let b_in_market = true; // in market
-    let b_position = true; // hiring
-    let b_criteria = [true; NUM_CRITERIA];
-    let b_salary: u8 = 150; // can pay up to 1.5 million
-    let b_bool_enc: NonInteractiveBatchedFheBools<_> = cks[1].encrypt(
-        [b_in_market, b_position]
-            .iter()
-            .copied()
-            .chain(b_criteria.iter().copied())
-            .collect::<Vec<_>>()
-            .as_slice(),
-    );
-    let b_s_enc = cks[1].encrypt(vec![b_salary].as_slice());
-
+    let jc_0 = JobCriteria {
+        in_market: true,
+        position: false,
+        salary: 100,
+        criteria: [true; NUM_CRITERIA],
+    };
+    let jc_1 = JobCriteria {
+        in_market: true,
+        position: true,
+        salary: 150,
+        criteria: [true; NUM_CRITERIA],
+    };
+    let data_0 = client_encrypt_job_criteria(jc_0.clone(), ck_0.clone());
+    let data_1 = client_encrypt_job_criteria(jc_1.clone(), ck_1.clone());
     println!(
         "(1) Clients encrypt their input with their own key, {:?}ms",
         now.elapsed().as_millis()
     );
 
-    // Server proceeds to extract private inputs sent by clients
-    //
-    // To extract client 0's (with user_id=0) private inputs we first key switch
-    // client 0's private inputs from their secret `u_j` to ideal secret of the mpc
-    // protocol. To indicate we're key switching client 0's private input we
-    // supply client 0's `user_id` i.e. we call `key_switch(0)`. Then we extract
-    // the first ciphertext by calling `extract_at(0)`.
-    //
-    // Since client 0 only encrypts 1 input in batched ciphertext, calling
-    // extract_at(index) for `index` > 0 will panic. If client 0 had more private
-    // inputs then we can either extract them all at once with `extract_all` or
-    // first `many` of them with `extract_many(many)`
-
     now = std::time::Instant::now();
-
-    let a_bool_enc_ks = a_bool_enc.key_switch(0);
-    let a_m_ct = FheBool {
-        data: a_bool_enc_ks.extract(0),
-    };
-    let a_p_ct = FheBool {
-        data: a_bool_enc_ks.extract(1),
-    };
-    let mut a_criteria_ct: [FheBool; NUM_CRITERIA] = Default::default();
-    for i in 0..NUM_CRITERIA {
-        a_criteria_ct[i] = FheBool {
-            data: a_bool_enc_ks.extract(i + 2),
-        };
-    }
-    let a_s_ct = a_s_enc
-        .unseed::<Vec<Vec<u64>>>()
-        .key_switch(0)
-        .extract_at(0);
-
-    let b_bool_enc_ks = b_bool_enc.key_switch(1);
-    let b_m_ct = FheBool {
-        data: b_bool_enc_ks.extract(0),
-    };
-    let b_p_ct = FheBool {
-        data: b_bool_enc_ks.extract(1),
-    };
-    let mut b_criteria_ct: [FheBool; NUM_CRITERIA] = Default::default();
-    for i in 0..NUM_CRITERIA {
-        b_criteria_ct[i] = FheBool {
-            data: b_bool_enc_ks.extract(i + 2),
-        };
-    }
-    let b_s_ct = b_s_enc
-        .unseed::<Vec<Vec<u64>>>()
-        .key_switch(1)
-        .extract_at(0);
-
+    let jc_fhe_0 = server_extract_job_criteria(0, data_0);
+    let jc_fhe_1 = server_extract_job_criteria(1, data_1);
     println!(
         "(2) Client inputs extracted after key switch, {:?}ms",
         now.elapsed().as_millis()
     );
 
-    let a_criteria = JobCriteria {
-        in_market: a_in_market,
-        position: a_position,
-        salary: a_salary,
-        criteria: a_criteria,
-    };
-    let b_criteria = JobCriteria {
-        in_market: b_in_market,
-        position: b_position,
-        salary: b_salary,
-        criteria: b_criteria,
-    };
-
-    let match_res = hiring_match(a_criteria, b_criteria);
-
-    let a_criteria_fhe = FheJobCriteria {
-        in_market: a_m_ct,
-        position: a_p_ct,
-        salary: a_s_ct,
-        criteria: a_criteria_ct,
-    };
-    let b_criteria_fhe = FheJobCriteria {
-        in_market: b_m_ct,
-        position: b_p_ct,
-        salary: b_s_ct,
-        criteria: b_criteria_ct,
-    };
-
     // After extracting each client's private inputs, server proceeds to evaluate
     // function1
     now = std::time::Instant::now();
-    let match_res_fhe = hiring_match_fhe(a_criteria_fhe, b_criteria_fhe);
+    let match_res = hiring_match(jc_0, jc_1);
+    let match_res_fhe = hiring_match_fhe(jc_fhe_0, jc_fhe_1);
     println!("(3) f1 evaluated, {:?}ms", now.elapsed().as_millis());
 
     // Server has finished running compute. Clients can proceed to decrypt the
@@ -266,10 +237,10 @@ fn main() {
 
     // each client produces decryption share
     now = std::time::Instant::now();
-    let decryption_shares = cks
-        .iter()
-        .map(|k| k.gen_decryption_share(&match_res_fhe))
-        .collect_vec();
+    let decryption_shares = [
+        ck_0.client_key.gen_decryption_share(&match_res_fhe),
+        ck_1.client_key.gen_decryption_share(&match_res_fhe),
+    ];
     println!(
         "(4) Decryption shares generated, {:?}ms",
         now.elapsed().as_millis()
@@ -278,7 +249,9 @@ fn main() {
     // With all decryption shares, clients can aggregate the shares and decrypt the
     // ciphertext
     now = std::time::Instant::now();
-    let out_f1 = cks[0].aggregate_decryption_shares(&match_res_fhe, &decryption_shares);
+    let out_f1 = ck_0
+        .client_key
+        .aggregate_decryption_shares(&match_res_fhe, &decryption_shares);
     println!(
         "(5) Decryption shares aggregated, data decrypted by client, {:?}ms",
         now.elapsed().as_millis()
