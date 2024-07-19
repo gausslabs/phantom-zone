@@ -1,6 +1,6 @@
-mod evaluator;
-mod keys;
-pub(crate) mod parameters;
+pub mod evaluator;
+pub mod keys;
+pub mod parameters;
 
 #[cfg(feature = "interactive_mp")]
 mod mp_api;

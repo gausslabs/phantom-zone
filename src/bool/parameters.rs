@@ -95,7 +95,7 @@ pub(crate) enum ParameterVariant {
     InteractiveMultiParty,
     NonInteractiveMultiParty,
 }
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct BoolParameters<El> {
     /// RLWE secret key distribution
     rlwe_secret_key_dist: SecretKeyDistribution,
@@ -375,14 +375,14 @@ impl<El> BoolParameters<El> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
 pub struct DecompostionLogBase(pub(crate) usize);
 impl AsRef<usize> for DecompostionLogBase {
     fn as_ref(&self) -> &usize {
         &self.0
     }
 }
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
 pub struct DecompositionCount(pub(crate) usize);
 impl AsRef<usize> for DecompositionCount {
     fn as_ref(&self) -> &usize {
@@ -390,11 +390,11 @@ impl AsRef<usize> for DecompositionCount {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
 pub(crate) struct LweDimension(pub(crate) usize);
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
 pub(crate) struct PolynomialSize(pub(crate) usize);
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
 /// T equals modulus when modulus is non-native. Otherwise T equals 0. bool is
 /// true when modulus is native, false otherwise.
 pub struct CiphertextModulus<T>(T, bool);

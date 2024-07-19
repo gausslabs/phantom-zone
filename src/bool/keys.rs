@@ -48,7 +48,7 @@ pub(crate) trait NonInteractiveMultiPartyClientKey {
 ///
 ///     Puncture 3 -> Seed of RLWE secret used as `u` in
 ///                   non-interactive multi-party.
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientKey<S, E> {
     seed: S,
     parameters: BoolParameters<E>,
@@ -1239,7 +1239,7 @@ mod shoup_server_key_eval_domain {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<M: Matrix, P, S> {
     /// Non-interactive RGSW ciphertexts for LWE secret indices for which user
     /// is the leader

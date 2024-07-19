@@ -116,7 +116,7 @@ impl<S: Default + Copy> InteractiveMultiPartyCrs<S> {
 ///         Puncture 3 -> Lwe key switching key seed
 ///     Puncture 2 -> user specific seed for u_j to s ksk
 ///         Punture j+1 -> user j's seed    
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct NonInteractiveMultiPartyCrs<S> {
     pub(super) seed: S,
 }

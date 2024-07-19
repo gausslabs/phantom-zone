@@ -14,7 +14,7 @@ use crate::{
 /// Note that `Self.data` stores encryptions of bits in little endian (i.e least
 /// signficant bit stored at 0th index and most signficant bit stores at 7th
 /// index)
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FheUint8<C> {
     pub(super) data: Vec<C>,
 }
@@ -226,7 +226,7 @@ where
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SeededBatchedFheUint8<C, S> {
     /// Vector of Seeded RLWE ciphertexts `C`.
     ///
