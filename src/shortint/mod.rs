@@ -3,6 +3,8 @@ mod ops;
 
 pub type FheUint8 = enc_dec::FheUint8<Vec<u64>>;
 
+pub type EncFheUint8 = enc_dec::SeededBatchedFheUint8<Vec<u64>, [u8; 32]>;
+
 use std::cell::RefCell;
 
 use crate::bool::{BoolEvaluator, BooleanGates, FheBool, RuntimeServerKey};

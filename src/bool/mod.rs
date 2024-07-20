@@ -19,6 +19,13 @@ pub type ClientKey = keys::ClientKey<[u8; 32], u64>;
 #[cfg(any(feature = "interactive_mp", feature = "non_interactive_mp"))]
 pub type FheBool = impl_bool_frontend::FheBool<Vec<u64>>;
 
+#[cfg(any(feature = "non_interactive_mp"))]
+pub type ServerKeyShare = keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
+    Vec<Vec<u64>>,
+    parameters::BoolParameters<u64>,
+    evaluator::NonInteractiveMultiPartyCrs<[u8; 32]>,
+>;
+
 pub(crate) trait BooleanGates {
     type Ciphertext: RowEntity;
     type Key;
@@ -75,9 +82,9 @@ mod impl_bool_frontend {
     use crate::MultiPartyDecryptor;
 
     /// Fhe Bool ciphertext
-    #[derive(Clone)]
+    #[derive(Default, Clone)]
     pub struct FheBool<C> {
-        pub(crate) data: C,
+        pub data: C,
     }
 
     impl<C> FheBool<C> {

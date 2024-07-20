@@ -151,7 +151,7 @@ pub(super) fn eight_bit_mul<E: BooleanGates>(
     let mut carries = Vec::with_capacity(7);
     let mut out = Vec::with_capacity(8);
 
-    for i in (0..8) {
+    for i in 0..8 {
         if i == 0 {
             let s = evaluator.and(&a[0], &b[0], key);
             out.push(s);

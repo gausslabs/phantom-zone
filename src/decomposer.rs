@@ -284,7 +284,7 @@ impl<T: PrimInt + From<bool> + WrappingSub + Display> Iterator for DecomposerIte
             let carry_bool =
                 k_i > self.bby2 || (k_i == self.bby2 && ((self.value & T::one()) == T::one()));
             let carry = <T as From<bool>>::from(carry_bool);
-            let neg_carry = (T::zero().wrapping_sub(&carry));
+            let neg_carry = T::zero().wrapping_sub(&carry);
             self.value = self.value + carry;
             Some((neg_carry & self.q) + k_i - (carry << self.logb))
 
