@@ -1,5 +1,7 @@
 use std::{cell::RefCell, sync::OnceLock};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     backend::ModulusPowerOf2,
     bool::parameters::ParameterVariant,
@@ -179,6 +181,7 @@ impl Global for RuntimeServerKey {
 /// `self.key_switch(user_id)` where `user_id` is user j's id. Key switch
 /// returns `BatchedFheBools` that stored key vector of key switched RLWE
 /// ciphertext.
+#[derive(Serialize, Deserialize)]
 pub struct NonInteractiveBatchedFheBools<C> {
     data: Vec<C>,
 }

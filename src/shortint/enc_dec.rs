@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     bool::BoolEvaluator,
@@ -13,7 +14,7 @@ use crate::{
 /// Note that `Self.data` stores encryptions of bits in little endian (i.e least
 /// signficant bit stored at 0th index and most signficant bit stores at 7th
 /// index)
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FheUint8<C> {
     pub(super) data: Vec<C>,
 }
@@ -225,6 +226,7 @@ where
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct SeededBatchedFheUint8<C, S> {
     /// Vector of Seeded RLWE ciphertexts `C`.
     ///

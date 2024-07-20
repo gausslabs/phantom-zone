@@ -1,4 +1,5 @@
 use num_traits::{ConstZero, FromPrimitive, PrimInt};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     backend::Modulus,
@@ -78,7 +79,7 @@ impl SingleDecomposerParams for (DecompostionLogBase, DecompositionCount) {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) enum SecretKeyDistribution {
     /// Elements of secret key are sample from Gaussian distribitution with
     /// \sigma = 3.19 and \mu = 0.0
@@ -88,13 +89,13 @@ pub(crate) enum SecretKeyDistribution {
     TernaryDistribution,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) enum ParameterVariant {
     SingleParty,
     InteractiveMultiParty,
     NonInteractiveMultiParty,
 }
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct BoolParameters<El> {
     /// RLWE secret key distribution
     rlwe_secret_key_dist: SecretKeyDistribution,
@@ -374,14 +375,14 @@ impl<El> BoolParameters<El> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct DecompostionLogBase(pub(crate) usize);
 impl AsRef<usize> for DecompostionLogBase {
     fn as_ref(&self) -> &usize {
         &self.0
     }
 }
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct DecompositionCount(pub(crate) usize);
 impl AsRef<usize> for DecompositionCount {
     fn as_ref(&self) -> &usize {
@@ -389,14 +390,15 @@ impl AsRef<usize> for DecompositionCount {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub(crate) struct LweDimension(pub(crate) usize);
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub(crate) struct PolynomialSize(pub(crate) usize);
 #[derive(Clone, Copy, PartialEq, Debug)]
 
 /// T equals modulus when modulus is non-native. Otherwise T equals 0. bool is
 /// true when modulus is native, false otherwise.
+#[derive(Serialize, Deserialize)]
 pub struct CiphertextModulus<T>(T, bool);
 
 impl<T: ConstZero> CiphertextModulus<T> {

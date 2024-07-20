@@ -8,6 +8,7 @@ use std::{
 use itertools::{izip, Itertools};
 use num_traits::{FromPrimitive, One, PrimInt, ToPrimitive, WrappingAdd, WrappingSub, Zero};
 use rand_distr::uniform::SampleUniform;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     backend::{ArithmeticOps, GetModulus, ModInit, Modulus, ShoupMatrixFMA, VectorOps},
@@ -111,7 +112,7 @@ impl<S: Default + Copy> InteractiveMultiPartyCrs<S> {
 ///         Puncture 3 -> Lwe key switching key seed
 ///     Puncture 2 -> user specific seed for u_j to s ksk
 ///         Punture j+1 -> user j's seed    
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct NonInteractiveMultiPartyCrs<S> {
     pub(super) seed: S,
 }

@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use phantom_zone::*;
 use rand::{thread_rng, Rng, RngCore};
+use serde::{Deserialize, Serialize};
 
 /**
  * HIRING MP-FHE MATCHING SPEC
@@ -12,7 +13,7 @@ use rand::{thread_rng, Rng, RngCore};
 
 const NUM_CRITERIA: usize = 3;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct JobCriteria {
     in_market: bool,                // 0 = not in market, 1 = in market
     position: bool,                 // 0 = hunter, 1 = recruiter
@@ -20,7 +21,7 @@ struct JobCriteria {
     criteria: [bool; NUM_CRITERIA], // job criteria as boolean
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct FheJobCriteria {
     in_market: FheBool,
     position: FheBool,
@@ -79,7 +80,7 @@ fn hiring_match_fhe(a: FheJobCriteria, b: FheJobCriteria) -> FheBool {
  * FHE SETUP CODE
  */
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct ClientKeys {
     client_key: ClientKey,
     server_key_share: ServerKeyShare,
@@ -104,6 +105,7 @@ fn server_setup(server_key_shares: Vec<ServerKeyShare>) {
  * FHE FUNCTION EVAL CODE
  */
 
+#[derive(Serialize, Deserialize)]
 struct ClientEncryptedData {
     bool_enc: NonInteractiveBatchedFheBools<Vec<Vec<u64>>>,
     salary_enc: EncFheUint8,

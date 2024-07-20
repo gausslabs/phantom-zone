@@ -15,11 +15,13 @@ rand = "0.8.5"
 rand_chacha = "0.3.1"
 rand_distr = "0.4.3"
 num-bigint-dig = { version = "0.8.4", features = ["prime"] }
+serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
 criterion = "0.5.1"
 
 [features]
+default = ["non_interactive_mp"]
 interactive_mp = []
 non_interactive_mp = []
 
