@@ -41,13 +41,15 @@ fn hiring_match(a: JobCriteria, b: JobCriteria) -> bool {
 
     // if a is recruiter, their criteria is required to be met for a match
     // to be made, vice versa if b is recruiter
-    let mut criteria_match = (!a.position | (!a.criteria[0] | b.criteria[0]))
-        & (!b.position | (!b.criteria[0] | a.criteria[0]));
+    let mut a_criteria_match = !a.criteria[0] | b.criteria[0];
+    let mut b_criteria_match = !b.criteria[0] | a.criteria[0];
 
     for i in 1..NUM_CRITERIA {
-        criteria_match &= (!a.position | (!a.criteria[i] | b.criteria[i]))
-            & (!b.position | (!b.criteria[i] | a.criteria[i]));
+        a_criteria_match &= !a.criteria[i] | b.criteria[i];
+        b_criteria_match &= !b.criteria[i] | a.criteria[i];
     }
+
+    let criteria_match = (!a.position | a_criteria_match) & (!b.position | b_criteria_match);
 
     both_in_market & compatible_pos & salary_match & criteria_match
 }
@@ -59,13 +61,16 @@ fn hiring_match_fhe(a: FheJobCriteria, b: FheJobCriteria) -> FheBool {
 
     let salary_match: &FheBool = &((&a.salary.gt(&b.salary)) ^ &b.position);
 
-    let mut criteria_match: FheBool = &(&!&a.position | &(&!&a.criteria[0] | &b.criteria[0]))
-        & &(&!&b.position | &(&!&b.criteria[0] | &a.criteria[0]));
+    let mut a_criteria_match = &!&a.criteria[0] | &b.criteria[0];
+    let mut b_criteria_match = &!&b.criteria[0] | &a.criteria[0];
 
     for i in 1..NUM_CRITERIA {
-        criteria_match &= &(&!&a.position | &(&!&a.criteria[i] | &b.criteria[i]))
-            & &(&!&b.position | &(&!&b.criteria[i] | &a.criteria[i]));
+        a_criteria_match &= &!&a.criteria[i] | &b.criteria[i];
+        b_criteria_match &= &!&b.criteria[i] | &a.criteria[i];
     }
+
+    let criteria_match =
+        &(&!&a.position | &a_criteria_match) & &(&!&b.position | &b_criteria_match);
 
     &(&(both_in_market & compatible_pos) & salary_match) & &criteria_match
 }
