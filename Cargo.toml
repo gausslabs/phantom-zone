@@ -20,7 +20,6 @@ num-bigint-dig = { version = "0.8.4", features = ["prime"] }
 criterion = "0.5.1"
 
 [features]
-default = ["non_interactive_mp"]
 interactive_mp = []
 non_interactive_mp = []
 
