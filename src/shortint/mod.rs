@@ -1,8 +1,6 @@
 mod enc_dec;
 mod ops;
 
-pub use enc_dec::SeededBatchedFheUint8;
-
 pub type FheUint8 = enc_dec::FheUint8<Vec<u64>>;
 
 pub type EncFheUint8 = enc_dec::SeededBatchedFheUint8<Vec<u64>, [u8; 32]>;

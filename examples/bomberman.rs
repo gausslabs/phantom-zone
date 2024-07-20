@@ -78,7 +78,6 @@ fn main() {
     let mut seed = [0; 32];
     thread_rng().fill_bytes(&mut seed);
     set_common_reference_seed(seed);
-    println!("Common reference seed set");
 
     let no_of_parties = 4;
 
@@ -86,7 +85,6 @@ fn main() {
 
     // Players generate client keys
     let cks = (0..no_of_parties).map(|_| gen_client_key()).collect_vec();
-    println!("Client keys generated");
 
     // Players generate server keys
     let server_key_shares = cks
@@ -94,7 +92,6 @@ fn main() {
         .enumerate()
         .map(|(index, k)| gen_server_key_share(index, no_of_parties, k))
         .collect_vec();
-    println!("Server key shares generated");
 
     // Player 0 describes its moves as sequence of coordinates on the map
     let no_of_moves = 10;
