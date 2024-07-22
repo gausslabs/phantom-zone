@@ -1,4 +1,4 @@
-mod enc_dec;
+pub(crate) mod enc_dec;
 mod ops;
 
 pub type FheUint8 = enc_dec::FheUint8<Vec<u64>>;
@@ -288,6 +288,23 @@ mod frontend {
             pub fn min(&self, other: &FheUint8) -> FheUint8 {
                 let self_lt = self.lt(other);
                 self.mux(other, &self_lt)
+            }
+        }
+
+        impl std::ops::Not for &FheUint8 {
+            type Output = FheUint8;
+            fn not(self) -> Self::Output {
+                BoolEvaluator::with_local(|e| FheUint8 {
+                    data: self.data().iter().map(|b| e.not(b)).collect(),
+                })
+            }
+        }
+
+        impl std::ops::Not for FheUint8 {
+            type Output = FheUint8;
+            fn not(self) -> Self::Output {
+                // This just calls the impl above with 0 overhead.
+                !(&self)
             }
         }
     }
