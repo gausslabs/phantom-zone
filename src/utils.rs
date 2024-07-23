@@ -111,6 +111,7 @@ pub fn fill_random_ternary_secret_with_hamming_weight<
 
 // TODO (Jay): this is only a workaround. Add a propoer way to perform primality
 // tests.
+#[cfg(test)]
 fn is_probably_prime(candidate: u64) -> bool {
     num_bigint_dig::prime::probably_prime(&num_bigint_dig::BigUint::from(candidate), 0)
 }
@@ -119,6 +120,7 @@ fn is_probably_prime(candidate: u64) -> bool {
 /// - $prime \lt upper_bound$
 /// - $\log{prime} = num_bits$
 /// - `prime % modulo == 1`
+#[cfg(test)]
 pub(crate) fn generate_prime(num_bits: usize, modulo: u64, upper_bound: u64) -> Option<u64> {
     let leading_zeros = (64 - num_bits) as u32;
 
