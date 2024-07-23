@@ -77,6 +77,7 @@ mod impl_bool_frontend {
     /// Fhe Bool ciphertext
     #[derive(Clone)]
     pub struct FheBool<C> {
+        /// LWE bool ciphertext
         pub(crate) data: C,
     }
 
@@ -101,11 +102,11 @@ mod impl_bool_frontend {
             c: &FheBool<C>,
             shares: &[Self::DecryptionShare],
         ) -> bool {
-            self.aggregate_decryption_shares(&c.data, shares)
+            self.aggregate_decryption_shares(&c.data(), shares)
         }
 
         fn gen_decryption_share(&self, c: &FheBool<C>) -> Self::DecryptionShare {
-            self.gen_decryption_share(&c.data)
+            self.gen_decryption_share(&c.data())
         }
     }
 
@@ -189,6 +190,35 @@ mod impl_bool_frontend {
             fn not(self) -> Self::Output {
                 BoolEvaluator::with_local(|e| FheBool {
                     data: e.not(self.data()),
+                })
+            }
+        }
+
+        impl FheBool {
+            pub fn nand(&self, rhs: &Self) -> Self {
+                BoolEvaluator::with_local_mut(|e| {
+                    let key = RuntimeServerKey::global();
+                    FheBool {
+                        data: e.nand(self.data(), rhs.data(), key),
+                    }
+                })
+            }
+
+            pub fn xnor(&self, rhs: &Self) -> Self {
+                BoolEvaluator::with_local_mut(|e| {
+                    let key = RuntimeServerKey::global();
+                    FheBool {
+                        data: e.xnor(self.data(), rhs.data(), key),
+                    }
+                })
+            }
+
+            pub fn nor(&self, rhs: &Self) -> Self {
+                BoolEvaluator::with_local_mut(|e| {
+                    let key = RuntimeServerKey::global();
+                    FheBool {
+                        data: e.nor(self.data(), rhs.data(), key),
+                    }
                 })
             }
         }
