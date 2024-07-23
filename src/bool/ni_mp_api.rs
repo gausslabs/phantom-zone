@@ -1,4 +1,4 @@
-use std::{cell::RefCell, sync::OnceLock};
+use std::{borrow::Borrow, cell::RefCell, sync::OnceLock};
 
 use crate::{
     backend::ModulusPowerOf2,
@@ -29,7 +29,7 @@ pub(crate) type BoolEvaluator = super::evaluator::BoolEvaluator<
 
 thread_local! {
     static BOOL_EVALUATOR: RefCell<Option<BoolEvaluator>> = RefCell::new(None);
-
+    static ACTIVE_PARAMETER_SET: RefCell<Option<ParameterSelector>> = RefCell::new(None);
 }
 static BOOL_SERVER_KEY: OnceLock<ShoupNonInteractiveServerKeyEvaluationDomain<Vec<Vec<u64>>>> =
     OnceLock::new();
@@ -54,6 +54,14 @@ pub fn set_parameter_set(select: ParameterSelector) {
             BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_8P)));
         }
     }
+    ACTIVE_PARAMETER_SET.with_borrow_mut(|v| *v = Some(select));
+}
+
+pub fn get_active_parameter_set() -> ParameterSelector {
+    ACTIVE_PARAMETER_SET
+        .borrow()
+        .take()
+        .expect("Parameters not set")
 }
 
 pub fn set_common_reference_seed(seed: [u8; 32]) {
@@ -438,22 +446,4 @@ mod impl_enc_dec {
             BatchedFheBools { data }
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use itertools::Itertools;
-    use rand::{thread_rng, RngCore};
-
-    use crate::{
-        backend::Modulus,
-        bool::{
-            keys::tests::{ideal_sk_rlwe, measure_noise_lwe},
-            BooleanGates,
-        },
-        utils::tests::Stats,
-        Encoder, Encryptor, KeySwitchWithId, MultiPartyDecryptor,
-    };
-
-    use super::*;
 }
