@@ -86,7 +86,7 @@ struct ClientKeys {
     collective_key_share: CollectiveKeyShare,
 }
 
-fn client_setup(id: usize, num_parties: usize) -> ClientKeys {
+fn client_setup() -> ClientKeys {
     let client_key = gen_client_key();
     let collective_key_share = collective_pk_share(&client_key); // Changed `ck` to `client_key`
 
@@ -189,8 +189,8 @@ fn main() {
 
     // Client setup
     let mut now = std::time::Instant::now();
-    let ck_0 = client_setup(0, 2);
-    let ck_1 = client_setup(1, 2);
+    let ck_0 = client_setup();
+    let ck_1 = client_setup();
     println!(
         "(1) Client keys + server shares generated, {:?}ms",
         now.elapsed().as_millis()
