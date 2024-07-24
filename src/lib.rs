@@ -28,6 +28,7 @@ pub trait Matrix: AsRef<[Self::R]> {
     type MatElement;
     type R: Row<Element = Self::MatElement>;
 
+    /// (Rows, Cols)
     fn dimension(&self) -> (usize, usize);
 
     fn get_row(&self, row_idx: usize) -> impl Iterator<Item = &Self::MatElement> {

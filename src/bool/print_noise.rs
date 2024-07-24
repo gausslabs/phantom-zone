@@ -615,7 +615,6 @@ mod tests {
                     NonInteractiveServerKeyEvaluationDomain,
                 },
                 print_noise::collect_server_key_stats,
-                NonInteractiveBatchedFheBools,
             },
             gen_client_key, gen_server_key_share,
             parameters::CiphertextModulus,
@@ -624,7 +623,7 @@ mod tests {
             utils::{tests::Stats, Global, WithLocal},
             BoolEvaluator, BooleanGates, DefaultDecomposer, Encoder, Encryptor, KeySwitchWithId,
             ModInit, ModularOpsU64, MultiPartyDecryptor, NttBackendU64, ParameterSelector,
-            RuntimeServerKey,
+            RuntimeServerKey, SampleExtractor,
         };
 
         set_parameter_set(ParameterSelector::NonInteractiveLTE8Party);
@@ -654,14 +653,20 @@ mod tests {
         let mut m1 = true;
 
         let mut ct0 = {
-            let ct: NonInteractiveBatchedFheBools<_> = cks[0].encrypt(vec![m0].as_slice());
-            let ct = ct.key_switch(0);
-            ct.extract(0)
+            cks[0]
+                .encrypt(vec![m0].as_slice())
+                .unseed::<Vec<Vec<u64>>>()
+                .key_switch(0)
+                .extract_at(0)
+                .data
         };
         let mut ct1 = {
-            let ct: NonInteractiveBatchedFheBools<_> = cks[1].encrypt(vec![m1].as_slice());
-            let ct = ct.key_switch(1);
-            ct.extract(0)
+            cks[1]
+                .encrypt(vec![m1].as_slice())
+                .unseed::<Vec<Vec<u64>>>()
+                .key_switch(1)
+                .extract_at(0)
+                .data
         };
 
         let mut stats = Stats::new();
@@ -830,7 +835,7 @@ mod tests {
 
         use crate::{
             aggregate_server_key_shares,
-            bool::{keys::tests::ideal_sk_rlwe, ni_mp_api::NonInteractiveBatchedFheBools},
+            bool::keys::tests::ideal_sk_rlwe,
             gen_client_key, gen_server_key_share,
             rgsw::decrypt_rlwe,
             set_common_reference_seed, set_parameter_set,
@@ -862,8 +867,11 @@ mod tests {
         let m = (0..parameters.rlwe_n().0)
             .map(|_| thread_rng().gen_bool(0.5))
             .collect_vec();
-        let ct: NonInteractiveBatchedFheBools<_> = cks[0].encrypt(m.as_slice());
-        let ct = ct.key_switch(0);
+        let ct = cks[0]
+            .encrypt(m.as_slice())
+            .unseed::<Vec<Vec<u64>>>()
+            .key_switch(0);
+        assert!(ct.data().len() == 1);
 
         let ideal_rlwe_sk = ideal_sk_rlwe(&cks);
 
@@ -874,7 +882,7 @@ mod tests {
 
         let mut m_out = vec![0u64; parameters.rlwe_n().0];
         decrypt_rlwe(
-            &ct.data[0],
+            &ct.data()[0],
             &ideal_rlwe_sk,
             &mut m_out,
             &nttop,

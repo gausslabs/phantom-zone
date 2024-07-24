@@ -229,7 +229,7 @@ mod impl_bool_frontend {
 mod common_mp_enc_dec {
     use itertools::Itertools;
 
-    use super::BoolEvaluator;
+    use super::{impl_bool_frontend::FheBool, BoolEvaluator};
     use crate::{
         pbs::{sample_extract, PbsInfo},
         utils::WithLocal,
@@ -237,6 +237,84 @@ mod common_mp_enc_dec {
     };
 
     type Mat = Vec<Vec<u64>>;
+
+    /// `Self` stores batch of boolean ciphertexts as collection of `unseeded RLWE ciphertexts` encrypted under the ideal RLWE secret key of the protocol.
+    ///
+    /// Bool ciphertext at `index` can be extracted from the coefficient at `index %
+    /// N` of `index / N`th RLWE ciphertext.
+    pub(crate) struct BatchedFheBools<C> {
+        data: Vec<C>,
+        count: usize,
+    }
+
+    impl<C> BatchedFheBools<C> {
+        pub(crate) fn new(data: Vec<C>, count: usize) -> Self {
+            Self { data, count }
+        }
+
+        pub(crate) fn data(&self) -> &[C] {
+            &self.data
+        }
+
+        pub(crate) fn count(&self) -> usize {
+            self.count
+        }
+    }
+
+    impl<M: Matrix> SampleExtractor<FheBool<M::R>> for BatchedFheBools<M>
+    where
+        M: SampleExtractor<M::R>,
+    {
+        fn extract_all(&self) -> Vec<FheBool<M::R>> {
+            if self.data.len() > 0 {
+                let ring_size = self.data[0].dimension().0;
+
+                let index = 0;
+                let mut out = Vec::with_capacity(self.count);
+
+                while index < self.count {
+                    let row = index % ring_size;
+                    let col = index / ring_size;
+                    out.push(FheBool {
+                        data: SampleExtractor::extract_at(&self.data[col], row),
+                    });
+                }
+
+                out
+            } else {
+                vec![]
+            }
+        }
+        fn extract_at(&self, index: usize) -> FheBool<M::R> {
+            assert!(self.count > index);
+
+            let ring_size = self.data[0].dimension().0;
+            let row = index % ring_size;
+            let col = index / ring_size;
+
+            FheBool {
+                data: SampleExtractor::extract_at(&self.data[col], row),
+            }
+        }
+
+        fn extract_many(&self, how_many: usize) -> Vec<FheBool<M::R>> {
+            assert!(self.count >= how_many);
+            let ring_size = self.data[0].dimension().0;
+
+            let index = 0;
+            let mut out = Vec::with_capacity(self.count);
+
+            while index < how_many {
+                let row = index % ring_size;
+                let col = index / ring_size;
+                out.push(FheBool {
+                    data: SampleExtractor::extract_at(&self.data[col], row),
+                });
+            }
+
+            out
+        }
+    }
 
     impl SampleExtractor<<Mat as Matrix>::R> for Mat {
         /// Sample extract coefficient at `index` as a LWE ciphertext from RLWE

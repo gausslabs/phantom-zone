@@ -179,38 +179,37 @@ impl Global for RuntimeServerKey {
     }
 }
 
+/// `Self::data` stores collection of seeded RLWE ciphertexts encrypted unser user j's RLWE secret `u_j`.
+pub(crate) struct NonInteractiveSeededFheBools<C, S> {
+    data: Vec<C>,
+    seed: S,
+    count: usize,
+}
+
 /// Batch of bool ciphertexts stored as vector of RLWE ciphertext under user j's
 /// RLWE secret `u_j`
 ///
 /// To use the bool ciphertexts in multi-party protocol first key switch the
 /// ciphertexts from u_j to ideal RLWE secret `s` with
 /// `self.key_switch(user_id)` where `user_id` is user j's id. Key switch
-/// returns `BatchedFheBools` that stored key vector of key switched RLWE
+/// returns `BatchedFheBools` which stores vector of key switched RLWE
 /// ciphertext.
 pub struct NonInteractiveBatchedFheBools<C> {
     data: Vec<C>,
-}
-
-/// Batch of Bool cipphertexts stored as vector of RLWE ciphertexts under the
-/// ideal RLWE secret key `s` of the protocol
-///
-/// Bool ciphertext at `index` can be extracted from the coefficient at `index %
-/// N` of `index / N`th RLWE ciphertext.
-///
-/// To extract bool ciphertext at `index` as LWE ciphertext use
-/// `self.extract(index)`
-pub struct BatchedFheBools<C> {
-    pub(in super::super) data: Vec<C>,
+    count: usize,
 }
 
 /// Non interactive multi-party specfic encryptor decryptor routines
 mod impl_enc_dec {
     use crate::{
-        bool::{evaluator::BoolEncoding, keys::NonInteractiveMultiPartyClientKey},
+        bool::{
+            common_mp_enc_dec::BatchedFheBools, evaluator::BoolEncoding,
+            keys::NonInteractiveMultiPartyClientKey,
+        },
         multi_party::{
             multi_party_aggregate_decryption_shares_and_decrypt, multi_party_decryption_share,
         },
-        pbs::{sample_extract, PbsInfo, WithShoupRepr},
+        pbs::{PbsInfo, WithShoupRepr},
         random::{NewWithSeed, RandomFillUniformInModulus},
         rgsw::{rlwe_key_switch, seeded_secret_key_encrypt_rlwe},
         utils::TryConvertFrom1,
@@ -224,82 +223,23 @@ mod impl_enc_dec {
 
     type Mat = Vec<Vec<u64>>;
 
-    // Implement `extract` to extract Bool LWE ciphertext at `index` from
-    // `BatchedFheBools`
-    impl<C: MatrixMut<MatElement = u64>> BatchedFheBools<C>
-    where
-        C::R: RowEntity + RowMut,
-    {
-        pub fn extract(&self, index: usize) -> C::R {
-            BoolEvaluator::with_local(|e| {
-                let ring_size = e.parameters().rlwe_n().0;
-                let ct_index = index / ring_size;
-                let coeff_index = index % ring_size;
-                let mut lwe_out = C::R::zeros(e.parameters().rlwe_n().0 + 1);
-                sample_extract(
-                    &mut lwe_out,
-                    &self.data[ct_index],
-                    e.pbs_info().modop_rlweq(),
-                    coeff_index,
-                );
-                lwe_out
-            })
+    impl<C, S> NonInteractiveSeededFheBools<C, S> {
+        /// Unseed `Self`'s collection of RLWE ciphertexts into `NonInteractiveBatchedFheBools`
+        pub fn unseed<M>(&self) -> NonInteractiveBatchedFheBools<M>
+        where
+            NonInteractiveBatchedFheBools<M>: for<'a> From<&'a Self>,
+        {
+            NonInteractiveBatchedFheBools::from(self)
         }
     }
 
-    impl<M: MatrixEntity + MatrixMut<MatElement = u64>> From<&(Vec<M::R>, [u8; 32])>
-        for NonInteractiveBatchedFheBools<M>
-    where
-        <M as Matrix>::R: RowMut,
-    {
-        /// Derive `NonInteractiveBatchedFheBools` from a vector seeded RLWE
-        /// ciphertexts (Vec<RLWE>, Seed)
-        ///
-        /// Unseed the RLWE ciphertexts and store them as vector RLWE
-        /// ciphertexts in `NonInteractiveBatchedFheBools`
-        fn from(value: &(Vec<M::R>, [u8; 32])) -> Self {
-            BoolEvaluator::with_local(|e| {
-                let parameters = e.parameters();
-                let ring_size = parameters.rlwe_n().0;
-                let rlwe_q = parameters.rlwe_q();
-
-                let mut prng = DefaultSecureRng::new_seeded(value.1);
-                let rlwes = value
-                    .0
-                    .iter()
-                    .map(|partb| {
-                        let mut rlwe = M::zeros(2, ring_size);
-
-                        // sample A
-                        RandomFillUniformInModulus::random_fill(
-                            &mut prng,
-                            rlwe_q,
-                            rlwe.get_row_mut(0),
-                        );
-
-                        // Copy over B
-                        rlwe.get_row_mut(1).copy_from_slice(partb.as_ref());
-
-                        rlwe
-                    })
-                    .collect_vec();
-                Self { data: rlwes }
-            })
+    impl<C, S> From<NonInteractiveSeededFheBools<C, S>> for (Vec<C>, S) {
+        fn from(value: NonInteractiveSeededFheBools<C, S>) -> Self {
+            (value.data, value.seed)
         }
     }
 
-    impl<K> Encryptor<[bool], NonInteractiveBatchedFheBools<Mat>> for K
-    where
-        K: Encryptor<[bool], (Mat, [u8; 32])>,
-    {
-        /// Encrypt a vector bool of arbitrary length as vector of unseeded RLWE
-        /// ciphertexts in `NonInteractiveBatchedFheBools`
-        fn encrypt(&self, m: &[bool]) -> NonInteractiveBatchedFheBools<Mat> {
-            NonInteractiveBatchedFheBools::from(&K::encrypt(&self, m))
-        }
-    }
-
-    impl<K> Encryptor<[bool], (Vec<<Mat as Matrix>::R>, [u8; 32])> for K
+    impl<K> Encryptor<[bool], NonInteractiveSeededFheBools<<Mat as Matrix>::R, [u8; 32]>> for K
     where
         K: NonInteractiveMultiPartyClientKey,
         <Mat as Matrix>::R:
@@ -307,7 +247,10 @@ mod impl_enc_dec {
     {
         /// Encrypt a vector of bool of arbitrary length as vector of seeded
         /// RLWE ciphertexts and returns (Vec<RLWE>, Seed)
-        fn encrypt(&self, m: &[bool]) -> (Mat, [u8; 32]) {
+        fn encrypt(
+            &self,
+            m: &[bool],
+        ) -> NonInteractiveSeededFheBools<<Mat as Matrix>::R, [u8; 32]> {
             BoolEvaluator::with_local(|e| {
                 DefaultSecureRng::with_local_mut(|rng| {
                     let parameters = e.parameters();
@@ -356,46 +299,57 @@ mod impl_enc_dec {
                         })
                         .collect_vec();
 
-                    (rlwes, seed)
+                    NonInteractiveSeededFheBools {
+                        data: rlwes,
+                        seed,
+                        count: m.len(),
+                    }
                 })
             })
         }
     }
 
-    impl<K> MultiPartyDecryptor<bool, <Mat as Matrix>::R> for K
+    impl<M: MatrixEntity + MatrixMut<MatElement = u64>>
+        From<&NonInteractiveSeededFheBools<<Mat as Matrix>::R, [u8; 32]>>
+        for NonInteractiveBatchedFheBools<M>
     where
-        K: NonInteractiveMultiPartyClientKey,
-        <Mat as Matrix>::R:
-            TryConvertFrom1<[K::Element], CiphertextModulus<<Mat as Matrix>::MatElement>>,
+        <M as Matrix>::R: RowMut,
     {
-        type DecryptionShare = <Mat as Matrix>::MatElement;
-
-        fn gen_decryption_share(&self, c: &<Mat as Matrix>::R) -> Self::DecryptionShare {
+        /// Derive `NonInteractiveBatchedFheBools` from a vector seeded RLWE
+        /// ciphertexts (Vec<RLWE>, Seed)
+        ///
+        /// Unseed the RLWE ciphertexts and store them as vector RLWE
+        /// ciphertexts in `NonInteractiveBatchedFheBools`
+        fn from(value: &NonInteractiveSeededFheBools<<Mat as Matrix>::R, [u8; 32]>) -> Self {
             BoolEvaluator::with_local(|e| {
-                DefaultSecureRng::with_local_mut(|rng| {
-                    multi_party_decryption_share(
-                        c,
-                        self.sk_rlwe().as_slice(),
-                        e.pbs_info().modop_rlweq(),
-                        rng,
-                    )
-                })
-            })
-        }
+                let parameters = e.parameters();
+                let ring_size = parameters.rlwe_n().0;
+                let rlwe_q = parameters.rlwe_q();
 
-        fn aggregate_decryption_shares(
-            &self,
-            c: &<Mat as Matrix>::R,
-            shares: &[Self::DecryptionShare],
-        ) -> bool {
-            BoolEvaluator::with_local(|e| {
-                let noisy_m = multi_party_aggregate_decryption_shares_and_decrypt(
-                    c,
-                    shares,
-                    e.pbs_info().modop_rlweq(),
-                );
+                let mut prng = DefaultSecureRng::new_seeded(value.seed);
+                let rlwes = value
+                    .data
+                    .iter()
+                    .map(|partb| {
+                        let mut rlwe = M::zeros(2, ring_size);
 
-                e.pbs_info().rlwe_q().decode(noisy_m)
+                        // sample A
+                        RandomFillUniformInModulus::random_fill(
+                            &mut prng,
+                            rlwe_q,
+                            rlwe.get_row_mut(0),
+                        );
+
+                        // Copy over B
+                        rlwe.get_row_mut(1).copy_from_slice(partb.as_ref());
+
+                        rlwe
+                    })
+                    .collect_vec();
+                Self {
+                    data: rlwes,
+                    count: value.count,
+                }
             })
         }
     }
@@ -443,7 +397,45 @@ mod impl_enc_dec {
                 .iter()
                 .map(|c| c.key_switch(user_id))
                 .collect_vec();
-            BatchedFheBools { data }
+            BatchedFheBools::new(data, self.count)
+        }
+    }
+
+    impl<K> MultiPartyDecryptor<bool, <Mat as Matrix>::R> for K
+    where
+        K: NonInteractiveMultiPartyClientKey,
+        <Mat as Matrix>::R:
+            TryConvertFrom1<[K::Element], CiphertextModulus<<Mat as Matrix>::MatElement>>,
+    {
+        type DecryptionShare = <Mat as Matrix>::MatElement;
+
+        fn gen_decryption_share(&self, c: &<Mat as Matrix>::R) -> Self::DecryptionShare {
+            BoolEvaluator::with_local(|e| {
+                DefaultSecureRng::with_local_mut(|rng| {
+                    multi_party_decryption_share(
+                        c,
+                        self.sk_rlwe().as_slice(),
+                        e.pbs_info().modop_rlweq(),
+                        rng,
+                    )
+                })
+            })
+        }
+
+        fn aggregate_decryption_shares(
+            &self,
+            c: &<Mat as Matrix>::R,
+            shares: &[Self::DecryptionShare],
+        ) -> bool {
+            BoolEvaluator::with_local(|e| {
+                let noisy_m = multi_party_aggregate_decryption_shares_and_decrypt(
+                    c,
+                    shares,
+                    e.pbs_info().modop_rlweq(),
+                );
+
+                e.pbs_info().rlwe_q().decode(noisy_m)
+            })
         }
     }
 }
