@@ -180,7 +180,7 @@ impl Global for RuntimeServerKey {
 }
 
 /// `Self::data` stores collection of seeded RLWE ciphertexts encrypted unser user j's RLWE secret `u_j`.
-pub(crate) struct NonInteractiveSeededFheBools<C, S> {
+pub struct NonInteractiveSeededFheBools<C, S> {
     data: Vec<C>,
     seed: S,
     count: usize,

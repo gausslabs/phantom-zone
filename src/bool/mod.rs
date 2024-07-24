@@ -242,7 +242,7 @@ mod common_mp_enc_dec {
     ///
     /// Bool ciphertext at `index` can be extracted from the coefficient at `index %
     /// N` of `index / N`th RLWE ciphertext.
-    pub(crate) struct BatchedFheBools<C> {
+    pub struct BatchedFheBools<C> {
         data: Vec<C>,
         count: usize,
     }
