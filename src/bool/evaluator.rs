@@ -61,7 +61,7 @@ use super::{
 ///         Puncture 2 -> Main server key share seed
 ///             Puncture 1 -> Auto keys cipertexts seed
 ///             Puncture 2 -> LWE ksk seed
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct InteractiveMultiPartyCrs<S> {
     pub(super) seed: S,
 }

@@ -194,6 +194,7 @@ pub struct NonInteractiveBatchedFheBools<C> {
 ///
 /// To extract bool ciphertext at `index` as LWE ciphertext use
 /// `self.extract(index)`
+#[derive(Serialize, Deserialize)]
 pub struct BatchedFheBools<C> {
     pub data: Vec<C>,
 }

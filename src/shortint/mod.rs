@@ -3,7 +3,11 @@ mod ops;
 
 pub type FheUint8 = enc_dec::FheUint8<Vec<u64>>;
 
+#[cfg(feature = "non_interactive_mp")]
 pub type EncFheUint8 = enc_dec::SeededBatchedFheUint8<Vec<u64>, [u8; 32]>;
+
+#[cfg(feature = "interactive_mp")]
+pub type EncFheUint8 = enc_dec::BatchedFheUint8<std::vec::Vec<std::vec::Vec<u64>>>;
 
 use std::cell::RefCell;
 
