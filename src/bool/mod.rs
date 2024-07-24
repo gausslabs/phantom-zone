@@ -267,17 +267,19 @@ mod common_mp_enc_dec {
     {
         fn extract_all(&self) -> Vec<FheBool<M::R>> {
             if self.data.len() > 0 {
-                let ring_size = self.data[0].dimension().0;
+                let ring_size = self.data[0].dimension().1;
 
-                let index = 0;
+                let mut index = 0;
                 let mut out = Vec::with_capacity(self.count);
 
                 while index < self.count {
                     let row = index % ring_size;
                     let col = index / ring_size;
+
                     out.push(FheBool {
                         data: SampleExtractor::extract_at(&self.data[col], row),
                     });
+                    index += 1;
                 }
 
                 out
@@ -288,7 +290,7 @@ mod common_mp_enc_dec {
         fn extract_at(&self, index: usize) -> FheBool<M::R> {
             assert!(self.count > index);
 
-            let ring_size = self.data[0].dimension().0;
+            let ring_size = self.data[0].dimension().1;
             let row = index % ring_size;
             let col = index / ring_size;
 
@@ -299,9 +301,9 @@ mod common_mp_enc_dec {
 
         fn extract_many(&self, how_many: usize) -> Vec<FheBool<M::R>> {
             assert!(self.count >= how_many);
-            let ring_size = self.data[0].dimension().0;
+            let ring_size = self.data[0].dimension().1;
 
-            let index = 0;
+            let mut index = 0;
             let mut out = Vec::with_capacity(self.count);
 
             while index < how_many {
@@ -310,6 +312,7 @@ mod common_mp_enc_dec {
                 out.push(FheBool {
                     data: SampleExtractor::extract_at(&self.data[col], row),
                 });
+                index += 1;
             }
 
             out

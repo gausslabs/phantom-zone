@@ -36,6 +36,7 @@ static BOOL_SERVER_KEY: OnceLock<ShoupNonInteractiveServerKeyEvaluationDomain<Ve
 
 static MULTI_PARTY_CRS: OnceLock<NonInteractiveMultiPartyCrs<[u8; 32]>> = OnceLock::new();
 
+#[derive(Copy, Clone)]
 pub enum ParameterSelector {
     NonInteractiveLTE2Party,
     NonInteractiveLTE4Party,
