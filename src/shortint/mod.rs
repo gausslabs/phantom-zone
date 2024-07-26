@@ -6,6 +6,7 @@ pub type FheUint8 = enc_dec::FheUint8<Vec<u64>>;
 use std::cell::RefCell;
 
 use crate::bool::{BoolEvaluator, BooleanGates, FheBool, RuntimeServerKey};
+pub use enc_dec::SeededBatchedFheUint8;
 
 thread_local! {
      static DIV_ZERO_ERROR: RefCell<Option<FheBool>> = RefCell::new(None);
