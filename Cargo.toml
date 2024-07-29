@@ -1,0 +1,13 @@
+[workspace]
+members = ["math", "crypto"]
+resolver = "2"
+
+[workspace.dependencies]
+criterion = "0.5.1"
+itertools = "0.13.0"
+num-bigint-dig = "0.8.4"
+num-complex = "0.4.6"
+num-traits = "0.2.19"
+rand = "0.8.5"
+rand_chacha = "0.3.1"
+rand_distr = "0.4.3"
