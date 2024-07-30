@@ -470,7 +470,7 @@ mod tests {
         );
     }
 
-    const K: usize = 10;
+    const K: usize = 2000;
 
     #[test]
     #[cfg(feature = "interactive_mp")]
@@ -626,12 +626,12 @@ mod tests {
             RuntimeServerKey, SampleExtractor,
         };
 
-        set_parameter_set(ParameterSelector::NonInteractiveLTE8Party);
+        set_parameter_set(ParameterSelector::NonInteractiveLTE40PartyExperimental);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
         set_common_reference_seed(seed);
 
-        let parties = 8;
+        let parties = 40;
 
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
 

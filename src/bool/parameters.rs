@@ -703,6 +703,34 @@ pub(crate) const NI_8P: BoolParameters<u64> = BoolParameters::<u64> {
     variant: ParameterVariant::NonInteractiveMultiParty,
 };
 
+/// 40 Party Non-interactive parameter set (Failuter probability: < 2^{-30} )
+pub(crate) const NI_40P: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    rlwe_q: CiphertextModulus::new_non_native(18014398509404161),
+    lwe_q: CiphertextModulus::new_non_native(1 << 20),
+    br_q: 1 << 12,
+    rlwe_n: PolynomialSize(1 << 11),
+    lwe_n: LweDimension(780),
+    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(18)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(11),
+        (DecompositionCount(2), DecompositionCount(1)),
+    ),
+    rgrg_decomposer_params: Some((
+        DecompostionLogBase(2),
+        (DecompositionCount(19), DecompositionCount(15)),
+    )),
+    auto_decomposer_params: (DecompostionLogBase(24), DecompositionCount(1)),
+    non_interactive_ui_to_s_key_switch_decomposer: Some((
+        DecompostionLogBase(1),
+        DecompositionCount(49),
+    )),
+    g: 5,
+    w: 10,
+    variant: ParameterVariant::NonInteractiveMultiParty,
+};
+
 #[cfg(test)]
 pub(crate) const SP_TEST_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
