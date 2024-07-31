@@ -16,5 +16,5 @@ rustfft = { workspace = true }
 criterion = { workspace = true }
 
 [[bench]]
-name = "ring_mul"
+name = "poly_mul"
 harness = false

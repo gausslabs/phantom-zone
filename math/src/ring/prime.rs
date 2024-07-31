@@ -1,10 +1,13 @@
 use crate::{
     distribution::Sampler,
     misc::bit_reverse,
-    prime::{mod_inv, mod_powers, two_adic_generator},
+    modulus::{Modulus, Prime},
     ring::{ArithmeticOps, ElemFrom, RingOps, SliceOps},
 };
-use itertools::{izip, Itertools};
+use core::iter::successors;
+use itertools::izip;
+use num_bigint_dig::BigUint;
+use num_traits::ToPrimitive;
 use rand::{
     distributions::{Distribution, Uniform},
     RngCore,
@@ -47,29 +50,19 @@ pub struct PrimeRing {
 }
 
 impl PrimeRing {
-    pub fn new(q: u64, ring_size: usize) -> Self {
+    fn new(Prime(q): Prime, ring_size: usize) -> Self {
         assert!(ring_size.is_power_of_two());
 
-        // largest unsigned value modulus fits is modulus-1
         let log_q = q.next_power_of_two().ilog2() as usize;
 
-        // barrett calculation
         let barrett_mu = (1u128 << (log_q * 2 + 3)) / (q as u128);
         let barrett_alpha = log_q + 3;
 
         let g = two_adic_generator(q, ring_size.ilog2() as usize + 1);
-        let twiddle_bo = bit_reverse(
-            mod_powers(g, q)
-                .take(ring_size)
-                .map(|v| Shoup::new(v, q))
-                .collect_vec(),
-        );
-        let twiddle_bo_inv = bit_reverse(
-            mod_powers(mod_inv(g, q), q)
-                .take(ring_size)
-                .map(|v| Shoup::new(v, q))
-                .collect_vec(),
-        );
+        let [twiddle_bo, twiddle_bo_inv] = [g, mod_inv(g, q)]
+            .map(|b| mod_powers(b, q).take(ring_size).map(|v| Shoup::new(v, q)))
+            .map(FromIterator::from_iter)
+            .map(bit_reverse);
         let n_inv = Shoup::new(mod_inv(ring_size as _, q), q);
 
         PrimeRing {
@@ -96,14 +89,14 @@ impl PrimeRing {
     }
 
     #[inline(always)]
-    fn reduce(&self, a: &mut u64) {
+    fn reduce_assign(&self, a: &mut u64) {
         if *a >= self.q {
             *a -= self.q
         }
     }
 
     #[inline(always)]
-    fn reduce_twice(&self, a: &mut u64) {
+    fn reduce_twice_assign(&self, a: &mut u64) {
         if *a >= self.q_twice {
             *a -= self.q_twice
         }
@@ -113,7 +106,7 @@ impl PrimeRing {
     fn dit_lazy(&self, a: &mut u64, b: &mut u64, t: &Shoup) {
         debug_assert!(*a < self.q_quart);
         debug_assert!(*b < self.q_quart);
-        self.reduce_twice(a);
+        self.reduce_twice_assign(a);
         let bt = self.mul_prep(b, t);
         let c = *a + bt;
         let d = *a + self.q_twice - bt;
@@ -125,7 +118,7 @@ impl PrimeRing {
     fn dit(&self, a: &mut u64, b: &mut u64, t: &Shoup) {
         debug_assert!(*a < self.q_quart);
         debug_assert!(*b < self.q_quart);
-        self.reduce_twice(a);
+        self.reduce_twice_assign(a);
         let bt = self.mul_prep(b, t);
         let c = a.wrapping_add(bt);
         let d = a.wrapping_sub(bt);
@@ -138,7 +131,7 @@ impl PrimeRing {
         debug_assert!(*a < self.q_twice);
         debug_assert!(*b < self.q_twice);
         let mut c = *a + *b;
-        self.reduce_twice(&mut c);
+        self.reduce_twice_assign(&mut c);
         let d = self.mul_prep(&(*a + self.q_twice - *b), t);
         *a = c;
         *b = d;
@@ -204,7 +197,7 @@ impl ArithmeticOps for PrimeRing {
         debug_assert!(*a < self.q);
         debug_assert!(*b < self.q);
         let mut c = a + b;
-        self.reduce(&mut c);
+        self.reduce_assign(&mut c);
         c
     }
 
@@ -234,7 +227,7 @@ impl ArithmeticOps for PrimeRing {
         let tmp = k * (self.q as u128);
 
         let mut c = (ab - tmp) as u64;
-        self.reduce(&mut c);
+        self.reduce_assign(&mut c);
         c
     }
 
@@ -275,7 +268,7 @@ impl SliceOps for PrimeRing {
             debug_assert_eq!(a.len(), c.len());
             izip!(&mut *c, a, b).for_each(|(c, a, b)| {
                 *c = c.wrapping_add(self.mul_prep(a, b));
-                self.reduce_twice(c);
+                self.reduce_twice_assign(c);
             })
         });
         debug_assert!(a.next().is_none());
@@ -285,6 +278,10 @@ impl SliceOps for PrimeRing {
 
 impl RingOps for PrimeRing {
     type Eval = u64;
+
+    fn new(modulus: Modulus, ring_size: usize) -> Self {
+        Self::new(modulus.try_into().unwrap(), ring_size)
+    }
 
     fn eval_ops(&self) -> &impl SliceOps<Elem = Self::Eval> {
         self
@@ -315,7 +312,7 @@ impl RingOps for PrimeRing {
         debug_assert_eq!(b.len(), self.ring_size());
         b.copy_from_slice(a);
         self.intt(b);
-        b.iter_mut().for_each(|b| self.reduce(b));
+        b.iter_mut().for_each(|b| self.reduce_assign(b));
     }
 
     fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
@@ -331,7 +328,7 @@ impl RingOps for PrimeRing {
         debug_assert_eq!(b.len(), self.ring_size());
         self.intt(a);
         izip!(b, a).for_each(|(b, a)| {
-            self.reduce(a);
+            self.reduce_assign(a);
             *b = self.add(a, b);
         })
     }
@@ -343,14 +340,43 @@ impl Sampler for PrimeRing {
     }
 }
 
+fn two_adic_generator(q: u64, two_adicity: usize) -> u64 {
+    assert_eq!((q - 1) % (1 << two_adicity) as u64, 0);
+    mod_pow(multiplicative_generator(q), (q - 1) >> two_adicity, q)
+}
+
+fn multiplicative_generator(q: u64) -> u64 {
+    let order = q - 1;
+    (1..order)
+        .find(|g| mod_pow(*g, order >> 1, q) == order)
+        .unwrap()
+}
+
+fn mod_pow(b: u64, e: u64, q: u64) -> u64 {
+    BigUint::from(b)
+        .modpow(&e.into(), &q.into())
+        .to_u64()
+        .unwrap()
+}
+
+fn mod_inv(v: u64, q: u64) -> u64 {
+    mod_pow(v, q - 2, q)
+}
+
+fn mod_powers(b: u64, q: u64) -> impl Iterator<Item = u64> {
+    successors(Some(1), move |v| {
+        (((*v as u128 * b as u128) % q as u128) as u64).into()
+    })
+}
+
 #[cfg(test)]
 mod test {
     use crate::{
         distribution::Sampler,
-        prime::two_adic_primes,
+        modulus::Prime,
         ring::{
             prime::PrimeRing,
-            test::{test_ring_mul, test_round_trip},
+            test::{test_poly_mul, test_round_trip},
             RingOps,
         },
     };
@@ -360,7 +386,7 @@ mod test {
     fn round_trip() {
         let mut rng = thread_rng();
         for log_ring_size in 0..12 {
-            for q in two_adic_primes(50, log_ring_size + 1).take(10) {
+            for q in Prime::gen_iter(50, log_ring_size + 1).take(10) {
                 let ring = PrimeRing::new(q, 1 << log_ring_size);
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 test_round_trip(&ring, &a, |a, b| assert_eq!(a, b));
@@ -369,14 +395,14 @@ mod test {
     }
 
     #[test]
-    fn ring_mul() {
+    fn poly_mul() {
         let mut rng = thread_rng();
         for log_ring_size in 0..12 {
-            for q in two_adic_primes(50, log_ring_size + 1).take(10) {
+            for q in Prime::gen_iter(50, log_ring_size + 1).take(10) {
                 let ring = PrimeRing::new(q, 1 << log_ring_size);
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 let b = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
-                test_ring_mul(&ring, &a, &b, |a, b| assert_eq!(a, b));
+                test_poly_mul(&ring, &a, &b, |a, b| assert_eq!(a, b));
             }
         }
     }

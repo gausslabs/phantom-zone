@@ -1,10 +1,10 @@
+use crate::modulus::Modulus;
 use core::fmt::Debug;
 use itertools::izip;
 
 pub(crate) mod ffnt;
-pub mod po2;
+pub mod power_of_two;
 pub mod prime;
-pub mod word;
 
 pub trait ArithmeticOps {
     type Elem: Clone + Copy + Debug + Default + 'static;
@@ -205,6 +205,8 @@ pub trait SliceOps: ArithmeticOps {
 pub trait RingOps: SliceOps + ElemFrom<u64> + ElemFrom<i64> {
     type Eval: Clone + Copy + Debug + Default + 'static;
 
+    fn new(modulus: Modulus, ring_size: usize) -> Self;
+
     fn eval_ops(&self) -> &impl SliceOps<Elem = Self::Eval>;
 
     fn ring_size(&self) -> usize;
@@ -225,7 +227,7 @@ pub trait RingOps: SliceOps + ElemFrom<u64> + ElemFrom<i64> {
 
     fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]);
 
-    fn ring_mul(
+    fn poly_mul(
         &self,
         c: &mut [Self::Elem],
         a: &[Self::Elem],
@@ -293,7 +295,7 @@ mod test {
         izip!(a, &c).for_each(|(a, c)| assert_fn(a, c));
     }
 
-    pub(crate) fn test_ring_mul<R: RingOps>(
+    pub(crate) fn test_poly_mul<R: RingOps>(
         ring: &R,
         a: &[R::Elem],
         b: &[R::Elem],
@@ -301,7 +303,7 @@ mod test {
     ) {
         let mut c = vec![Default::default(); ring.ring_size()];
         let mut scratch = vec![Default::default(); ring.scratch_size()];
-        ring.ring_mul(&mut c, a, b, &mut scratch);
+        ring.poly_mul(&mut c, a, b, &mut scratch);
         izip!(&c, nega_cyclic_schoolbook_mul(ring, a, b)).for_each(|(a, b)| assert_fn(a, &b));
     }
 }
