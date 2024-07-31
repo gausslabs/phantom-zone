@@ -1,7 +1,7 @@
 use crate::{
     distribution::Sampler,
     modulus::{Modulus, PowerOfTwo},
-    ring::{ffnt::Ffnt, ArithmeticOps, ElemFrom, RingOps, SliceOps},
+    ring::{ffnt::Ffnt, ArithmeticOps, ElemFrom, ElemTo, RingOps, SliceOps},
 };
 use num_complex::Complex64;
 use rand::RngCore;
@@ -18,12 +18,13 @@ pub struct PowerOfTwoRing<const NATIVE: bool = false> {
 
 impl<const NATIVE: bool> PowerOfTwoRing<NATIVE> {
     fn new(PowerOfTwo(log_q): PowerOfTwo, ring_size: usize) -> Self {
-        if NATIVE {
+        let mask = if NATIVE {
             assert_eq!(log_q, 64);
+            u64::MAX
         } else {
             assert!(log_q < 64);
-        }
-        let mask = (1 << log_q) - 1;
+            (1 << log_q) - 1
+        };
         let ffnt = Ffnt::new(ring_size);
         Self { log_q, mask, ffnt }
     }
@@ -98,14 +99,44 @@ impl<const NATIVE: bool> ArithmeticOps for PowerOfTwoRing<NATIVE> {
 }
 
 impl<const NATIVE: bool> ElemFrom<u64> for PowerOfTwoRing<NATIVE> {
+    #[inline(always)]
     fn elem_from(&self, v: u64) -> Self::Elem {
         self.reduce(v)
     }
 }
 
 impl<const NATIVE: bool> ElemFrom<i64> for PowerOfTwoRing<NATIVE> {
+    #[inline(always)]
     fn elem_from(&self, v: i64) -> Self::Elem {
         self.reduce(v as u64)
+    }
+}
+
+impl<const NATIVE: bool> ElemFrom<u32> for PowerOfTwoRing<NATIVE> {
+    #[inline(always)]
+    fn elem_from(&self, v: u32) -> Self::Elem {
+        self.elem_from(v as u64)
+    }
+}
+
+impl<const NATIVE: bool> ElemFrom<i32> for PowerOfTwoRing<NATIVE> {
+    #[inline(always)]
+    fn elem_from(&self, v: i32) -> Self::Elem {
+        self.elem_from(v as i64)
+    }
+}
+
+impl<const NATIVE: bool> ElemTo<u64> for PowerOfTwoRing<NATIVE> {
+    #[inline(always)]
+    fn elem_to(&self, v: Self::Elem) -> u64 {
+        v
+    }
+}
+
+impl<const NATIVE: bool> ElemTo<i64> for PowerOfTwoRing<NATIVE> {
+    #[inline(always)]
+    fn elem_to(&self, v: Self::Elem) -> i64 {
+        self.to_i64(v)
     }
 }
 

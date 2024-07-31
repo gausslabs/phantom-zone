@@ -1,4 +1,4 @@
-use crate::modulus::Modulus;
+use crate::{distribution::Sampler, modulus::Modulus};
 use core::fmt::Debug;
 use itertools::izip;
 
@@ -52,6 +52,10 @@ pub trait ArithmeticOps {
 
 pub trait ElemFrom<T>: ArithmeticOps {
     fn elem_from(&self, v: T) -> Self::Elem;
+}
+
+pub trait ElemTo<T>: ArithmeticOps {
+    fn elem_to(&self, v: Self::Elem) -> T;
 }
 
 pub trait SliceOps: ArithmeticOps {
@@ -165,6 +169,25 @@ pub trait SliceOps: ArithmeticOps {
         izip!(c, a, b).for_each(|(c, a, b)| *c = self.mul_elem_from(a, b))
     }
 
+    fn slice_dot(&self, a: &[Self::Elem], b: &[Self::Elem]) -> Self::Elem {
+        debug_assert_eq!(a.len(), b.len());
+        izip!(a, b)
+            .map(|(a, b)| self.mul(a, b))
+            .reduce(|a, b| self.add(&a, &b))
+            .unwrap_or_else(|| self.zero())
+    }
+
+    fn slice_dot_elem_from<T: Copy>(&self, a: &[Self::Elem], b: &[T]) -> Self::Elem
+    where
+        Self: ElemFrom<T>,
+    {
+        debug_assert_eq!(a.len(), b.len());
+        izip!(a, b)
+            .map(|(a, b)| self.mul_elem_from(a, b))
+            .reduce(|a, b| self.add(&a, &b))
+            .unwrap_or_else(|| self.zero())
+    }
+
     fn slice_fma(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Elem]) {
         debug_assert_eq!(a.len(), b.len());
         debug_assert_eq!(a.len(), c.len());
@@ -202,7 +225,16 @@ pub trait SliceOps: ArithmeticOps {
     }
 }
 
-pub trait RingOps: SliceOps + ElemFrom<u64> + ElemFrom<i64> {
+pub trait RingOps:
+    SliceOps
+    + Sampler
+    + ElemFrom<u64>
+    + ElemFrom<i64>
+    + ElemFrom<u32>
+    + ElemFrom<i32>
+    + ElemTo<u64>
+    + ElemTo<i64>
+{
     type Eval: Clone + Copy + Debug + Default + 'static;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self;

@@ -27,6 +27,13 @@ pub trait Sampler: ArithmeticOps {
         dist.sample_iter(rng).map(|v| self.elem_from(v))
     }
 
+    fn sample_into<T>(&self, out: &mut [Self::Elem], dist: impl Distribution<T>, rng: impl RngCore)
+    where
+        Self: ElemFrom<T>,
+    {
+        izip!(out, self.sample_iter(dist, rng)).for_each(|(a, b)| *a = b);
+    }
+
     fn sample_vec<T>(
         &self,
         n: usize,
@@ -45,29 +52,44 @@ pub trait Sampler: ArithmeticOps {
         repeat_with(move || self.sample_uniform(&mut rng))
     }
 
+    fn sample_uniform_into(&self, out: &mut [Self::Elem], rng: impl RngCore) {
+        izip!(out, self.sample_uniform_iter(rng)).for_each(|(a, b)| *a = b);
+    }
+
     fn sample_uniform_vec(&self, n: usize, rng: impl RngCore) -> Vec<Self::Elem> {
         self.sample_uniform_iter(rng).take(n).collect()
     }
 
-    fn sample_gauss(&self, std_dev: f64, rng: impl RngCore) -> Self::Elem
+    fn sample_gaussian(&self, std_dev: f64, rng: impl RngCore) -> Self::Elem
     where
         Self: ElemFrom<i64>,
     {
         self.elem_from(sample_gaussian(std_dev, rng))
     }
 
-    fn sample_gauss_iter(&self, std_dev: f64, rng: impl RngCore) -> impl Iterator<Item = Self::Elem>
+    fn sample_gaussian_iter(
+        &self,
+        std_dev: f64,
+        rng: impl RngCore,
+    ) -> impl Iterator<Item = Self::Elem>
     where
         Self: ElemFrom<i64>,
     {
         sample_gaussian_iter(std_dev, rng).map(|v| self.elem_from(v))
     }
 
-    fn sample_gauss_vec(&self, std_dev: f64, n: usize, rng: impl RngCore) -> Vec<Self::Elem>
+    fn sample_gaussian_into(&self, out: &mut [Self::Elem], std_dev: f64, rng: impl RngCore)
     where
         Self: ElemFrom<i64>,
     {
-        self.sample_gauss_iter(std_dev, rng).take(n).collect()
+        izip!(out, self.sample_gaussian_iter(std_dev, rng)).for_each(|(a, b)| *a = b);
+    }
+
+    fn sample_gaussian_vec(&self, std_dev: f64, n: usize, rng: impl RngCore) -> Vec<Self::Elem>
+    where
+        Self: ElemFrom<i64>,
+    {
+        self.sample_gaussian_iter(std_dev, rng).take(n).collect()
     }
 }
 

@@ -358,6 +358,7 @@ dependencies = [
  "itertools 0.13.0",
  "num-bigint-dig",
  "num-traits",
+ "phantom-zone-math",
  "rand",
  "rand_chacha",
  "rand_distr",

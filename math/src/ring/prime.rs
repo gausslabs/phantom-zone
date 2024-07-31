@@ -2,7 +2,7 @@ use crate::{
     distribution::Sampler,
     misc::bit_reverse,
     modulus::{Modulus, Prime},
-    ring::{ArithmeticOps, ElemFrom, RingOps, SliceOps},
+    ring::{ArithmeticOps, ElemFrom, ElemTo, RingOps, SliceOps},
 };
 use core::iter::successors;
 use itertools::izip;
@@ -80,6 +80,7 @@ impl PrimeRing {
         }
     }
 
+    #[inline(always)]
     pub fn to_i64(&self, v: u64) -> i64 {
         if v < self.q_half {
             v as _
@@ -244,14 +245,44 @@ impl ArithmeticOps for PrimeRing {
 }
 
 impl ElemFrom<u64> for PrimeRing {
+    #[inline(always)]
     fn elem_from(&self, v: u64) -> Self::Elem {
         v % self.q
     }
 }
 
 impl ElemFrom<i64> for PrimeRing {
+    #[inline(always)]
     fn elem_from(&self, v: i64) -> Self::Elem {
         v.rem_euclid(self.q as _) as _
+    }
+}
+
+impl ElemFrom<u32> for PrimeRing {
+    #[inline(always)]
+    fn elem_from(&self, v: u32) -> Self::Elem {
+        self.elem_from(v as u64)
+    }
+}
+
+impl ElemFrom<i32> for PrimeRing {
+    #[inline(always)]
+    fn elem_from(&self, v: i32) -> Self::Elem {
+        self.elem_from(v as i64)
+    }
+}
+
+impl ElemTo<u64> for PrimeRing {
+    #[inline(always)]
+    fn elem_to(&self, v: Self::Elem) -> u64 {
+        v
+    }
+}
+
+impl ElemTo<i64> for PrimeRing {
+    #[inline(always)]
+    fn elem_to(&self, v: Self::Elem) -> i64 {
+        self.to_i64(v)
     }
 }
 
