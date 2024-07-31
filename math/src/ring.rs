@@ -24,9 +24,34 @@ pub trait ArithmeticOps {
 
     fn mul(&self, a: &Self::Elem, b: &Self::Elem) -> Self::Elem;
 
+    fn add_elem_from<T: Copy>(&self, a: &Self::Elem, b: &T) -> Self::Elem
+    where
+        Self: ElemFrom<T>,
+    {
+        self.add(a, &self.elem_from(*b))
+    }
+
+    fn sub_elem_from<T: Copy>(&self, a: &Self::Elem, b: &T) -> Self::Elem
+    where
+        Self: ElemFrom<T>,
+    {
+        self.sub(a, &self.elem_from(*b))
+    }
+
+    fn mul_elem_from<T: Copy>(&self, a: &Self::Elem, b: &T) -> Self::Elem
+    where
+        Self: ElemFrom<T>,
+    {
+        self.mul(a, &self.elem_from(*b))
+    }
+
     fn prepare(&self, a: &Self::Elem) -> Self::Prep;
 
     fn mul_prep(&self, a: &Self::Elem, b: &Self::Prep) -> Self::Elem;
+}
+
+pub trait ElemFrom<T>: ArithmeticOps {
+    fn elem_from(&self, v: T) -> Self::Elem;
 }
 
 pub trait SliceOps: ArithmeticOps {
@@ -34,27 +59,51 @@ pub trait SliceOps: ArithmeticOps {
         a.iter_mut().for_each(|a| *a = self.neg(a))
     }
 
-    fn slice_add_assign(&self, a: &mut [Self::Elem], b: &[Self::Elem]) {
+    fn slice_add_assign(&self, b: &mut [Self::Elem], a: &[Self::Elem]) {
         debug_assert_eq!(a.len(), b.len());
-        izip!(a, b).for_each(|(a, b)| *a = self.add(a, b))
+        izip!(b, a).for_each(|(b, a)| *b = self.add(b, a))
     }
 
-    fn slice_sub_assign(&self, a: &mut [Self::Elem], b: &[Self::Elem]) {
+    fn slice_sub_assign(&self, b: &mut [Self::Elem], a: &[Self::Elem]) {
         debug_assert_eq!(a.len(), b.len());
-        izip!(a, b).for_each(|(a, b)| *a = self.sub(a, b))
+        izip!(b, a).for_each(|(b, a)| *b = self.sub(b, a))
     }
 
-    fn slice_mul_assign(&self, a: &mut [Self::Elem], b: &[Self::Elem]) {
+    fn slice_mul_assign(&self, b: &mut [Self::Elem], a: &[Self::Elem]) {
         debug_assert_eq!(a.len(), b.len());
-        izip!(a, b).for_each(|(a, b)| *a = self.mul(a, b))
+        izip!(b, a).for_each(|(b, a)| *b = self.mul(b, a))
     }
 
-    fn slice_mul_elem_assign(&self, a: &mut [Self::Elem], b: &Self::Elem) {
-        a.iter_mut().for_each(|a| *a = self.mul(a, b))
+    fn slice_scalar_mul_assign(&self, b: &mut [Self::Elem], a: &Self::Elem) {
+        b.iter_mut().for_each(|b| *b = self.mul(b, a))
     }
 
-    fn slice_mul_prep_assign(&self, a: &mut [Self::Elem], b: &Self::Prep) {
-        a.iter_mut().for_each(|a| *a = self.mul_prep(a, b))
+    fn slice_scalar_mul_assign_prep(&self, b: &mut [Self::Elem], a: &Self::Prep) {
+        b.iter_mut().for_each(|b| *b = self.mul_prep(b, a))
+    }
+
+    fn slice_add_assign_elem_from<T: Copy>(&self, b: &mut [Self::Elem], a: &[T])
+    where
+        Self: ElemFrom<T>,
+    {
+        debug_assert_eq!(a.len(), b.len());
+        izip!(b, a).for_each(|(b, a)| *b = self.add_elem_from(b, a))
+    }
+
+    fn slice_sub_assign_elem_from<T: Copy>(&self, b: &mut [Self::Elem], a: &[T])
+    where
+        Self: ElemFrom<T>,
+    {
+        debug_assert_eq!(a.len(), b.len());
+        izip!(b, a).for_each(|(b, a)| *b = self.sub_elem_from(b, a))
+    }
+
+    fn slice_mul_assign_elem_from<T: Copy>(&self, b: &mut [Self::Elem], a: &[T])
+    where
+        Self: ElemFrom<T>,
+    {
+        debug_assert_eq!(a.len(), b.len());
+        izip!(b, a).for_each(|(b, a)| *b = self.mul_elem_from(b, a))
     }
 
     fn slice_neg(&self, b: &mut [Self::Elem], a: &[Self::Elem]) {
@@ -80,24 +129,60 @@ pub trait SliceOps: ArithmeticOps {
         izip!(c, a, b).for_each(|(c, a, b)| *c = self.mul(a, b))
     }
 
-    fn slice_mul_elem(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Elem) {
+    fn slice_scalar_mul(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Elem) {
         debug_assert_eq!(a.len(), c.len());
         izip!(c, a).for_each(|(c, a)| *c = self.mul(a, b))
     }
 
-    fn slice_mul_prep(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Prep) {
+    fn slice_scalar_mul_prep(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Prep) {
         izip!(c, a).for_each(|(c, a)| *c = self.mul_prep(a, b))
     }
 
-    fn fma(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Elem]) {
+    fn slice_add_elem_from<T: Copy>(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[T])
+    where
+        Self: ElemFrom<T>,
+    {
+        debug_assert_eq!(a.len(), b.len());
+        debug_assert_eq!(a.len(), c.len());
+        izip!(c, a, b).for_each(|(c, a, b)| *c = self.add_elem_from(a, b))
+    }
+
+    fn slice_sub_elem_from<T: Copy>(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[T])
+    where
+        Self: ElemFrom<T>,
+    {
+        debug_assert_eq!(a.len(), b.len());
+        debug_assert_eq!(a.len(), c.len());
+        izip!(c, a, b).for_each(|(c, a, b)| *c = self.sub_elem_from(a, b))
+    }
+
+    fn slice_mul_elem_from<T: Copy>(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[T])
+    where
+        Self: ElemFrom<T>,
+    {
+        debug_assert_eq!(a.len(), b.len());
+        debug_assert_eq!(a.len(), c.len());
+        izip!(c, a, b).for_each(|(c, a, b)| *c = self.mul_elem_from(a, b))
+    }
+
+    fn slice_fma(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Elem]) {
         debug_assert_eq!(a.len(), b.len());
         debug_assert_eq!(a.len(), c.len());
         izip!(c, a, b).for_each(|(c, a, b)| *c = self.add(c, &self.mul(a, b)))
     }
 
-    fn fma_elem(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Elem) {
+    fn slice_scalar_fma(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Elem) {
         debug_assert_eq!(a.len(), c.len());
         izip!(c, a).for_each(|(c, a)| *c = self.add(c, &self.mul(a, b)))
+    }
+
+    fn slice_fma_elem_from<T: Copy>(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[T])
+    where
+        Self: ElemFrom<T>,
+    {
+        debug_assert_eq!(a.len(), b.len());
+        debug_assert_eq!(a.len(), c.len());
+        izip!(c, a, b).for_each(|(c, a, b)| *c = self.add(c, &self.mul_elem_from(a, b)))
     }
 
     fn matrix_fma_prep<'a>(
@@ -117,7 +202,7 @@ pub trait SliceOps: ArithmeticOps {
     }
 }
 
-pub trait RingOps: SliceOps {
+pub trait RingOps: SliceOps + ElemFrom<u64> + ElemFrom<i64> {
     type Eval: Clone + Copy + Debug + Default + 'static;
 
     fn eval_ops(&self) -> &impl SliceOps<Elem = Self::Eval>;

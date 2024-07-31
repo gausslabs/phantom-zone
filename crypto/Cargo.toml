@@ -4,10 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-criterion = { workspace = true }
 itertools = { workspace = true }
 num-bigint-dig = { workspace = true, features = ["prime"] }
 num-traits = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 rand_distr = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }

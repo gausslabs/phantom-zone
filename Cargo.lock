@@ -373,6 +373,7 @@ dependencies = [
  "num-complex",
  "num-traits",
  "rand",
+ "rand_distr",
  "rustfft",
 ]
 

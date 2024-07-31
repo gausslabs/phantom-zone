@@ -2,7 +2,7 @@ use crate::{
     distribution::Sampler,
     misc::bit_reverse,
     prime::{mod_inv, mod_powers, two_adic_generator},
-    ring::{ArithmeticOps, RingOps, SliceOps},
+    ring::{ArithmeticOps, ElemFrom, RingOps, SliceOps},
 };
 use itertools::{izip, Itertools};
 use rand::{
@@ -171,7 +171,7 @@ impl PrimeRing {
     }
 
     fn normalize(&self, a: &mut [u64]) {
-        self.slice_mul_prep_assign(a, &self.n_inv);
+        self.slice_scalar_mul_assign_prep(a, &self.n_inv);
     }
 }
 
@@ -250,6 +250,18 @@ impl ArithmeticOps for PrimeRing {
     }
 }
 
+impl ElemFrom<u64> for PrimeRing {
+    fn elem_from(&self, v: u64) -> Self::Elem {
+        v % self.q
+    }
+}
+
+impl ElemFrom<i64> for PrimeRing {
+    fn elem_from(&self, v: i64) -> Self::Elem {
+        v.rem_euclid(self.q as _) as _
+    }
+}
+
 impl SliceOps for PrimeRing {
     fn matrix_fma_prep<'a>(
         &self,
@@ -325,12 +337,8 @@ impl RingOps for PrimeRing {
     }
 }
 
-impl Sampler<u64> for PrimeRing {
-    fn from_i64(&self, v: i64) -> u64 {
-        v.rem_euclid(self.q as _) as _
-    }
-
-    fn sample_uniform(&self, mut rng: impl RngCore) -> u64 {
+impl Sampler for PrimeRing {
+    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
         Uniform::new(0, self.q).sample(&mut rng)
     }
 }

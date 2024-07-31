@@ -1,6 +1,6 @@
 use crate::{
     distribution::Sampler,
-    ring::{ffnt::Ffnt, ArithmeticOps, RingOps, SliceOps},
+    ring::{ffnt::Ffnt, ArithmeticOps, ElemFrom, RingOps, SliceOps},
 };
 use num_complex::Complex64;
 use rand::RngCore;
@@ -67,6 +67,18 @@ impl ArithmeticOps for U64Ring {
     }
 }
 
+impl ElemFrom<u64> for U64Ring {
+    fn elem_from(&self, v: u64) -> Self::Elem {
+        v
+    }
+}
+
+impl ElemFrom<i64> for U64Ring {
+    fn elem_from(&self, v: i64) -> Self::Elem {
+        v as _
+    }
+}
+
 impl SliceOps for U64Ring {}
 
 impl RingOps for U64Ring {
@@ -106,12 +118,8 @@ impl RingOps for U64Ring {
     }
 }
 
-impl Sampler<u64> for U64Ring {
-    fn from_i64(&self, v: i64) -> u64 {
-        v as _
-    }
-
-    fn sample_uniform(&self, mut rng: impl RngCore) -> u64 {
+impl Sampler for U64Ring {
+    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
         rng.next_u64()
     }
 }
@@ -174,7 +182,7 @@ mod test {
             let ring = U64Ring::new(1 << log_ring_size);
             for log_b in 12..18 {
                 let prec_loss = ring_mul_prec_loss(log_b, log_ring_size);
-                let uniform_b = Uniform::new(0, 1 << log_b);
+                let uniform_b = Uniform::new(0, 1u64 << log_b);
                 for _ in 0..100 {
                     let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                     let b = ring.sample_vec(ring.ring_size(), uniform_b, &mut rng);

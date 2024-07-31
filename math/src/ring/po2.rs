@@ -1,6 +1,6 @@
 use crate::{
     distribution::Sampler,
-    ring::{ffnt::Ffnt, word::f64_mod_u64, ArithmeticOps, RingOps, SliceOps},
+    ring::{ffnt::Ffnt, word::f64_mod_u64, ArithmeticOps, ElemFrom, RingOps, SliceOps},
 };
 use num_complex::Complex64;
 use rand::RngCore;
@@ -75,6 +75,18 @@ impl ArithmeticOps for PowerOfTwoRing {
     }
 }
 
+impl ElemFrom<u64> for PowerOfTwoRing {
+    fn elem_from(&self, v: u64) -> Self::Elem {
+        v & self.mask
+    }
+}
+
+impl ElemFrom<i64> for PowerOfTwoRing {
+    fn elem_from(&self, v: i64) -> Self::Elem {
+        (v as u64) & self.mask
+    }
+}
+
 impl SliceOps for PowerOfTwoRing {}
 
 impl RingOps for PowerOfTwoRing {
@@ -116,12 +128,8 @@ impl RingOps for PowerOfTwoRing {
     }
 }
 
-impl Sampler<u64> for PowerOfTwoRing {
-    fn from_i64(&self, v: i64) -> u64 {
-        (v as u64) & self.mask
-    }
-
-    fn sample_uniform(&self, mut rng: impl RngCore) -> u64 {
+impl Sampler for PowerOfTwoRing {
+    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
         rng.next_u64() & self.mask
     }
 }
@@ -170,7 +178,7 @@ mod test {
                 let ring = PowerOfTwoRing::new(log_q as _, 1 << log_ring_size);
                 for log_b in 12..18 {
                     let prec_loss = ring_mul_prec_loss(log_ring_size, log_q, log_b);
-                    let uniform_b = Uniform::new(0, 1 << log_b);
+                    let uniform_b = Uniform::new(0, 1u64 << log_b);
                     for _ in 0..100 {
                         let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                         let b = ring.sample_vec(ring.ring_size(), uniform_b, &mut rng);
