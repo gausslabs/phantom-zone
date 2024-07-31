@@ -11,7 +11,14 @@ impl Modulus {
         PowerOfTwo::native().into()
     }
 
-    pub fn to_f64(self) -> f64 {
+    pub fn bits(&self) -> usize {
+        match self {
+            Self::PowerOfTwo(power_of_two) => power_of_two.bits(),
+            Self::Prime(prime) => prime.bits(),
+        }
+    }
+
+    pub fn to_f64(&self) -> f64 {
         match self {
             Self::PowerOfTwo(power_of_two) => power_of_two.to_f64(),
             Self::Prime(prime) => prime.to_f64(),
@@ -68,7 +75,19 @@ impl PowerOfTwo {
         Self(64)
     }
 
-    pub fn to_f64(self) -> f64 {
+    pub fn bits(&self) -> usize {
+        self.0
+    }
+
+    pub fn mask(&self) -> u64 {
+        if self.0 == 64 {
+            u64::MAX
+        } else {
+            (1 << self.0) - 1
+        }
+    }
+
+    pub fn to_f64(&self) -> f64 {
         2f64.powi(self.0 as _)
     }
 }
@@ -89,7 +108,11 @@ impl Prime {
         candidates.into_iter().filter(|v| is_prime(*v)).map(Self)
     }
 
-    pub fn to_f64(self) -> f64 {
+    pub fn bits(&self) -> usize {
+        self.0.next_power_of_two().ilog2() as _
+    }
+
+    pub fn to_f64(&self) -> f64 {
         self.0 as _
     }
 }

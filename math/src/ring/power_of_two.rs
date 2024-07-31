@@ -1,4 +1,5 @@
 use crate::{
+    decomposer::{Decomposer, DecompositionParam, PowerOfTwoDecomposer},
     distribution::Sampler,
     modulus::{Modulus, PowerOfTwo},
     ring::{ffnt::Ffnt, ArithmeticOps, ElemFrom, ElemTo, RingOps, SliceOps},
@@ -11,22 +12,24 @@ pub type NonNativePowerOfTwoRing = PowerOfTwoRing<false>;
 
 #[derive(Clone, Debug)]
 pub struct PowerOfTwoRing<const NATIVE: bool = false> {
-    log_q: usize,
+    modulus: PowerOfTwo,
     mask: u64,
     ffnt: Ffnt,
 }
 
 impl<const NATIVE: bool> PowerOfTwoRing<NATIVE> {
-    fn new(PowerOfTwo(log_q): PowerOfTwo, ring_size: usize) -> Self {
-        let mask = if NATIVE {
-            assert_eq!(log_q, 64);
-            u64::MAX
+    fn new(modulus: PowerOfTwo, ring_size: usize) -> Self {
+        if NATIVE {
+            assert_eq!(modulus.bits(), 64);
         } else {
-            assert!(log_q < 64);
-            (1 << log_q) - 1
-        };
+            assert!(modulus.bits() < 64);
+        }
         let ffnt = Ffnt::new(ring_size);
-        Self { log_q, mask, ffnt }
+        Self {
+            modulus,
+            mask: modulus.mask(),
+            ffnt,
+        }
     }
 
     #[inline(always)]
@@ -43,7 +46,7 @@ impl<const NATIVE: bool> PowerOfTwoRing<NATIVE> {
         if NATIVE {
             v as _
         } else {
-            v.wrapping_sub((v >> (self.log_q - 1)) << self.log_q) as i64
+            v.wrapping_sub((v >> (self.modulus.bits() - 1)) << self.modulus.bits()) as i64
         }
     }
 }
@@ -142,6 +145,12 @@ impl<const NATIVE: bool> ElemTo<i64> for PowerOfTwoRing<NATIVE> {
 
 impl<const NATIVE: bool> SliceOps for PowerOfTwoRing<NATIVE> {}
 
+impl<const NATIVE: bool> Sampler for PowerOfTwoRing<NATIVE> {
+    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
+        self.reduce(rng.next_u64())
+    }
+}
+
 impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
     type Eval = Complex64;
 
@@ -183,11 +192,9 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
             *b = self.reduce(b.wrapping_add(f64_mod_u64(a)))
         });
     }
-}
 
-impl<const NATIVE: bool> Sampler for PowerOfTwoRing<NATIVE> {
-    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
-        self.reduce(rng.next_u64())
+    fn decomposer(&self, decomposition_param: DecompositionParam) -> impl Decomposer<Self::Elem> {
+        PowerOfTwoDecomposer::new(self.modulus, decomposition_param)
     }
 }
 

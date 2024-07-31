@@ -1,4 +1,5 @@
 use crate::{
+    decomposer::{Decomposer, DecompositionParam, PrimeDecomposer},
     distribution::Sampler,
     misc::bit_reverse,
     modulus::{Modulus, Prime},
@@ -307,6 +308,12 @@ impl SliceOps for PrimeRing {
     }
 }
 
+impl Sampler for PrimeRing {
+    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
+        Uniform::new(0, self.q).sample(&mut rng)
+    }
+}
+
 impl RingOps for PrimeRing {
     type Eval = u64;
 
@@ -363,11 +370,9 @@ impl RingOps for PrimeRing {
             *b = self.add(a, b);
         })
     }
-}
 
-impl Sampler for PrimeRing {
-    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
-        Uniform::new(0, self.q).sample(&mut rng)
+    fn decomposer(&self, decomposition_param: DecompositionParam) -> impl Decomposer<Self::Elem> {
+        PrimeDecomposer::new(Prime(self.q), decomposition_param)
     }
 }
 

@@ -1,4 +1,8 @@
-use crate::{distribution::Sampler, modulus::Modulus};
+use crate::{
+    decomposer::{Decomposer, DecompositionParam},
+    distribution::Sampler,
+    modulus::Modulus,
+};
 use core::fmt::Debug;
 use itertools::izip;
 
@@ -276,6 +280,8 @@ pub trait RingOps:
         self.eval_ops().slice_mul_assign(a_eval, b_eval);
         self.backward_normalized(c, a_eval)
     }
+
+    fn decomposer(&self, decomposition_param: DecompositionParam) -> impl Decomposer<Self::Elem>;
 }
 
 #[cfg(test)]
