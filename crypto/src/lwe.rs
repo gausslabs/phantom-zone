@@ -23,22 +23,27 @@ impl LweParam {
     pub fn build<R: RingOps>(self) -> Lwe<R> {
         let delta = self.ciphertext_modulus.to_f64() / self.message_modulus as f64;
         let ring = RingOps::new(self.ciphertext_modulus, 1);
+        let ks_decomposer = self
+            .ks_decomposition_param
+            .map(|param| R::Decomposer::new(self.ciphertext_modulus, param));
         Lwe {
             param: self,
             delta,
             ring,
+            ks_decomposer,
         }
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct Lwe<R> {
+pub struct Lwe<R: RingOps> {
     param: LweParam,
     delta: f64,
     ring: R,
+    ks_decomposer: Option<R::Decomposer>,
 }
 
-impl<R> Lwe<R> {
+impl<R: RingOps> Lwe<R> {
     pub fn param(&self) -> &LweParam {
         &self.param
     }
@@ -49,9 +54,8 @@ impl<R> Lwe<R> {
 }
 
 impl<R: RingOps> Lwe<R> {
-    pub fn ks_decomposer(&self) -> impl Decomposer<R::Elem> + '_ {
-        self.ring
-            .decomposer(self.param.ks_decomposition_param.unwrap())
+    pub fn ks_decomposer(&self) -> &R::Decomposer {
+        self.ks_decomposer.as_ref().unwrap()
     }
 }
 
@@ -197,8 +201,8 @@ impl<R: RingOps> Lwe<R> {
 
     pub fn ksk_gen(
         &self,
-        sk_to: &LweSecretKey,
         LweSecretKey(sk_from): &LweSecretKey,
+        sk_to: &LweSecretKey,
         mut rng: impl RngCore,
     ) -> LweKeySwitchKey<R::Elem> {
         let (param, ring, decomposer) = (self.param(), self.ring(), self.ks_decomposer());
@@ -296,16 +300,21 @@ mod test {
 
     #[test]
     fn key_switch() {
-        let mut rng = thread_rng();
-        let lwe = test_param(Modulus::native()).build::<NativeRing>();
-        let sk_from = lwe.sk_gen(&mut rng);
-        let sk_to = lwe.sk_gen(&mut rng);
-        let ksk = lwe.ksk_gen(&sk_to, &sk_from, &mut rng);
-        for _ in 0..100 {
-            let m = Uniform::new(0, lwe.param.message_modulus).sample(&mut rng);
-            let ct0 = lwe.sk_encrypt(&sk_from, lwe.encode(m), &mut rng);
-            let ct1 = lwe.key_switch(&ksk, ct0);
-            assert_eq!(m, lwe.decode(lwe.decrypt(&sk_to, ct1)));
+        fn run(lwe: Lwe<impl RingOps>) {
+            let mut rng = thread_rng();
+            let sk_from = lwe.sk_gen(&mut rng);
+            let sk_to = lwe.sk_gen(&mut rng);
+            let ksk = lwe.ksk_gen(&sk_from, &sk_to, &mut rng);
+            for _ in 0..100 {
+                let m = Uniform::new(0, lwe.param.message_modulus).sample(&mut rng);
+                let ct0 = lwe.sk_encrypt(&sk_from, lwe.encode(m), &mut rng);
+                let ct1 = lwe.key_switch(&ksk, ct0);
+                assert_eq!(m, lwe.decode(lwe.decrypt(&sk_to, ct1)));
+            }
         }
+
+        run(test_param(Modulus::native()).build::<NativeRing>());
+        run(test_param(PowerOfTwo::new(50)).build::<NonNativePowerOfTwoRing>());
+        run(test_param(Prime::gen(50, 0)).build::<PrimeRing>());
     }
 }

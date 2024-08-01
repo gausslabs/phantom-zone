@@ -1,9 +1,4 @@
-use crate::{
-    decomposer::{Decomposer, DecompositionParam},
-    distribution::Sampler,
-    izip_eq,
-    modulus::Modulus,
-};
+use crate::{decomposer::Decomposer, distribution::Sampler, izip_eq, modulus::Modulus};
 use core::{borrow::Borrow, fmt::Debug};
 use itertools::izip;
 
@@ -224,10 +219,11 @@ pub trait RingOps:
     + ElemTo<i64>
 {
     type Eval: Copy + Debug + Default + 'static;
+    type Decomposer: Decomposer<Self::Elem>;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self;
 
-    fn eval(&self) -> &impl SliceOps<Elem = Self::Eval>;
+    fn modulus(&self) -> Modulus;
 
     fn ring_size(&self) -> usize;
 
@@ -236,6 +232,8 @@ pub trait RingOps:
     fn scratch_size(&self) -> usize {
         2 * self.eval_size()
     }
+
+    fn eval(&self) -> &impl SliceOps<Elem = Self::Eval>;
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]);
 
@@ -303,8 +301,6 @@ pub trait RingOps:
         self.eval().slice_mul_assign(a_eval, &*b_eval);
         self.backward_normalized(b, a_eval)
     }
-
-    fn decomposer(&self, decomposition_param: DecompositionParam) -> impl Decomposer<Self::Elem>;
 }
 
 #[cfg(test)]

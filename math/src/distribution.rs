@@ -100,12 +100,19 @@ pub fn sample_vec<T>(n: usize, dist: impl Distribution<T>, rng: impl RngCore) ->
     dist.sample_iter(rng).take(n).collect()
 }
 
+pub fn sample_uniform_iter<T: SampleUniform>(
+    dist: impl Into<Uniform<T>>,
+    rng: impl RngCore,
+) -> impl Iterator<Item = T> {
+    dist.into().sample_iter(rng)
+}
+
 pub fn sample_uniform_vec<T: SampleUniform>(
     n: usize,
     dist: impl Into<Uniform<T>>,
     rng: impl RngCore,
 ) -> Vec<T> {
-    dist.into().sample_iter(rng).take(n).collect()
+    sample_uniform_iter(dist, rng).take(n).collect()
 }
 
 pub fn gaussian_dist<T>(std_dev: f64) -> impl Distribution<T>

@@ -1,6 +1,6 @@
 use crate::{
     izip_eq,
-    modulus::{PowerOfTwo, Prime},
+    modulus::{add_mod, mul_mod, Modulus, PowerOfTwo, Prime},
 };
 use core::{fmt::Debug, iter::repeat_with};
 
@@ -11,9 +11,21 @@ pub struct DecompositionParam {
 }
 
 pub trait Decomposer<T: Copy + Debug + 'static> {
+    fn new(modulus: Modulus, param: DecompositionParam) -> Self;
+
+    fn modulus(&self) -> Modulus;
+
     fn log_base(&self) -> usize;
 
     fn level(&self) -> usize;
+
+    fn ignored_bits(&self) -> usize;
+
+    fn log_gadget_iter(&self) -> impl Iterator<Item = usize> {
+        (self.ignored_bits()..)
+            .step_by(self.log_base())
+            .take(self.level())
+    }
 
     fn gadget_iter(&self) -> impl Iterator<Item = T>;
 
@@ -59,45 +71,58 @@ pub trait Decomposer<T: Copy + Debug + 'static> {
     }
 }
 
-pub struct PowerOfTwoDecomposer {
-    log_base: usize,
-    level: usize,
+pub type NativeDecomposer = PowerOfTwoDecomposer<true>;
+
+pub type NonNativePowerOfTwoDecomposer = PowerOfTwoDecomposer<false>;
+
+#[derive(Clone, Copy, Debug)]
+pub struct PowerOfTwoDecomposer<const NATIVE: bool> {
+    modulus: PowerOfTwo,
     modulus_mask: u64,
+    log_base: usize,
     base_mask: u64,
+    level: usize,
     ignored_bits: usize,
     ignored_half: u64,
 }
 
-impl PowerOfTwoDecomposer {
+impl<const NATIVE: bool> PowerOfTwoDecomposer<NATIVE> {
     pub fn new(modulus: PowerOfTwo, param: DecompositionParam) -> Self {
         let log_base = param.log_base;
         let level = param.level;
         let base_mask = (1 << log_base) - 1;
         let ignored_bits = modulus.bits().saturating_sub(log_base * level);
         Self {
-            log_base,
-            level,
+            modulus,
             modulus_mask: modulus.mask(),
+            log_base,
             base_mask,
+            level,
             ignored_bits,
             ignored_half: (1 << ignored_bits) >> 1,
         }
     }
-
-    fn log_gadget_iter(&self) -> impl Iterator<Item = usize> {
-        (self.ignored_bits..)
-            .step_by(self.log_base)
-            .take(self.level)
-    }
 }
 
-impl Decomposer<u64> for PowerOfTwoDecomposer {
+impl<const NATIVE: bool> Decomposer<u64> for PowerOfTwoDecomposer<NATIVE> {
+    fn new(modulus: Modulus, param: DecompositionParam) -> Self {
+        Self::new(modulus.try_into().unwrap(), param)
+    }
+
+    fn modulus(&self) -> Modulus {
+        self.modulus.into()
+    }
+
     fn log_base(&self) -> usize {
         self.log_base
     }
 
     fn level(&self) -> usize {
         self.level
+    }
+
+    fn ignored_bits(&self) -> usize {
+        self.ignored_bits
     }
 
     #[inline(always)]
@@ -115,7 +140,11 @@ impl Decomposer<u64> for PowerOfTwoDecomposer {
         *a >>= self.log_base;
         let carry = ((limb.wrapping_sub(1) | *a) & limb) >> (self.log_base - 1);
         *a += carry;
-        limb.wrapping_sub(carry << self.log_base)
+        if NATIVE {
+            limb.wrapping_sub(carry << self.log_base)
+        } else {
+            limb.wrapping_sub(carry << self.log_base) & self.modulus_mask
+        }
     }
 
     fn recompose(&self, a: impl IntoIterator<Item = u64>) -> u64 {
@@ -127,78 +156,145 @@ impl Decomposer<u64> for PowerOfTwoDecomposer {
     }
 }
 
-pub struct PrimeDecomposer {}
+#[derive(Clone, Copy, Debug)]
+pub struct PrimeDecomposer {
+    q: u64,
+    q_half: u64,
+    log_base: usize,
+    base_mask: u64,
+    level: usize,
+    ignored_bits: usize,
+    ignored_half: u64,
+}
 
 impl PrimeDecomposer {
-    pub fn new(_: Prime, _: DecompositionParam) -> Self {
-        todo!()
+    pub fn new(q: Prime, param: DecompositionParam) -> Self {
+        let log_base = param.log_base;
+        let level = param.level;
+        let base_mask = (1 << log_base) - 1;
+        let ignored_bits = q.bits().saturating_sub(log_base * level);
+        let q = u64::from(q);
+        let q_half = q >> 1;
+        Self {
+            q,
+            q_half,
+            log_base,
+            base_mask,
+            level,
+            ignored_bits,
+            ignored_half: (1 << ignored_bits) >> 1,
+        }
     }
 }
 
 impl Decomposer<u64> for PrimeDecomposer {
+    fn new(modulus: Modulus, param: DecompositionParam) -> Self {
+        Self::new(modulus.try_into().unwrap(), param)
+    }
+
+    fn modulus(&self) -> Modulus {
+        Prime(self.q).into()
+    }
+
     fn log_base(&self) -> usize {
-        todo!()
+        self.log_base
     }
 
     fn level(&self) -> usize {
-        todo!()
+        self.level
     }
 
-    fn round(&self, _: &u64) -> u64 {
-        todo!()
+    fn ignored_bits(&self) -> usize {
+        self.ignored_bits
+    }
+
+    fn round(&self, a: &u64) -> u64 {
+        let mut a = *a;
+        if a >= self.q_half {
+            a = a.wrapping_sub(self.q)
+        }
+        a.wrapping_add(self.ignored_half) >> self.ignored_bits
     }
 
     fn gadget_iter(&self) -> impl Iterator<Item = u64> {
-        [].into_iter()
+        self.log_gadget_iter().map(|bits| 1 << bits)
     }
 
-    fn decompose_next(&self, _: &mut u64) -> u64 {
-        todo!()
+    #[inline(always)]
+    fn decompose_next(&self, a: &mut u64) -> u64 {
+        let limb = *a & self.base_mask;
+        *a >>= self.log_base;
+        let carry = ((limb.wrapping_sub(1) | *a) & limb) >> (self.log_base - 1);
+        *a += carry;
+        (carry.wrapping_neg() & self.q).wrapping_add(limb.wrapping_sub(carry << self.log_base))
     }
 
-    fn recompose(&self, _: impl IntoIterator<Item = u64>) -> u64 {
-        todo!()
+    fn recompose(&self, a: impl IntoIterator<Item = u64>) -> u64 {
+        izip_eq!(a, self.gadget_iter())
+            .map(|(a, b)| mul_mod(a, b, self.q))
+            .reduce(|a, b| add_mod(a, b, self.q))
+            .unwrap_or_default()
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::{
-        decomposer::{Decomposer, DecompositionParam, PowerOfTwoDecomposer},
-        modulus::PowerOfTwo,
+        decomposer::{
+            Decomposer, DecompositionParam, NativeDecomposer, NonNativePowerOfTwoDecomposer,
+            PrimeDecomposer,
+        },
+        distribution::sample_uniform_iter,
+        modulus::{Modulus, PowerOfTwo, Prime},
     };
+    use rand::thread_rng;
 
     #[test]
-    fn power_of_two_decomposer() {
-        for modulus in [PowerOfTwo::native(), PowerOfTwo::new(50)] {
+    fn decompose() {
+        fn run<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
+            let modulus = modulus.into();
             let param = DecompositionParam {
                 log_base: 8,
                 level: 4,
             };
-            let decomposer = PowerOfTwoDecomposer::new(modulus, param);
+            let decomposer = D::new(modulus, param);
+            let neg = |a: u64| if a == 0 { 0 } else { modulus.max() - a + 1 };
             for (a, b) in [
                 (0, [0, 0, 0, 0]),
-                (decomposer.ignored_half, [1, 0, 0, 0]),
                 (
-                    0b_01111111_01111111_01111111_01111111 << decomposer.ignored_bits,
+                    (1 << decomposer.ignored_bits()) >> 1,
+                    [(decomposer.ignored_bits() > 0) as u64, 0, 0, 0],
+                ),
+                (
+                    0b_01111111_01111111_01111111_01111111 << decomposer.ignored_bits(),
                     [127, 127, 127, 127],
                 ),
                 (
-                    0b_01111111_10000000_10000000_10000000 << decomposer.ignored_bits,
-                    [(-128i64 as u64), (-127i64 as u64), (-127i64 as u64), 128],
+                    0b_01111111_10000000_10000000_10000000 << decomposer.ignored_bits(),
+                    [neg(128), neg(127), neg(127), 128],
                 ),
                 (
-                    0b_01111111_10000000_01111111_10000000 << decomposer.ignored_bits,
+                    0b_01111111_10000000_01111111_10000000 << decomposer.ignored_bits(),
                     [128, 127, 128, 127],
                 ),
             ] {
                 let limbs = decomposer.decompose_vec(&a);
                 assert_eq!(limbs, b);
                 assert_eq!(
-                    decomposer.recompose(limbs),
-                    decomposer.round(&a) << decomposer.ignored_bits,
+                    decomposer.round(&decomposer.recompose(decomposer.decompose_iter(&a))),
+                    decomposer.round(&a),
+                );
+            }
+            for a in sample_uniform_iter(0..=modulus.max(), thread_rng()).take(10000) {
+                assert_eq!(
+                    decomposer.round(&decomposer.recompose(decomposer.decompose_iter(&a))),
+                    decomposer.round(&a),
                 );
             }
         }
+
+        run::<NativeDecomposer>(PowerOfTwo::native());
+        run::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
+        run::<PrimeDecomposer>(Prime::gen(50, 0));
     }
 }

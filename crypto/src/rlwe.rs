@@ -23,22 +23,27 @@ impl RlweParam {
     pub fn build<R: RingOps>(self) -> Rlwe<R> {
         let delta = self.ciphertext_modulus.to_f64() / self.message_modulus as f64;
         let ring = RingOps::new(self.ciphertext_modulus, self.ring_size);
+        let ks_decomposer = self
+            .ks_decomposition_param
+            .map(|param| R::Decomposer::new(self.ciphertext_modulus, param));
         Rlwe {
             param: self,
             delta,
             ring,
+            ks_decomposer,
         }
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct Rlwe<R> {
+pub struct Rlwe<R: RingOps> {
     param: RlweParam,
     delta: f64,
     ring: R,
+    ks_decomposer: Option<R::Decomposer>,
 }
 
-impl<R> Rlwe<R> {
+impl<R: RingOps> Rlwe<R> {
     pub fn param(&self) -> &RlweParam {
         &self.param
     }
@@ -49,9 +54,8 @@ impl<R> Rlwe<R> {
 }
 
 impl<R: RingOps> Rlwe<R> {
-    pub fn ks_decomposer(&self) -> impl Decomposer<R::Elem> + '_ {
-        self.ring
-            .decomposer(self.param.ks_decomposition_param.unwrap())
+    pub fn ks_decomposer(&self) -> &R::Decomposer {
+        self.ks_decomposer.as_ref().unwrap()
     }
 }
 
@@ -241,8 +245,8 @@ impl<R: RingOps> Rlwe<R> {
 
     pub fn ksk_gen(
         &self,
-        sk_to: &RlweSecretKey,
         RlweSecretKey(sk_from): &RlweSecretKey,
+        sk_to: &RlweSecretKey,
         mut rng: impl RngCore,
     ) -> RlweKeySwitchKey<R::Elem> {
         let (param, ring, decomposer) = (self.param(), self.ring(), self.ks_decomposer());
@@ -342,17 +346,22 @@ mod test {
 
     #[test]
     fn key_switch() {
-        let mut rng = thread_rng();
-        let rlwe = test_param(Modulus::native()).build::<NativeRing>();
-        let param = rlwe.param();
-        let sk_from = rlwe.sk_gen(&mut rng);
-        let sk_to = rlwe.sk_gen(&mut rng);
-        let ksk = rlwe.ksk_gen(&sk_to, &sk_from, &mut rng);
-        for _ in 0..100 {
-            let m = sample_uniform_vec(param.ring_size, 0..param.message_modulus, &mut rng);
-            let ct0 = rlwe.sk_encrypt(&sk_from, rlwe.encode(m.clone()).as_view(), &mut rng);
-            let ct1 = rlwe.key_switch(&ksk, ct0);
-            assert_eq!(m, rlwe.decode(rlwe.decrypt(&sk_to, ct1).as_view()));
+        fn run(rlwe: Rlwe<impl RingOps>) {
+            let mut rng = thread_rng();
+            let param = rlwe.param();
+            let sk_from = rlwe.sk_gen(&mut rng);
+            let sk_to = rlwe.sk_gen(&mut rng);
+            let ksk = rlwe.ksk_gen(&sk_from, &sk_to, &mut rng);
+            for _ in 0..100 {
+                let m = sample_uniform_vec(param.ring_size, 0..param.message_modulus, &mut rng);
+                let ct0 = rlwe.sk_encrypt(&sk_from, rlwe.encode(m.clone()).as_view(), &mut rng);
+                let ct1 = rlwe.key_switch(&ksk, ct0);
+                assert_eq!(m, rlwe.decode(rlwe.decrypt(&sk_to, ct1).as_view()));
+            }
         }
+
+        run(test_param(Modulus::native()).build::<NativeRing>());
+        run(test_param(PowerOfTwo::new(50)).build::<NonNativePowerOfTwoRing>());
+        run(test_param(Prime::gen(50, 9)).build::<PrimeRing>());
     }
 }

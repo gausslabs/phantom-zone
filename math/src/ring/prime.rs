@@ -1,15 +1,12 @@
 use crate::{
-    decomposer::{Decomposer, DecompositionParam, PrimeDecomposer},
+    decomposer::PrimeDecomposer,
     distribution::Sampler,
     izip_eq,
     misc::bit_reverse,
-    modulus::{Modulus, Prime},
+    modulus::{inv_mod, pow_mod, powers_mod, Modulus, Prime},
     ring::{ArithmeticOps, ElemFrom, ElemTo, RingOps, SliceOps},
 };
-use core::iter::successors;
 use itertools::izip;
-use num_bigint_dig::BigUint;
-use num_traits::ToPrimitive;
 use rand::{
     distributions::{uniform::Uniform, Distribution},
     RngCore,
@@ -61,11 +58,11 @@ impl PrimeRing {
         let barrett_alpha = log_q + 3;
 
         let g = two_adic_generator(q, ring_size.ilog2() as usize + 1);
-        let [twiddle_bo, twiddle_bo_inv] = [g, mod_inv(g, q)]
-            .map(|b| mod_powers(b, q).take(ring_size).map(|v| Shoup::new(v, q)))
+        let [twiddle_bo, twiddle_bo_inv] = [g, inv_mod(g, q).unwrap()]
+            .map(|b| powers_mod(b, q).take(ring_size).map(|v| Shoup::new(v, q)))
             .map(FromIterator::from_iter)
             .map(bit_reverse);
-        let n_inv = Shoup::new(mod_inv(ring_size as _, q), q);
+        let n_inv = Shoup::new(inv_mod(ring_size as _, q).unwrap(), q);
 
         PrimeRing {
             q,
@@ -314,9 +311,14 @@ impl Sampler for PrimeRing {
 
 impl RingOps for PrimeRing {
     type Eval = u64;
+    type Decomposer = PrimeDecomposer;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self {
         Self::new(modulus.try_into().unwrap(), ring_size)
+    }
+
+    fn modulus(&self) -> Modulus {
+        Prime(self.q).into()
     }
 
     fn eval(&self) -> &impl SliceOps<Elem = Self::Eval> {
@@ -368,39 +370,18 @@ impl RingOps for PrimeRing {
             *b = self.add(a, b);
         })
     }
-
-    fn decomposer(&self, decomposition_param: DecompositionParam) -> impl Decomposer<Self::Elem> {
-        PrimeDecomposer::new(Prime(self.q), decomposition_param)
-    }
 }
 
 fn two_adic_generator(q: u64, two_adicity: usize) -> u64 {
     assert_eq!((q - 1) % (1 << two_adicity) as u64, 0);
-    mod_pow(multiplicative_generator(q), (q - 1) >> two_adicity, q)
+    pow_mod(multiplicative_generator(q), (q - 1) >> two_adicity, q)
 }
 
 fn multiplicative_generator(q: u64) -> u64 {
     let order = q - 1;
     (1..order)
-        .find(|g| mod_pow(*g, order >> 1, q) == order)
+        .find(|g| pow_mod(*g, order >> 1, q) == order)
         .unwrap()
-}
-
-fn mod_pow(b: u64, e: u64, q: u64) -> u64 {
-    BigUint::from(b)
-        .modpow(&e.into(), &q.into())
-        .to_u64()
-        .unwrap()
-}
-
-fn mod_inv(v: u64, q: u64) -> u64 {
-    mod_pow(v, q - 2, q)
-}
-
-fn mod_powers(b: u64, q: u64) -> impl Iterator<Item = u64> {
-    successors(Some(1), move |v| {
-        (((*v as u128 * b as u128) % q as u128) as u64).into()
-    })
 }
 
 #[cfg(test)]

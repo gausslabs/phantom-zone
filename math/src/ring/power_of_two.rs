@@ -1,5 +1,5 @@
 use crate::{
-    decomposer::{Decomposer, DecompositionParam, PowerOfTwoDecomposer},
+    decomposer::PowerOfTwoDecomposer,
     distribution::Sampler,
     modulus::{Modulus, PowerOfTwo},
     ring::{ffnt::Ffnt, ArithmeticOps, ElemFrom, ElemTo, RingOps, SliceOps},
@@ -8,10 +8,11 @@ use num_complex::Complex64;
 use rand::RngCore;
 
 pub type NativeRing = PowerOfTwoRing<true>;
+
 pub type NonNativePowerOfTwoRing = PowerOfTwoRing<false>;
 
 #[derive(Clone, Debug)]
-pub struct PowerOfTwoRing<const NATIVE: bool = false> {
+pub struct PowerOfTwoRing<const NATIVE: bool> {
     modulus: PowerOfTwo,
     mask: u64,
     ffnt: Ffnt,
@@ -153,13 +154,14 @@ impl<const NATIVE: bool> Sampler for PowerOfTwoRing<NATIVE> {
 
 impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
     type Eval = Complex64;
+    type Decomposer = PowerOfTwoDecomposer<NATIVE>;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self {
         Self::new(modulus.try_into().unwrap(), ring_size)
     }
 
-    fn eval(&self) -> &impl SliceOps<Elem = Self::Eval> {
-        &self.ffnt
+    fn modulus(&self) -> Modulus {
+        self.modulus.into()
     }
 
     fn ring_size(&self) -> usize {
@@ -168,6 +170,10 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
 
     fn eval_size(&self) -> usize {
         self.ffnt.fft_size()
+    }
+
+    fn eval(&self) -> &impl SliceOps<Elem = Self::Eval> {
+        &self.ffnt
     }
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
@@ -201,10 +207,6 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
         self.ffnt.add_backward(b, a, |b, a| {
             *b = self.reduce(b.wrapping_add(f64_mod_u64(a)))
         });
-    }
-
-    fn decomposer(&self, decomposition_param: DecompositionParam) -> impl Decomposer<Self::Elem> {
-        PowerOfTwoDecomposer::new(self.modulus, decomposition_param)
     }
 }
 
