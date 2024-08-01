@@ -1,8 +1,9 @@
 use crate::misc::{AsMutSlice, AsSlice, SecretKeyDistribution};
-use itertools::{izip, Itertools};
+use itertools::Itertools;
 use phantom_zone_math::{
     decomposer::{Decomposer, DecompositionParam},
     distribution::{sample_gaussian_vec, sample_ternary_vec},
+    izip_eq,
     modulus::Modulus,
     ring::RingOps,
 };
@@ -10,7 +11,7 @@ use rand::RngCore;
 
 #[derive(Clone, Copy, Debug)]
 pub struct LweParam {
-    pub plaintext_modulus: u64,
+    pub message_modulus: u64,
     pub ciphertext_modulus: Modulus,
     pub dimension: usize,
     pub sk_dist: SecretKeyDistribution,
@@ -20,7 +21,7 @@ pub struct LweParam {
 
 impl LweParam {
     pub fn build<R: RingOps>(self) -> Lwe<R> {
-        let delta = self.ciphertext_modulus.to_f64() / self.plaintext_modulus as f64;
+        let delta = self.ciphertext_modulus.to_f64() / self.message_modulus as f64;
         let ring = RingOps::new(self.ciphertext_modulus, 1);
         Lwe {
             param: self,
@@ -46,6 +47,7 @@ impl<R> Lwe<R> {
         &self.ring
     }
 }
+
 impl<R: RingOps> Lwe<R> {
     pub fn ks_decomposer(&self) -> impl Decomposer<R::Elem> + '_ {
         self.ring
@@ -78,7 +80,7 @@ impl<S: AsSlice> LweCiphertext<S> {
     }
 
     pub fn a_b(&self) -> (&[S::Elem], &S::Elem) {
-        let (b, a) = self.0.as_ref().split_last().unwrap();
+        let (b, a) = self.0.as_ref().split_first().unwrap();
         (a, b)
     }
 
@@ -97,7 +99,7 @@ impl<S: AsMutSlice> LweCiphertext<S> {
     }
 
     pub fn a_b_mut(&mut self) -> (&mut [S::Elem], &mut S::Elem) {
-        let (b, a) = self.0.as_mut().split_last_mut().unwrap();
+        let (b, a) = self.0.as_mut().split_first_mut().unwrap();
         (a, b)
     }
 
@@ -154,13 +156,13 @@ impl<R: RingOps> Lwe<R> {
 
     pub fn decode(&self, LwePlaintext(pt): LwePlaintext<R::Elem>) -> u64 {
         let pt: u64 = self.ring.elem_to(pt);
-        ((pt as f64 / self.delta).round() as u64) % self.param.plaintext_modulus
+        ((pt as f64 / self.delta).round() as u64) % self.param.message_modulus
     }
 
     pub fn sk_encrypt(
         &self,
         sk: &LweSecretKey,
-        LwePlaintext(pt): LwePlaintext<R::Elem>,
+        pt: LwePlaintext<R::Elem>,
         rng: impl RngCore,
     ) -> LweCiphertextOwned<R::Elem> {
         let mut ct = LweCiphertext(vec![self.ring.zero(); self.param.dimension + 1]);
@@ -172,7 +174,7 @@ impl<R: RingOps> Lwe<R> {
         &self,
         mut ct: LweCiphertextMutView<R::Elem>,
         LweSecretKey(sk): &LweSecretKey,
-        pt: R::Elem,
+        LwePlaintext(pt): LwePlaintext<R::Elem>,
         mut rng: impl RngCore,
     ) {
         let (param, ring) = (self.param(), self.ring());
@@ -206,13 +208,14 @@ impl<R: RingOps> Lwe<R> {
                 * sk_from.len()
                 * decomposer.level()
         ]);
-        izip!(
+        izip_eq!(
             &ksk.ct_mut_view_iter(param).chunks(decomposer.level()),
             sk_from,
         )
         .for_each(|(cts, sk_from_i)| {
-            izip!(cts, decomposer.gadget_iter()).for_each(|(ct, b_j)| {
-                self.sk_encrypt_inner(ct, sk_to, ring.mul_elem_from(&b_j, &-sk_from_i), &mut rng)
+            izip_eq!(cts, decomposer.gadget_iter()).for_each(|(ct, beta_j)| {
+                let pt = LwePlaintext(ring.mul_elem_from(&beta_j, &-sk_from_i));
+                self.sk_encrypt_inner(ct, sk_to, pt, &mut rng)
             })
         });
         ksk
@@ -225,12 +228,12 @@ impl<R: RingOps> Lwe<R> {
     ) -> LweCiphertextOwned<R::Elem> {
         let (param, ring, decomposer) = (self.param(), self.ring(), self.ks_decomposer());
         let mut ct_to = LweCiphertext(vec![self.ring.zero(); self.param.dimension + 1]);
-        izip!(
+        izip_eq!(
             &ksk.ct_view_iter(param).chunks(decomposer.level()),
             ct_from.a()
         )
         .for_each(|(cts, a_i)| {
-            izip!(cts, decomposer.decompose_iter(a_i))
+            izip_eq!(cts, decomposer.decompose_iter(a_i))
                 .for_each(|(ct, a_i_j)| ring.slice_scalar_fma(ct_to.as_mut(), ct.as_ref(), &a_i_j))
         });
         *ct_to.b_mut() = ring.add(ct_to.b(), ct_from.b());
@@ -254,13 +257,13 @@ mod test {
         },
     };
     use rand::{
-        distributions::{Distribution, Uniform},
+        distributions::{uniform::Uniform, Distribution},
         thread_rng,
     };
 
     fn test_param(ciphertext_modulus: impl Into<Modulus>) -> LweParam {
         LweParam {
-            plaintext_modulus: 1 << 6,
+            message_modulus: 1 << 6,
             ciphertext_modulus: ciphertext_modulus.into(),
             dimension: 256,
             sk_dist: SecretKeyDistribution::Gaussian(3.2),
@@ -278,7 +281,7 @@ mod test {
             let mut rng = thread_rng();
             let sk = lwe.sk_gen(&mut rng);
             for _ in 0..100 {
-                let m = Uniform::new(0, lwe.param.plaintext_modulus).sample(&mut rng);
+                let m = Uniform::new(0, lwe.param.message_modulus).sample(&mut rng);
                 let pt = lwe.encode(m);
                 let ct = lwe.sk_encrypt(&sk, pt, &mut rng);
                 assert_eq!(m, lwe.decode(pt));
@@ -293,13 +296,13 @@ mod test {
 
     #[test]
     fn key_switch() {
-        let lwe = test_param(Modulus::native()).build::<NativeRing>();
         let mut rng = thread_rng();
+        let lwe = test_param(Modulus::native()).build::<NativeRing>();
         let sk_from = lwe.sk_gen(&mut rng);
         let sk_to = lwe.sk_gen(&mut rng);
         let ksk = lwe.ksk_gen(&sk_to, &sk_from, &mut rng);
         for _ in 0..100 {
-            let m = Uniform::new(0, lwe.param.plaintext_modulus).sample(&mut rng);
+            let m = Uniform::new(0, lwe.param.message_modulus).sample(&mut rng);
             let ct0 = lwe.sk_encrypt(&sk_from, lwe.encode(m), &mut rng);
             let ct1 = lwe.key_switch(&ksk, ct0);
             assert_eq!(m, lwe.decode(lwe.decrypt(&sk_to, ct1)));

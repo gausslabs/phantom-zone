@@ -101,6 +101,8 @@ impl Ffnt {
     }
 
     fn fold_twist<T>(&self, b: &mut [Complex64], a: &[T], to_f64: impl Fn(&T) -> f64) {
+        debug_assert_eq!(a.len(), self.ring_size);
+        debug_assert_eq!(b.len(), self.fft_size);
         if a.len() == 1 {
             b[0] = to_f64(&a[0]).into();
         } else {
@@ -111,6 +113,8 @@ impl Ffnt {
     }
 
     fn unfold_untwist<T>(&self, b: &mut [T], a: &[Complex64], from_f64: impl Fn(f64) -> T) {
+        debug_assert_eq!(a.len(), self.fft_size);
+        debug_assert_eq!(b.len(), self.ring_size);
         if b.len() == 1 {
             b[0] = from_f64(a[0].re);
         } else {
@@ -129,6 +133,8 @@ impl Ffnt {
         a: &[Complex64],
         add_from_f64: impl Fn(&mut T, f64),
     ) {
+        debug_assert_eq!(a.len(), self.fft_size);
+        debug_assert_eq!(b.len(), self.ring_size);
         if b.len() == 1 {
             add_from_f64(&mut b[0], a[0].re);
         } else {

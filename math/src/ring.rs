@@ -1,9 +1,10 @@
 use crate::{
     decomposer::{Decomposer, DecompositionParam},
     distribution::Sampler,
+    izip_eq,
     modulus::Modulus,
 };
-use core::fmt::Debug;
+use core::{borrow::Borrow, fmt::Debug};
 use itertools::izip;
 
 pub(crate) mod ffnt;
@@ -11,8 +12,8 @@ pub mod power_of_two;
 pub mod prime;
 
 pub trait ArithmeticOps {
-    type Elem: Clone + Copy + Debug + Default + 'static;
-    type Prep: Clone + Copy + Debug + Default + 'static;
+    type Elem: Copy + Debug + Default + 'static;
+    type Prep: Copy + Debug + Default + 'static;
 
     fn zero(&self) -> Self::Elem;
 
@@ -63,23 +64,27 @@ pub trait ElemTo<T>: ArithmeticOps {
 }
 
 pub trait SliceOps: ArithmeticOps {
+    fn slice_elem_from<T: Copy>(&self, b: &mut [Self::Elem], a: &[T])
+    where
+        Self: ElemFrom<T>,
+    {
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.elem_from(*a))
+    }
+
     fn slice_neg_assign(&self, a: &mut [Self::Elem]) {
         a.iter_mut().for_each(|a| *a = self.neg(a))
     }
 
     fn slice_add_assign(&self, b: &mut [Self::Elem], a: &[Self::Elem]) {
-        debug_assert_eq!(a.len(), b.len());
-        izip!(b, a).for_each(|(b, a)| *b = self.add(b, a))
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.add(b, a))
     }
 
     fn slice_sub_assign(&self, b: &mut [Self::Elem], a: &[Self::Elem]) {
-        debug_assert_eq!(a.len(), b.len());
-        izip!(b, a).for_each(|(b, a)| *b = self.sub(b, a))
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.sub(b, a))
     }
 
     fn slice_mul_assign(&self, b: &mut [Self::Elem], a: &[Self::Elem]) {
-        debug_assert_eq!(a.len(), b.len());
-        izip!(b, a).for_each(|(b, a)| *b = self.mul(b, a))
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.mul(b, a))
     }
 
     fn slice_scalar_mul_assign(&self, b: &mut [Self::Elem], a: &Self::Elem) {
@@ -94,88 +99,78 @@ pub trait SliceOps: ArithmeticOps {
     where
         Self: ElemFrom<T>,
     {
-        debug_assert_eq!(a.len(), b.len());
-        izip!(b, a).for_each(|(b, a)| *b = self.add_elem_from(b, a))
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.add_elem_from(b, a))
     }
 
     fn slice_sub_assign_elem_from<T: Copy>(&self, b: &mut [Self::Elem], a: &[T])
     where
         Self: ElemFrom<T>,
     {
-        debug_assert_eq!(a.len(), b.len());
-        izip!(b, a).for_each(|(b, a)| *b = self.sub_elem_from(b, a))
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.sub_elem_from(b, a))
     }
 
     fn slice_mul_assign_elem_from<T: Copy>(&self, b: &mut [Self::Elem], a: &[T])
     where
         Self: ElemFrom<T>,
     {
-        debug_assert_eq!(a.len(), b.len());
-        izip!(b, a).for_each(|(b, a)| *b = self.mul_elem_from(b, a))
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.mul_elem_from(b, a))
+    }
+
+    fn slice_add_assign_iter(
+        &self,
+        b: &mut [Self::Elem],
+        a: impl IntoIterator<Item: Borrow<Self::Elem>>,
+    ) {
+        izip!(b, a).for_each(|(b, a)| *b = self.add(b, a.borrow()))
     }
 
     fn slice_neg(&self, b: &mut [Self::Elem], a: &[Self::Elem]) {
-        debug_assert_eq!(a.len(), b.len());
-        izip!(b, a).for_each(|(b, a)| *b = self.neg(a))
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.neg(a))
     }
 
     fn slice_add(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Elem]) {
-        debug_assert_eq!(a.len(), b.len());
-        debug_assert_eq!(a.len(), c.len());
-        izip!(c, a, b).for_each(|(c, a, b)| *c = self.add(a, b))
+        izip_eq!(c, a, b).for_each(|(c, a, b): (&mut _, _, _)| *c = self.add(a, b))
     }
 
     fn slice_sub(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Elem]) {
-        debug_assert_eq!(a.len(), b.len());
-        debug_assert_eq!(a.len(), c.len());
-        izip!(c, a, b).for_each(|(c, a, b)| *c = self.sub(a, b))
+        izip_eq!(c, a, b).for_each(|(c, a, b): (&mut _, _, _)| *c = self.sub(a, b))
     }
 
     fn slice_mul(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Elem]) {
-        debug_assert_eq!(a.len(), b.len());
-        debug_assert_eq!(a.len(), c.len());
-        izip!(c, a, b).for_each(|(c, a, b)| *c = self.mul(a, b))
+        izip_eq!(c, a, b).for_each(|(c, a, b): (&mut _, _, _)| *c = self.mul(a, b))
     }
 
     fn slice_scalar_mul(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Elem) {
-        debug_assert_eq!(a.len(), c.len());
-        izip!(c, a).for_each(|(c, a)| *c = self.mul(a, b))
+        izip_eq!(c, a).for_each(|(c, a)| *c = self.mul(a, b))
     }
 
     fn slice_scalar_mul_prep(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Prep) {
-        izip!(c, a).for_each(|(c, a)| *c = self.mul_prep(a, b))
+        izip_eq!(c, a).for_each(|(c, a)| *c = self.mul_prep(a, b))
     }
 
     fn slice_add_elem_from<T: Copy>(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[T])
     where
         Self: ElemFrom<T>,
     {
-        debug_assert_eq!(a.len(), b.len());
-        debug_assert_eq!(a.len(), c.len());
-        izip!(c, a, b).for_each(|(c, a, b)| *c = self.add_elem_from(a, b))
+        izip_eq!(c, a, b).for_each(|(c, a, b)| *c = self.add_elem_from(a, b))
     }
 
     fn slice_sub_elem_from<T: Copy>(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[T])
     where
         Self: ElemFrom<T>,
     {
-        debug_assert_eq!(a.len(), b.len());
-        debug_assert_eq!(a.len(), c.len());
-        izip!(c, a, b).for_each(|(c, a, b)| *c = self.sub_elem_from(a, b))
+        izip_eq!(c, a, b).for_each(|(c, a, b)| *c = self.sub_elem_from(a, b))
     }
 
     fn slice_mul_elem_from<T: Copy>(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[T])
     where
         Self: ElemFrom<T>,
     {
-        debug_assert_eq!(a.len(), b.len());
-        debug_assert_eq!(a.len(), c.len());
-        izip!(c, a, b).for_each(|(c, a, b)| *c = self.mul_elem_from(a, b))
+        izip_eq!(c, a, b).for_each(|(c, a, b)| *c = self.mul_elem_from(a, b))
     }
 
     fn slice_dot(&self, a: &[Self::Elem], b: &[Self::Elem]) -> Self::Elem {
-        debug_assert_eq!(a.len(), b.len());
-        izip!(a, b)
+        izip_eq!(a, b)
             .map(|(a, b)| self.mul(a, b))
             .reduce(|a, b| self.add(&a, &b))
             .unwrap_or_else(|| self.zero())
@@ -185,31 +180,25 @@ pub trait SliceOps: ArithmeticOps {
     where
         Self: ElemFrom<T>,
     {
-        debug_assert_eq!(a.len(), b.len());
-        izip!(a, b)
+        izip_eq!(a, b)
             .map(|(a, b)| self.mul_elem_from(a, b))
             .reduce(|a, b| self.add(&a, &b))
             .unwrap_or_else(|| self.zero())
     }
 
     fn slice_fma(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Elem]) {
-        debug_assert_eq!(a.len(), b.len());
-        debug_assert_eq!(a.len(), c.len());
-        izip!(c, a, b).for_each(|(c, a, b)| *c = self.add(c, &self.mul(a, b)))
+        izip_eq!(c, a, b).for_each(|(c, a, b)| *c = self.add(c, &self.mul(a, b)))
     }
 
     fn slice_scalar_fma(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Elem) {
-        debug_assert_eq!(a.len(), c.len());
-        izip!(c, a).for_each(|(c, a)| *c = self.add(c, &self.mul(a, b)))
+        izip_eq!(c, a).for_each(|(c, a)| *c = self.add(c, &self.mul(a, b)))
     }
 
     fn slice_fma_elem_from<T: Copy>(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[T])
     where
         Self: ElemFrom<T>,
     {
-        debug_assert_eq!(a.len(), b.len());
-        debug_assert_eq!(a.len(), c.len());
-        izip!(c, a, b).for_each(|(c, a, b)| *c = self.add(c, &self.mul_elem_from(a, b)))
+        izip_eq!(c, a, b).for_each(|(c, a, b)| *c = self.add(c, &self.mul_elem_from(a, b)))
     }
 
     fn matrix_fma_prep<'a>(
@@ -218,14 +207,9 @@ pub trait SliceOps: ArithmeticOps {
         a: impl IntoIterator<Item = &'a [Self::Elem]>,
         b: impl IntoIterator<Item = &'a [Self::Prep]>,
     ) {
-        let (mut a, mut b) = (a.into_iter(), b.into_iter());
-        izip!(a.by_ref(), b.by_ref()).for_each(|(a, b)| {
-            debug_assert_eq!(a.len(), b.len());
-            debug_assert_eq!(a.len(), c.len());
-            izip!(&mut *c, a, b).for_each(|(c, a, b)| *c = self.add(c, &self.mul_prep(a, b)))
+        izip_eq!(a, b).for_each(|(a, b)| {
+            izip_eq!(&mut *c, a, b).for_each(|(c, a, b)| *c = self.add(c, &self.mul_prep(a, b)))
         });
-        debug_assert!(a.next().is_none());
-        debug_assert!(b.next().is_none());
     }
 }
 
@@ -239,11 +223,11 @@ pub trait RingOps:
     + ElemTo<u64>
     + ElemTo<i64>
 {
-    type Eval: Clone + Copy + Debug + Default + 'static;
+    type Eval: Copy + Debug + Default + 'static;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self;
 
-    fn eval_ops(&self) -> &impl SliceOps<Elem = Self::Eval>;
+    fn eval(&self) -> &impl SliceOps<Elem = Self::Eval>;
 
     fn ring_size(&self) -> usize;
 
@@ -254,6 +238,10 @@ pub trait RingOps:
     }
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]);
+
+    fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T])
+    where
+        Self: ElemFrom<T>;
 
     fn forward_normalized(&self, b: &mut [Self::Eval], a: &[Self::Elem]);
 
@@ -270,15 +258,50 @@ pub trait RingOps:
         b: &[Self::Elem],
         scratch: &mut [Self::Eval],
     ) {
-        debug_assert_eq!(a.len(), self.ring_size());
-        debug_assert_eq!(b.len(), self.ring_size());
-        debug_assert_eq!(c.len(), self.ring_size());
-        debug_assert_eq!(scratch.len(), 2 * self.eval_size());
         let (a_eval, b_eval) = scratch.split_at_mut(self.eval_size());
         self.forward(a_eval, a);
         self.forward(b_eval, b);
-        self.eval_ops().slice_mul_assign(a_eval, b_eval);
+        self.eval().slice_mul_assign(a_eval, &*b_eval);
         self.backward_normalized(c, a_eval)
+    }
+
+    fn poly_mul_assign(&self, b: &mut [Self::Elem], a: &[Self::Elem], scratch: &mut [Self::Eval]) {
+        let (a_eval, b_eval) = scratch.split_at_mut(self.eval_size());
+        self.forward(a_eval, a);
+        self.forward(b_eval, b);
+        self.eval().slice_mul_assign(a_eval, &*b_eval);
+        self.backward_normalized(b, a_eval)
+    }
+
+    fn poly_mul_elem_from<T: Copy>(
+        &self,
+        c: &mut [Self::Elem],
+        a: &[Self::Elem],
+        b: &[T],
+        scratch: &mut [Self::Eval],
+    ) where
+        Self: ElemFrom<T>,
+    {
+        let (a_eval, b_eval) = scratch.split_at_mut(self.eval_size());
+        self.forward(a_eval, a);
+        self.forward_elem_from(b_eval, b);
+        self.eval().slice_mul_assign(a_eval, &*b_eval);
+        self.backward_normalized(c, a_eval)
+    }
+
+    fn poly_mul_assign_elem_from<T: Copy>(
+        &self,
+        b: &mut [Self::Elem],
+        a: &[T],
+        scratch: &mut [Self::Eval],
+    ) where
+        Self: ElemFrom<T>,
+    {
+        let (a_eval, b_eval) = scratch.split_at_mut(self.eval_size());
+        self.forward_elem_from(a_eval, a);
+        self.forward(b_eval, b);
+        self.eval().slice_mul_assign(a_eval, &*b_eval);
+        self.backward_normalized(b, a_eval)
     }
 
     fn decomposer(&self, decomposition_param: DecompositionParam) -> impl Decomposer<Self::Elem>;
@@ -286,11 +309,14 @@ pub trait RingOps:
 
 #[cfg(test)]
 mod test {
-    use crate::ring::{ArithmeticOps, RingOps};
+    use crate::{
+        izip_eq,
+        ring::{ArithmeticOps, RingOps},
+    };
     use itertools::izip;
 
     fn nega_cyclic_schoolbook_mul<T: ArithmeticOps>(
-        op: &T,
+        arith: &T,
         a: &[T::Elem],
         b: &[T::Elem],
     ) -> Vec<T::Elem> {
@@ -299,9 +325,9 @@ mod test {
         izip!(0.., a.iter()).for_each(|(i, a)| {
             izip!(0.., b.iter()).for_each(|(j, b)| {
                 if i + j < n {
-                    c[i + j] = op.add(&c[i + j], &op.mul(a, b));
+                    c[i + j] = arith.add(&c[i + j], &arith.mul(a, b));
                 } else {
-                    c[i + j - n] = op.sub(&c[i + j - n], &op.mul(a, b));
+                    c[i + j - n] = arith.sub(&c[i + j - n], &arith.mul(a, b));
                 }
             })
         });
@@ -318,19 +344,19 @@ mod test {
 
         ring.forward(&mut b, a);
         ring.backward_normalized(&mut c, &mut b);
-        izip!(a, &c).for_each(|(a, c)| assert_fn(a, c));
+        izip_eq!(a, &c).for_each(|(a, c)| assert_fn(a, c));
 
         b.fill_with(Default::default);
         c.fill_with(Default::default);
         ring.forward_normalized(&mut b, a);
         ring.backward(&mut c, &mut b);
-        izip!(a, &c).for_each(|(a, c)| assert_fn(a, c));
+        izip_eq!(a, &c).for_each(|(a, c)| assert_fn(a, c));
 
         b.fill_with(Default::default);
         c.fill_with(Default::default);
         ring.forward_normalized(&mut b, a);
         ring.add_backward(&mut c, &mut b);
-        izip!(a, &c).for_each(|(a, c)| assert_fn(a, c));
+        izip_eq!(a, &c).for_each(|(a, c)| assert_fn(a, c));
     }
 
     pub(crate) fn test_poly_mul<R: RingOps>(
@@ -342,6 +368,6 @@ mod test {
         let mut c = vec![Default::default(); ring.ring_size()];
         let mut scratch = vec![Default::default(); ring.scratch_size()];
         ring.poly_mul(&mut c, a, b, &mut scratch);
-        izip!(&c, nega_cyclic_schoolbook_mul(ring, a, b)).for_each(|(a, b)| assert_fn(a, &b));
+        izip_eq!(&c, nega_cyclic_schoolbook_mul(ring, a, b)).for_each(|(a, b)| assert_fn(a, &b));
     }
 }

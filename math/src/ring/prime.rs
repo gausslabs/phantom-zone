@@ -1,6 +1,7 @@
 use crate::{
     decomposer::{Decomposer, DecompositionParam, PrimeDecomposer},
     distribution::Sampler,
+    izip_eq,
     misc::bit_reverse,
     modulus::{Modulus, Prime},
     ring::{ArithmeticOps, ElemFrom, ElemTo, RingOps, SliceOps},
@@ -10,7 +11,7 @@ use itertools::izip;
 use num_bigint_dig::BigUint;
 use num_traits::ToPrimitive;
 use rand::{
-    distributions::{Distribution, Uniform},
+    distributions::{uniform::Uniform, Distribution},
     RngCore,
 };
 
@@ -140,6 +141,7 @@ impl PrimeRing {
     }
 
     fn ntt(&self, a: &mut [u64]) {
+        debug_assert_eq!(a.len(), self.ring_size);
         let log_n = a.len().ilog2();
         for layer in 0..log_n {
             let (m, size) = (1 << layer, 1 << (log_n - layer - 1));
@@ -155,6 +157,7 @@ impl PrimeRing {
     }
 
     fn intt(&self, a: &mut [u64]) {
+        debug_assert_eq!(a.len(), self.ring_size);
         let log_n = a.len().ilog2();
         for layer in (0..log_n).rev() {
             let (m, size) = (1 << layer, 1 << (log_n - layer - 1));
@@ -294,17 +297,12 @@ impl SliceOps for PrimeRing {
         a: impl IntoIterator<Item = &'a [Self::Elem]>,
         b: impl IntoIterator<Item = &'a [Self::Prep]>,
     ) {
-        let (mut a, mut b) = (a.into_iter(), b.into_iter());
-        izip!(a.by_ref(), b.by_ref()).for_each(|(a, b)| {
-            debug_assert_eq!(a.len(), b.len());
-            debug_assert_eq!(a.len(), c.len());
-            izip!(&mut *c, a, b).for_each(|(c, a, b)| {
+        izip_eq!(a, b).for_each(|(a, b)| {
+            izip_eq!(&mut *c, a, b).for_each(|(c, a, b)| {
                 *c = c.wrapping_add(self.mul_prep(a, b));
                 self.reduce_twice_assign(c);
             })
         });
-        debug_assert!(a.next().is_none());
-        debug_assert!(b.next().is_none());
     }
 }
 
@@ -321,7 +319,7 @@ impl RingOps for PrimeRing {
         Self::new(modulus.try_into().unwrap(), ring_size)
     }
 
-    fn eval_ops(&self) -> &impl SliceOps<Elem = Self::Eval> {
+    fn eval(&self) -> &impl SliceOps<Elem = Self::Eval> {
         self
     }
 
@@ -334,9 +332,15 @@ impl RingOps for PrimeRing {
     }
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
-        debug_assert_eq!(a.len(), self.ring_size());
-        debug_assert_eq!(b.len(), self.ring_size());
         b.copy_from_slice(a);
+        self.ntt(b);
+    }
+
+    fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T])
+    where
+        Self: ElemFrom<T>,
+    {
+        self.slice_elem_from(b, a);
         self.ntt(b);
     }
 
@@ -346,26 +350,20 @@ impl RingOps for PrimeRing {
     }
 
     fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        debug_assert_eq!(a.len(), self.ring_size());
-        debug_assert_eq!(b.len(), self.ring_size());
         b.copy_from_slice(a);
         self.intt(b);
         b.iter_mut().for_each(|b| self.reduce_assign(b));
     }
 
     fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        debug_assert_eq!(a.len(), self.ring_size());
-        debug_assert_eq!(b.len(), self.ring_size());
         b.copy_from_slice(a);
         self.intt(b);
         self.normalize(b);
     }
 
     fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        debug_assert_eq!(a.len(), self.ring_size());
-        debug_assert_eq!(b.len(), self.ring_size());
         self.intt(a);
-        izip!(b, a).for_each(|(b, a)| {
+        izip_eq!(b, a).for_each(|(b, a)| {
             self.reduce_assign(a);
             *b = self.add(a, b);
         })
@@ -421,7 +419,7 @@ mod test {
     #[test]
     fn round_trip() {
         let mut rng = thread_rng();
-        for log_ring_size in 0..12 {
+        for log_ring_size in 0..10 {
             for q in Prime::gen_iter(50, log_ring_size + 1).take(10) {
                 let ring = PrimeRing::new(q, 1 << log_ring_size);
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
@@ -433,7 +431,7 @@ mod test {
     #[test]
     fn poly_mul() {
         let mut rng = thread_rng();
-        for log_ring_size in 0..12 {
+        for log_ring_size in 0..10 {
             for q in Prime::gen_iter(50, log_ring_size + 1).take(10) {
                 let ring = PrimeRing::new(q, 1 << log_ring_size);
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);

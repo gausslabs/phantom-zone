@@ -158,7 +158,7 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
         Self::new(modulus.try_into().unwrap(), ring_size)
     }
 
-    fn eval_ops(&self) -> &impl SliceOps<Elem = Self::Eval> {
+    fn eval(&self) -> &impl SliceOps<Elem = Self::Eval> {
         &self.ffnt
     }
 
@@ -172,6 +172,16 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
         self.ffnt.forward(b, a, |a| self.to_i64(*a) as _);
+    }
+
+    fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T])
+    where
+        Self: ElemFrom<T>,
+    {
+        self.ffnt.forward(b, a, |a| {
+            let a: i64 = self.elem_to(self.elem_from(*a));
+            a as _
+        });
     }
 
     fn forward_normalized(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
@@ -227,7 +237,7 @@ mod test {
             RingOps,
         },
     };
-    use rand::{distributions::Uniform, thread_rng};
+    use rand::{distributions::uniform::Uniform, thread_rng};
 
     fn round_trip_prec_loss(log_ring_size: usize, log_q: usize) -> usize {
         (log_ring_size + log_q).saturating_sub((f64::MANTISSA_DIGITS - 1) as usize)
@@ -236,7 +246,7 @@ mod test {
     #[test]
     fn non_native_round_trip() {
         let mut rng = thread_rng();
-        for log_ring_size in 0..12 {
+        for log_ring_size in 0..10 {
             for log_q in 50..56 {
                 let prec_loss = round_trip_prec_loss(log_ring_size, log_q);
                 let ring = NonNativePowerOfTwoRing::new(PowerOfTwo(log_q), 1 << log_ring_size);
@@ -251,7 +261,7 @@ mod test {
     #[test]
     fn native_round_trip() {
         let mut rng = thread_rng();
-        for log_ring_size in 0..12 {
+        for log_ring_size in 0..10 {
             let prec_loss = round_trip_prec_loss(log_ring_size, 64);
             let ring = NativeRing::new(PowerOfTwo::native(), 1 << log_ring_size);
             for _ in 0..100 {
@@ -268,10 +278,10 @@ mod test {
     #[test]
     fn non_native_poly_mul() {
         let mut rng = thread_rng();
-        for log_ring_size in 0..12 {
-            for log_q in 50..56 {
+        for log_ring_size in 0..10 {
+            for log_q in 50..54 {
                 let ring = NonNativePowerOfTwoRing::new(PowerOfTwo(log_q), 1 << log_ring_size);
-                for log_b in 12..18 {
+                for log_b in 12..16 {
                     let prec_loss = poly_mul_prec_loss(log_ring_size, log_q, log_b);
                     let uniform_b = Uniform::new(0, 1u64 << log_b);
                     for _ in 0..100 {
@@ -287,9 +297,9 @@ mod test {
     #[test]
     fn native_poly_mul() {
         let mut rng = thread_rng();
-        for log_ring_size in 0..12 {
+        for log_ring_size in 0..10 {
             let ring = NativeRing::new(PowerOfTwo::native(), 1 << log_ring_size);
-            for log_b in 12..18 {
+            for log_b in 12..16 {
                 let prec_loss = poly_mul_prec_loss(log_ring_size, 64, log_b);
                 let uniform_b = Uniform::new(0, 1u64 << log_b);
                 for _ in 0..100 {

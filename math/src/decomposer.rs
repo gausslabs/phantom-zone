@@ -1,6 +1,8 @@
-use crate::modulus::{PowerOfTwo, Prime};
+use crate::{
+    izip_eq,
+    modulus::{PowerOfTwo, Prime},
+};
 use core::{fmt::Debug, iter::repeat_with};
-use itertools::izip;
 
 #[derive(Clone, Copy, Debug)]
 pub struct DecompositionParam {
@@ -8,7 +10,7 @@ pub struct DecompositionParam {
     pub level: usize,
 }
 
-pub trait Decomposer<T: Clone + Copy + Debug + 'static> {
+pub trait Decomposer<T: Copy + Debug + 'static> {
     fn log_base(&self) -> usize;
 
     fn level(&self) -> usize;
@@ -32,28 +34,28 @@ pub trait Decomposer<T: Clone + Copy + Debug + 'static> {
         self.decompose_iter(a).collect()
     }
 
-    fn decompose_for_each(&self, a: &T, f: impl FnMut(T)) {
-        self.decompose_iter(a).for_each(f)
-    }
-
     fn recompose(&self, a: impl IntoIterator<Item = T>) -> T;
 
-    fn slice_round(&self, a: &mut [T]) {
+    fn slice_round_assign(&self, a: &mut [T]) {
         a.iter_mut().for_each(|a| *a = self.round(a));
     }
 
     fn slice_decompose_next(&self, b: &mut [T], a: &mut [T]) {
-        debug_assert_eq!(a.len(), b.len());
-        izip!(b, a).for_each(|(b, a)| *b = self.decompose_next(a));
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.decompose_next(a));
     }
 
-    fn slice_decompose_for_each(&self, b: &mut [T], a: &mut [T], mut f: impl FnMut(&[T])) {
-        debug_assert_eq!(a.len(), b.len());
-        self.slice_round(a);
-        for _ in 0..self.level() {
-            self.slice_decompose_next(b, a);
-            f(b);
-        }
+    fn slice_decompose_zip_for_each<B>(
+        &self,
+        a: &mut [T],
+        b: impl IntoIterator<Item = B>,
+        scratch: &mut [T],
+        mut f: impl FnMut((&[T], B)),
+    ) {
+        self.slice_round_assign(a);
+        izip_eq!(0..self.level(), b).for_each(|(_, b)| {
+            self.slice_decompose_next(scratch, a);
+            f((scratch, b));
+        });
     }
 }
 
@@ -117,7 +119,7 @@ impl Decomposer<u64> for PowerOfTwoDecomposer {
     }
 
     fn recompose(&self, a: impl IntoIterator<Item = u64>) -> u64 {
-        izip!(a, self.log_gadget_iter())
+        izip_eq!(a, self.log_gadget_iter())
             .map(|(a, bits)| a << bits)
             .reduce(|a, b| a.wrapping_add(b))
             .unwrap_or_default()

@@ -3,7 +3,10 @@ use core::{convert::identity, iter::repeat_with};
 use itertools::{izip, Itertools};
 use num_traits::{AsPrimitive, One, PrimInt, Signed, Zero};
 use rand::{
-    distributions::{Distribution, Uniform},
+    distributions::{
+        uniform::{SampleUniform, Uniform},
+        Distribution,
+    },
     RngCore,
 };
 use rand_distr::Normal;
@@ -97,6 +100,14 @@ pub fn sample_vec<T>(n: usize, dist: impl Distribution<T>, rng: impl RngCore) ->
     dist.sample_iter(rng).take(n).collect()
 }
 
+pub fn sample_uniform_vec<T: SampleUniform>(
+    n: usize,
+    dist: impl Into<Uniform<T>>,
+    rng: impl RngCore,
+) -> Vec<T> {
+    dist.into().sample_iter(rng).take(n).collect()
+}
+
 pub fn gaussian_dist<T>(std_dev: f64) -> impl Distribution<T>
 where
     T: Copy + Signed + 'static,
@@ -162,7 +173,7 @@ pub fn sample_ternary_vec<T: Clone + Signed>(
         }
         set.into_iter().flat_map(into_bits).positions(identity)
     };
-    izip!(indices, repeat_with(|| rng.next_u64()).flat_map(into_bits),)
+    izip!(indices, repeat_with(|| rng.next_u64()).flat_map(into_bits))
         .take(n)
         .fold(vec![T::zero(); n], |mut v, (idx, bit)| {
             v[idx] = if bit { T::one() } else { -T::one() };
