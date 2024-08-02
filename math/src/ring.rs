@@ -233,6 +233,10 @@ pub trait RingOps:
         2 * self.eval_size()
     }
 
+    fn allocate_scratch(&self) -> Vec<Self::Eval> {
+        vec![Default::default(); self.scratch_size()]
+    }
+
     fn eval(&self) -> &impl SliceOps<Elem = Self::Eval>;
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]);
@@ -248,6 +252,8 @@ pub trait RingOps:
     fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]);
 
     fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]);
+
+    fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]);
 
     fn poly_mul(
         &self,
@@ -300,6 +306,36 @@ pub trait RingOps:
         self.forward(b_eval, b);
         self.eval().slice_mul_assign(a_eval, &*b_eval);
         self.backward_normalized(b, a_eval)
+    }
+
+    fn poly_fma(
+        &self,
+        c: &mut [Self::Elem],
+        a: &[Self::Elem],
+        b: &[Self::Elem],
+        scratch: &mut [Self::Eval],
+    ) {
+        let (a_eval, b_eval) = scratch.split_at_mut(self.eval_size());
+        self.forward(a_eval, a);
+        self.forward(b_eval, b);
+        self.eval().slice_mul_assign(a_eval, &*b_eval);
+        self.add_backward_normalized(c, a_eval)
+    }
+
+    fn poly_fma_elem_from<T: Copy>(
+        &self,
+        c: &mut [Self::Elem],
+        a: &[Self::Elem],
+        b: &[T],
+        scratch: &mut [Self::Eval],
+    ) where
+        Self: ElemFrom<T>,
+    {
+        let (a_eval, b_eval) = scratch.split_at_mut(self.eval_size());
+        self.forward(a_eval, a);
+        self.forward_elem_from(b_eval, b);
+        self.eval().slice_mul_assign(a_eval, &*b_eval);
+        self.add_backward_normalized(c, a_eval)
     }
 }
 
@@ -362,8 +398,7 @@ mod test {
         assert_fn: impl Fn(&R::Elem, &R::Elem),
     ) {
         let mut c = vec![Default::default(); ring.ring_size()];
-        let mut scratch = vec![Default::default(); ring.scratch_size()];
-        ring.poly_mul(&mut c, a, b, &mut scratch);
+        ring.poly_mul(&mut c, a, b, &mut ring.allocate_scratch());
         izip_eq!(&c, nega_cyclic_schoolbook_mul(ring, a, b)).for_each(|(a, b)| assert_fn(a, &b));
     }
 }

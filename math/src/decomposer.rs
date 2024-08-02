@@ -48,8 +48,8 @@ pub trait Decomposer<T: Copy + Debug + 'static> {
 
     fn recompose(&self, a: impl IntoIterator<Item = T>) -> T;
 
-    fn slice_round_assign(&self, a: &mut [T]) {
-        a.iter_mut().for_each(|a| *a = self.round(a));
+    fn slice_round(&self, b: &mut [T], a: &[T]) {
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.round(a));
     }
 
     fn slice_decompose_next(&self, b: &mut [T], a: &mut [T]) {
@@ -58,16 +58,24 @@ pub trait Decomposer<T: Copy + Debug + 'static> {
 
     fn slice_decompose_zip_for_each<B>(
         &self,
-        a: &mut [T],
+        a: &[T],
         b: impl IntoIterator<Item = B>,
         scratch: &mut [T],
         mut f: impl FnMut((&[T], B)),
     ) {
-        self.slice_round_assign(a);
+        let (state, limb) = scratch.split_at_mut(a.len());
+        self.slice_round(state, a);
         izip_eq!(0..self.level(), b).for_each(|(_, b)| {
-            self.slice_decompose_next(scratch, a);
-            f((scratch, b));
+            self.slice_decompose_next(limb, state);
+            f((limb, b));
         });
+    }
+
+    fn allocate_scratch(&self, a: &[T]) -> Vec<T>
+    where
+        T: Default,
+    {
+        vec![T::default(); 2 * a.len()]
     }
 }
 
@@ -244,10 +252,12 @@ mod test {
             Decomposer, DecompositionParam, NativeDecomposer, NonNativePowerOfTwoDecomposer,
             PrimeDecomposer,
         },
-        distribution::sample_uniform_iter,
         modulus::{Modulus, PowerOfTwo, Prime},
     };
-    use rand::thread_rng;
+    use rand::{
+        distributions::{Distribution, Uniform},
+        thread_rng,
+    };
 
     #[test]
     fn decompose() {
@@ -285,7 +295,10 @@ mod test {
                     decomposer.round(&a),
                 );
             }
-            for a in sample_uniform_iter(0..=modulus.max(), thread_rng()).take(10000) {
+            for a in Uniform::new_inclusive(0, modulus.max())
+                .sample_iter(thread_rng())
+                .take(10000)
+            {
                 assert_eq!(
                     decomposer.round(&decomposer.recompose(decomposer.decompose_iter(&a))),
                     decomposer.round(&a),

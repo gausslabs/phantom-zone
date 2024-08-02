@@ -96,6 +96,16 @@ impl Ffnt {
         self.add_unfold_untwist(b, a, add_from_f64);
     }
 
+    pub(crate) fn add_backward_normalized<T>(
+        &self,
+        b: &mut [T],
+        a: &mut [Complex64],
+        add_from_f64: impl Fn(&mut T, f64),
+    ) {
+        self.normalize(a);
+        self.add_backward(b, a, add_from_f64)
+    }
+
     fn normalize(&self, a: &mut [Complex64]) {
         a.iter_mut().for_each(|a| *a *= self.fft_size_inv);
     }

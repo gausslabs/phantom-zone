@@ -1,16 +1,13 @@
 use crate::{
     decomposer::PrimeDecomposer,
-    distribution::Sampler,
+    distribution::{DistributionSized, Sampler},
     izip_eq,
     misc::bit_reverse,
     modulus::{inv_mod, pow_mod, powers_mod, Modulus, Prime},
     ring::{ArithmeticOps, ElemFrom, ElemTo, RingOps, SliceOps},
 };
 use itertools::izip;
-use rand::{
-    distributions::{uniform::Uniform, Distribution},
-    RngCore,
-};
+use rand::distributions::{Distribution, Uniform};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Shoup(u64, u64);
@@ -304,8 +301,10 @@ impl SliceOps for PrimeRing {
 }
 
 impl Sampler for PrimeRing {
-    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
-        Uniform::new(0, self.q).sample(&mut rng)
+    fn uniform_distribution(
+        &self,
+    ) -> impl Distribution<Self::Elem> + DistributionSized<Self::Elem> {
+        Uniform::new(0, self.q)
     }
 }
 
@@ -369,6 +368,11 @@ impl RingOps for PrimeRing {
             self.reduce_assign(a);
             *b = self.add(a, b);
         })
+    }
+
+    fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
+        self.intt(a);
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.add(&self.mul_prep(a, &self.n_inv), b))
     }
 }
 

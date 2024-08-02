@@ -1,13 +1,10 @@
 use crate::ring::{ArithmeticOps, ElemFrom};
 use core::{convert::identity, iter::repeat_with};
 use itertools::{izip, Itertools};
-use num_traits::{AsPrimitive, One, PrimInt, Signed, Zero};
+use num_traits::{FromPrimitive, PrimInt, Signed};
 use rand::{
-    distributions::{
-        uniform::{SampleUniform, Uniform},
-        Distribution,
-    },
-    RngCore,
+    distributions::{uniform::SampleUniform, Distribution, Uniform},
+    Rng, RngCore,
 };
 use rand_distr::Normal;
 
@@ -30,171 +27,154 @@ pub trait Sampler: ArithmeticOps {
         dist.sample_iter(rng).map(|v| self.elem_from(v))
     }
 
-    fn sample_into<T>(&self, out: &mut [Self::Elem], dist: impl Distribution<T>, rng: impl RngCore)
-    where
+    fn sample_into<T>(
+        &self,
+        out: &mut [Self::Elem],
+        dist: impl DistributionSized<T>,
+        rng: impl RngCore,
+    ) where
         Self: ElemFrom<T>,
     {
-        izip!(out, self.sample_iter(dist, rng)).for_each(|(a, b)| *a = b);
+        dist.sample_map_into(out, |v| self.elem_from(v), rng)
     }
 
-    fn sample_vec<T>(
+    fn sample_vec<T: Default>(
         &self,
         n: usize,
-        dist: impl Distribution<T>,
-        mut rng: impl RngCore,
+        dist: impl DistributionSized<T>,
+        rng: impl RngCore,
     ) -> Vec<Self::Elem>
     where
         Self: ElemFrom<T>,
     {
-        self.sample_iter(dist, &mut rng).take(n).collect()
+        let mut out = vec![Default::default(); n];
+        self.sample_into(&mut out, dist, rng);
+        out
     }
 
-    fn sample_uniform(&self, rng: impl RngCore) -> Self::Elem;
+    fn uniform_distribution(&self)
+        -> impl Distribution<Self::Elem> + DistributionSized<Self::Elem>;
 
-    fn sample_uniform_iter(&self, mut rng: impl RngCore) -> impl Iterator<Item = Self::Elem> {
-        repeat_with(move || self.sample_uniform(&mut rng))
+    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
+        self.uniform_distribution().sample(&mut rng)
+    }
+
+    fn sample_uniform_iter(&self, rng: impl RngCore) -> impl Iterator<Item = Self::Elem> {
+        self.uniform_distribution().sample_iter(rng)
     }
 
     fn sample_uniform_into(&self, out: &mut [Self::Elem], rng: impl RngCore) {
-        izip!(out, self.sample_uniform_iter(rng)).for_each(|(a, b)| *a = b);
+        self.uniform_distribution().sample_into(out, rng)
     }
 
     fn sample_uniform_vec(&self, n: usize, rng: impl RngCore) -> Vec<Self::Elem> {
-        self.sample_uniform_iter(rng).take(n).collect()
+        self.uniform_distribution().sample_vec(n, rng)
     }
+}
 
-    fn sample_gaussian(&self, std_dev: f64, rng: impl RngCore) -> Self::Elem
+pub trait DistributionSized<T> {
+    fn sample_map_into<R: Rng, O>(self, out: &mut [O], f: impl Fn(T) -> O, rng: R);
+
+    fn sample_into<R: Rng>(self, out: &mut [T], rng: R)
     where
-        Self: ElemFrom<i64>,
+        Self: Sized,
     {
-        self.elem_from(sample_gaussian(std_dev, rng))
+        self.sample_map_into(out, identity, rng)
     }
 
-    fn sample_gaussian_iter(
-        &self,
-        std_dev: f64,
-        rng: impl RngCore,
-    ) -> impl Iterator<Item = Self::Elem>
-    where
-        Self: ElemFrom<i64>,
-    {
-        sample_gaussian_iter(std_dev, rng).map(|v| self.elem_from(v))
+    fn sample_vec<R: Rng>(self, n: usize, rng: R) -> Vec<T>;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Gaussian(Normal<f64>);
+
+impl Gaussian {
+    pub fn new(std_dev: f64) -> Self {
+        Self(Normal::new(0f64, std_dev).unwrap())
     }
 
-    fn sample_gaussian_into(&self, out: &mut [Self::Elem], std_dev: f64, rng: impl RngCore)
-    where
-        Self: ElemFrom<i64>,
-    {
-        izip!(out, self.sample_gaussian_iter(std_dev, rng)).for_each(|(a, b)| *a = b);
-    }
-
-    fn sample_gaussian_vec(&self, std_dev: f64, n: usize, rng: impl RngCore) -> Vec<Self::Elem>
-    where
-        Self: ElemFrom<i64>,
-    {
-        self.sample_gaussian_iter(std_dev, rng).take(n).collect()
+    pub fn std_dev(&self) -> f64 {
+        self.0.std_dev()
     }
 }
 
-pub fn sample_vec<T>(n: usize, dist: impl Distribution<T>, rng: impl RngCore) -> Vec<T> {
-    dist.sample_iter(rng).take(n).collect()
+impl<T: FromPrimitive> Distribution<T> for Gaussian {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
+        FromPrimitive::from_f64(self.0.sample(rng)).unwrap()
+    }
 }
 
-pub fn sample_uniform_iter<T: SampleUniform>(
-    dist: impl Into<Uniform<T>>,
-    rng: impl RngCore,
-) -> impl Iterator<Item = T> {
-    dist.into().sample_iter(rng)
+#[derive(Clone, Copy, Debug)]
+pub struct Ternary(pub usize);
+
+impl Ternary {
+    pub fn hamming_weight(self) -> usize {
+        self.0
+    }
 }
 
-pub fn sample_uniform_vec<T: SampleUniform>(
-    n: usize,
-    dist: impl Into<Uniform<T>>,
-    rng: impl RngCore,
-) -> Vec<T> {
-    sample_uniform_iter(dist, rng).take(n).collect()
-}
-
-pub fn gaussian_dist<T>(std_dev: f64) -> impl Distribution<T>
-where
-    T: Copy + Signed + 'static,
-    f64: AsPrimitive<T>,
-{
-    Normal::new(0.0, std_dev).unwrap().map(|a| a.round().as_())
-}
-
-pub fn sample_gaussian<T>(std_dev: f64, mut rng: impl RngCore) -> T
-where
-    T: Copy + Signed + 'static,
-    f64: AsPrimitive<T>,
-{
-    gaussian_dist(std_dev).sample(&mut rng)
-}
-
-pub fn sample_gaussian_iter<T>(std_dev: f64, rng: impl RngCore) -> impl Iterator<Item = T>
-where
-    T: Copy + Signed + 'static,
-    f64: AsPrimitive<T>,
-{
-    gaussian_dist(std_dev).sample_iter(rng)
-}
-
-pub fn sample_gaussian_vec<T>(std_dev: f64, n: usize, rng: impl RngCore) -> Vec<T>
-where
-    T: Copy + Signed + 'static,
-    f64: AsPrimitive<T>,
-{
-    sample_gaussian_iter(std_dev, rng).take(n).collect()
-}
-
-pub fn sample_binary_iter<T: Zero + One>(mut rng: impl RngCore) -> impl Iterator<Item = T> {
-    repeat_with(move || rng.next_u64())
-        .flat_map(into_bits)
-        .map(|bit| if bit { T::one() } else { T::zero() })
-}
-
-pub fn sample_binary_vec<T: Zero + One>(n: usize, rng: impl RngCore) -> Vec<T> {
-    sample_binary_iter(rng).take(n).collect()
-}
-
-pub fn sample_ternary_vec<T: Clone + Signed>(
-    hamming_weight: usize,
-    n: usize,
-    mut rng: impl RngCore,
-) -> Vec<T> {
-    assert_ne!(hamming_weight, 0);
-    assert!(hamming_weight <= n);
-    let indices = {
-        let insert = |set: &mut [u8], idx: usize| {
-            let is_none = (set[idx / 8] & 1 << (idx % 8)) == 0;
-            set[idx / 8] |= 1 << (idx % 8);
-            is_none
-        };
-        let mut set = vec![0; n.div_ceil(8)];
-        let mut count = 0;
-        for idx in Uniform::new(0, n).sample_iter(&mut rng) {
-            count += insert(&mut set, idx) as usize;
-            if count == hamming_weight {
-                break;
+impl<T: Signed> DistributionSized<T> for Ternary {
+    fn sample_map_into<R: Rng, O>(self, out: &mut [O], f: impl Fn(T) -> O, mut rng: R) {
+        assert_ne!(self.hamming_weight(), 0);
+        assert!(self.hamming_weight() <= out.len());
+        let indices = {
+            let insert = |set: &mut [u8], idx: usize| {
+                let is_none = (set[idx / 8] & 1 << (idx % 8)) == 0;
+                set[idx / 8] |= 1 << (idx % 8);
+                is_none
+            };
+            let mut set = vec![0; out.len().div_ceil(8)];
+            let mut count = 0;
+            for idx in Uniform::new(0, out.len()).sample_iter(&mut rng) {
+                count += insert(&mut set, idx) as usize;
+                if count == self.hamming_weight() {
+                    break;
+                }
             }
-        }
-        set.into_iter().flat_map(into_bits).positions(identity)
-    };
-    izip!(indices, repeat_with(|| rng.next_u64()).flat_map(into_bits))
-        .take(n)
-        .fold(vec![T::zero(); n], |mut v, (idx, bit)| {
-            v[idx] = if bit { T::one() } else { -T::one() };
-            v
-        })
+            set.into_iter().flat_map(into_bits).positions(identity)
+        };
+        izip!(indices, repeat_with(|| rng.next_u64()).flat_map(into_bits))
+            .for_each(|(idx, bit)| out[idx] = f(if bit { T::one() } else { -T::one() }));
+    }
+
+    fn sample_vec<R: Rng>(self, n: usize, rng: R) -> Vec<T> {
+        let mut out = repeat_with(T::zero).take(n).collect_vec();
+        self.sample_into(&mut out, rng);
+        out
+    }
 }
 
 fn into_bits<T: PrimInt>(byte: T) -> impl Iterator<Item = bool> {
     (0..T::zero().count_zeros() as usize).map(move |i| (byte >> i) & T::one() == T::one())
 }
 
+macro_rules! impl_distribution_sized_by_distribution {
+    ($t:ty $(where T: $bonud:ident)?) => {
+        impl<T> DistributionSized<T> for $t
+        where
+            Self: Distribution<T>,
+            $(T: $bonud)?
+        {
+            fn sample_map_into<R: Rng, O>(self, out: &mut [O], f: impl Fn(T) -> O, rng: R) {
+                izip!(out, self.sample_iter(rng)).for_each(|(a, b)| *a = f(b));
+            }
+
+            fn sample_vec<R: Rng>(self, n: usize, rng: R) -> Vec<T>
+            where
+                Self: Sized,
+            {
+                self.sample_iter(rng).take(n).collect()
+            }
+        }
+    };
+}
+
+impl_distribution_sized_by_distribution!(Gaussian);
+impl_distribution_sized_by_distribution!(Uniform<T> where T: SampleUniform);
+
 #[cfg(test)]
 mod test {
-    use crate::distribution::sample_ternary_vec;
+    use crate::distribution::{DistributionSized, Ternary};
     use num_traits::Zero;
     use rand::{
         distributions::{Distribution, Uniform},
@@ -207,8 +187,8 @@ mod test {
         for n in (0..12).map(|log_n| 1 << log_n) {
             for _ in 0..n.min(100) {
                 let hamming_weight = Uniform::new_inclusive(1, n).sample(&mut rng);
-                let v = sample_ternary_vec::<i64>(hamming_weight, n, &mut rng);
-                assert_eq!(v.iter().filter(|v| !v.is_zero()).count(), hamming_weight);
+                let out: Vec<i64> = Ternary(hamming_weight).sample_vec(n, &mut rng);
+                assert_eq!(out.iter().filter(|v| !v.is_zero()).count(), hamming_weight);
             }
         }
     }

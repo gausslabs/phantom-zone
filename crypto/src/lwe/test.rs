@@ -1,0 +1,192 @@
+use crate::{
+    lwe::{
+        self, LweCiphertext, LweCiphertextOwned, LweCiphertextView, LweKeySwitchKey,
+        LweKeySwitchKeyOwned, LweKeySwitchKeyView, LwePlaintext, LweSecretKey, LweSecretKeyOwned,
+        LweSecretKeyView,
+    },
+    misc::{NoiseDistribution, SecretKeyDistribution},
+};
+use phantom_zone_math::{
+    decomposer::DecompositionParam,
+    distribution::Gaussian,
+    modulus::{Modulus, PowerOfTwo, Prime},
+    ring::{
+        power_of_two::{NativeRing, NonNativePowerOfTwoRing},
+        prime::PrimeRing,
+        RingOps,
+    },
+};
+use rand::{thread_rng, RngCore};
+
+#[derive(Clone, Copy, Debug)]
+struct LweParam {
+    message_modulus: u64,
+    ciphertext_modulus: Modulus,
+    dimension: usize,
+    sk_distribution: SecretKeyDistribution,
+    noise_distribution: NoiseDistribution,
+    ks_decomposition_param: DecompositionParam,
+}
+
+impl LweParam {
+    fn dimension(mut self, dimension: usize) -> Self {
+        self.dimension = dimension;
+        self
+    }
+
+    fn build<R: RingOps>(self) -> Lwe<R> {
+        let delta = self.ciphertext_modulus.to_f64() / self.message_modulus as f64;
+        let ring = RingOps::new(self.ciphertext_modulus, 1);
+        Lwe {
+            param: self,
+            delta,
+            ring,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Lwe<R: RingOps> {
+    param: LweParam,
+    delta: f64,
+    ring: R,
+}
+
+impl<R: RingOps> Lwe<R> {
+    fn ring(&self) -> &R {
+        &self.ring
+    }
+
+    fn encode(&self, m: u64) -> LwePlaintext<R::Elem> {
+        assert!(m < self.param.message_modulus);
+        LwePlaintext(self.ring.elem_from((m as f64 * self.delta).round() as u64))
+    }
+
+    fn decode(&self, LwePlaintext(pt): LwePlaintext<R::Elem>) -> u64 {
+        let pt: u64 = self.ring.elem_to(pt);
+        (pt as f64 / self.delta).round() as u64 % self.param.message_modulus
+    }
+
+    fn sk_gen(&self, rng: impl RngCore) -> LweSecretKeyOwned<i32> {
+        let mut sk = LweSecretKey::allocate(self.param.dimension);
+        lwe::sk_gen(sk.as_mut_view(), self.param.sk_distribution, rng);
+        sk
+    }
+
+    fn sk_encrypt(
+        &self,
+        sk: LweSecretKeyView<i32>,
+        pt: LwePlaintext<R::Elem>,
+        rng: impl RngCore,
+    ) -> LweCiphertextOwned<R::Elem> {
+        let mut ct = LweCiphertext::allocate(self.param.dimension);
+        lwe::sk_encrypt(
+            self.ring(),
+            ct.as_mut_view(),
+            sk.as_view(),
+            pt,
+            self.param.noise_distribution,
+            rng,
+        );
+        ct
+    }
+
+    fn decrypt(
+        &self,
+        sk: LweSecretKeyView<i32>,
+        ct: LweCiphertextView<R::Elem>,
+    ) -> LwePlaintext<R::Elem> {
+        lwe::decrypt(self.ring(), sk.as_view(), ct.as_view())
+    }
+
+    fn ksk_gen(
+        &self,
+        sk_from: LweSecretKeyView<i32>,
+        sk_to: LweSecretKeyView<i32>,
+        rng: impl RngCore,
+    ) -> LweKeySwitchKeyOwned<R::Elem> {
+        assert_eq!(self.param.dimension, sk_to.dimension());
+        let mut ksk = LweKeySwitchKey::allocate(
+            sk_from.dimension(),
+            sk_to.dimension(),
+            self.param.ks_decomposition_param,
+        );
+        lwe::ksk_gen(
+            self.ring(),
+            ksk.as_mut_view(),
+            sk_from,
+            sk_to,
+            self.param.noise_distribution,
+            rng,
+        );
+        ksk
+    }
+
+    fn key_switch(
+        &self,
+        ksk: LweKeySwitchKeyView<R::Elem>,
+        ct_from: LweCiphertextView<R::Elem>,
+    ) -> LweCiphertextOwned<R::Elem> {
+        let mut ct_to = LweCiphertext::allocate(ksk.to_dimension());
+        lwe::key_switch(self.ring(), ct_to.as_mut_view(), ksk, ct_from);
+        ct_to
+    }
+}
+
+fn test_param(ciphertext_modulus: impl Into<Modulus>) -> LweParam {
+    LweParam {
+        message_modulus: 1 << 6,
+        ciphertext_modulus: ciphertext_modulus.into(),
+        dimension: 256,
+        sk_distribution: Gaussian::new(3.2).into(),
+        noise_distribution: Gaussian::new(3.2).into(),
+        ks_decomposition_param: DecompositionParam {
+            log_base: 8,
+            level: 6,
+        },
+    }
+}
+
+#[test]
+fn encrypt_decrypt() {
+    fn run<R: RingOps>(param: LweParam) {
+        let mut rng = thread_rng();
+        let lwe = param.build::<R>();
+        let sk = lwe.sk_gen(&mut rng);
+        for m in 0..param.message_modulus {
+            let pt = lwe.encode(m);
+            let ct = lwe.sk_encrypt(sk.as_view(), pt, &mut rng);
+            assert_eq!(m, lwe.decode(pt));
+            assert_eq!(m, lwe.decode(lwe.decrypt(sk.as_view(), ct.as_view())));
+        }
+    }
+
+    run::<NativeRing>(test_param(Modulus::native()));
+    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<PrimeRing>(test_param(Prime::gen(50, 0)));
+}
+
+#[test]
+fn key_switch() {
+    fn run<R: RingOps>(param: LweParam) {
+        let mut rng = thread_rng();
+        let lwe_from = param.build::<R>();
+        let lwe_to = param.dimension(2 * param.dimension).build::<R>();
+        let sk_from = lwe_from.sk_gen(&mut rng);
+        let sk_to = lwe_to.sk_gen(&mut rng);
+        let ksk = lwe_to.ksk_gen(sk_from.as_view(), sk_to.as_view(), &mut rng);
+        for m in 0..param.message_modulus {
+            let pt = lwe_from.encode(m);
+            let ct_from = lwe_from.sk_encrypt(sk_from.as_view(), pt, &mut rng);
+            let ct_to = lwe_to.key_switch(ksk.as_view(), ct_from.as_view());
+            assert_eq!(
+                m,
+                lwe_to.decode(lwe_to.decrypt(sk_to.as_view(), ct_to.as_view()))
+            );
+        }
+    }
+
+    run::<NativeRing>(test_param(Modulus::native()));
+    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<PrimeRing>(test_param(Prime::gen(50, 0)));
+}

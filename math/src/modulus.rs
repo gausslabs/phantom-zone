@@ -1,6 +1,6 @@
+use core::iter::successors;
 use num_bigint_dig::{prime::probably_prime, BigUint};
 use num_traits::ToPrimitive;
-use std::iter::successors;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Modulus {

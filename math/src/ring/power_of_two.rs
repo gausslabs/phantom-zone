@@ -1,11 +1,11 @@
 use crate::{
     decomposer::PowerOfTwoDecomposer,
-    distribution::Sampler,
+    distribution::{DistributionSized, Sampler},
     modulus::{Modulus, PowerOfTwo},
     ring::{ffnt::Ffnt, ArithmeticOps, ElemFrom, ElemTo, RingOps, SliceOps},
 };
 use num_complex::Complex64;
-use rand::RngCore;
+use rand::distributions::{Distribution, Uniform};
 
 pub type NativeRing = PowerOfTwoRing<true>;
 
@@ -147,8 +147,10 @@ impl<const NATIVE: bool> ElemTo<i64> for PowerOfTwoRing<NATIVE> {
 impl<const NATIVE: bool> SliceOps for PowerOfTwoRing<NATIVE> {}
 
 impl<const NATIVE: bool> Sampler for PowerOfTwoRing<NATIVE> {
-    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
-        self.reduce(rng.next_u64())
+    fn uniform_distribution(
+        &self,
+    ) -> impl Distribution<Self::Elem> + DistributionSized<Self::Elem> {
+        Uniform::new_inclusive(0, self.modulus.max())
     }
 }
 
@@ -208,6 +210,12 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
             *b = self.reduce(b.wrapping_add(f64_mod_u64(a)))
         });
     }
+
+    fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
+        self.ffnt.add_backward_normalized(b, a, |b, a| {
+            *b = self.reduce(b.wrapping_add(f64_mod_u64(a)))
+        });
+    }
 }
 
 fn f64_mod_u64(v: f64) -> u64 {
@@ -239,7 +247,7 @@ mod test {
             RingOps,
         },
     };
-    use rand::{distributions::uniform::Uniform, thread_rng};
+    use rand::{distributions::Uniform, thread_rng};
 
     fn round_trip_prec_loss(log_ring_size: usize, log_q: usize) -> usize {
         (log_ring_size + log_q).saturating_sub((f64::MANTISSA_DIGITS - 1) as usize)

@@ -8,8 +8,7 @@ itertools = { workspace = true }
 num-bigint-dig = { workspace = true, features = ["prime"] }
 num-traits = { workspace = true }
 rand = { workspace = true }
-rand_chacha = { workspace = true }
-rand_distr = { workspace = true }
+phantom-zone-derive = { path = "../derive" }
 phantom-zone-math = { path = "../math" }
 
 [dev-dependencies]
