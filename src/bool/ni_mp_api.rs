@@ -1,5 +1,7 @@
 use std::{borrow::Borrow, cell::RefCell, sync::OnceLock};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     backend::ModulusPowerOf2,
     bool::parameters::ParameterVariant,
@@ -184,6 +186,7 @@ impl Global for RuntimeServerKey {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// `Self::data` stores collection of seeded RLWE ciphertexts encrypted unser user j's RLWE secret `u_j`.
 pub struct NonInteractiveSeededFheBools<C, S> {
     data: Vec<C>,

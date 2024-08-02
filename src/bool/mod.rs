@@ -72,10 +72,12 @@ pub(crate) trait BooleanGates {
 
 #[cfg(any(feature = "interactive_mp", feature = "non_interactive_mp"))]
 mod impl_bool_frontend {
+    use serde::{Deserialize, Serialize};
+
     use crate::MultiPartyDecryptor;
 
     /// Fhe Bool ciphertext
-    #[derive(Clone)]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     pub struct FheBool<C> {
         /// LWE bool ciphertext
         pub(crate) data: C,
