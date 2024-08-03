@@ -4,14 +4,15 @@ use crate::{
     rlwe::structure::{
         RlweAutoKeyMutView, RlweAutoKeyView, RlweCiphertext, RlweCiphertextMutView,
         RlweCiphertextView, RlweKeySwitchKeyMutView, RlweKeySwitchKeyView, RlwePlaintextMutView,
-        RlwePlaintextView, RlweSecretKeyMutView, RlweSecretKeyView,
+        RlwePlaintextView, RlwePublicKeyMutView, RlwePublicKeyView, RlweSecretKeyMutView,
+        RlweSecretKeyView,
     },
 };
 use core::{borrow::Borrow, ops::Neg};
 use num_traits::{FromPrimitive, Signed};
 use phantom_zone_math::{
     decomposer::Decomposer,
-    distribution::DistributionSized,
+    distribution::{DistributionSized, Ternary},
     izip_eq,
     ring::{ElemFrom, RingOps, SliceOps},
 };
@@ -23,6 +24,24 @@ pub fn sk_gen<T: Signed + FromPrimitive>(
     rng: impl RngCore,
 ) {
     sk_distribution.sample_into(sk.as_mut(), rng)
+}
+
+pub fn pk_gen<R: RingOps + ElemFrom<T>, T: Copy>(
+    ring: &R,
+    mut pk: RlwePublicKeyMutView<R::Elem>,
+    sk: RlweSecretKeyView<T>,
+    noise_distribution: NoiseDistribution,
+    rng: impl RngCore,
+) {
+    let mut scratch = ring.allocate_scratch();
+    sk_encrypt_with_pt_in_b(
+        ring,
+        pk.as_ct_mut(),
+        sk,
+        noise_distribution,
+        rng,
+        &mut scratch,
+    );
 }
 
 pub fn sk_encrypt<R: RingOps + ElemFrom<T>, T: Copy>(
@@ -50,6 +69,26 @@ pub fn sk_encrypt_with_pt_in_b<R: RingOps + ElemFrom<T>, T: Copy>(
     ring.sample_uniform_into(a, &mut rng);
     ring.poly_fma_elem_from(b, a, sk.as_ref(), scratch);
     ring.slice_add_assign_iter(b, ring.sample_iter::<i64>(noise_distribution, &mut rng));
+}
+
+pub fn pk_encrypt<R: RingOps>(
+    ring: &R,
+    mut ct: RlweCiphertextMutView<R::Elem>,
+    pk: RlwePublicKeyView<R::Elem>,
+    pt: RlwePlaintextView<R::Elem>,
+    mut rng: impl RngCore,
+) {
+    let mut scratch = ring.allocate_scratch();
+    let (t0, t1) = scratch.split_at_mut(ring.eval_size());
+    ring.sample_into::<i64>(ct.a_mut(), Ternary(ring.ring_size() / 2), &mut rng);
+    ring.forward(t1, ct.a());
+    ring.forward(t0, pk.a());
+    ring.eval().slice_mul_assign(t0, t1);
+    ring.backward_normalized(ct.a_mut(), t0);
+    ring.forward(t0, pk.b());
+    ring.eval().slice_mul_assign(t0, t1);
+    ring.backward_normalized(ct.b_mut(), t0);
+    ring.slice_add_assign(ct.b_mut(), pt.as_ref());
 }
 
 pub fn decrypt<R: RingOps + ElemFrom<T>, T: Copy>(

@@ -4,8 +4,8 @@ use crate::{
     rlwe::{
         self, RlweAutoKey, RlweAutoKeyOwned, RlweAutoKeyView, RlweCiphertext, RlweCiphertextOwned,
         RlweCiphertextView, RlweKeySwitchKey, RlweKeySwitchKeyOwned, RlweKeySwitchKeyView,
-        RlwePlaintext, RlwePlaintextOwned, RlwePlaintextView, RlweSecretKey, RlweSecretKeyOwned,
-        RlweSecretKeyView,
+        RlwePlaintext, RlwePlaintextOwned, RlwePlaintextView, RlwePublicKey, RlwePublicKeyOwned,
+        RlwePublicKeyView, RlweSecretKey, RlweSecretKeyOwned, RlweSecretKeyView,
     },
 };
 use itertools::Itertools;
@@ -88,6 +88,18 @@ impl<R: RingOps> Rlwe<R> {
         sk
     }
 
+    fn pk_gen(&self, sk: RlweSecretKeyView<i32>, rng: impl RngCore) -> RlwePublicKeyOwned<R::Elem> {
+        let mut pk = RlwePublicKey::allocate(self.ring_size());
+        rlwe::pk_gen(
+            self.ring(),
+            pk.as_mut_view(),
+            sk,
+            self.param.noise_distribution,
+            rng,
+        );
+        pk
+    }
+
     fn sk_encrypt(
         &self,
         sk: RlweSecretKeyView<i32>,
@@ -103,6 +115,17 @@ impl<R: RingOps> Rlwe<R> {
             self.param.noise_distribution,
             rng,
         );
+        ct
+    }
+
+    fn pk_encrypt(
+        &self,
+        pk: RlwePublicKeyView<R::Elem>,
+        pt: RlwePlaintextView<R::Elem>,
+        rng: impl RngCore,
+    ) -> RlweCiphertextOwned<R::Elem> {
+        let mut ct = RlweCiphertext::allocate(self.ring_size());
+        rlwe::pk_encrypt(self.ring(), ct.as_mut_view(), pk.as_view(), pt, rng);
         ct
     }
 
@@ -212,14 +235,20 @@ fn encrypt_decrypt() {
         let mut rng = thread_rng();
         let rlwe = param.build::<R>();
         let sk = rlwe.sk_gen(&mut rng);
+        let pk = rlwe.pk_gen(sk.as_view(), &mut rng);
         for _ in 0..100 {
             let m = Uniform::new(0, param.message_modulus).sample_vec(param.ring_size, &mut rng);
             let pt = rlwe.encode(&m);
-            let ct = rlwe.sk_encrypt(sk.as_view(), pt.as_view(), &mut rng);
+            let ct_sk = rlwe.sk_encrypt(sk.as_view(), pt.as_view(), &mut rng);
+            let ct_pk = rlwe.pk_encrypt(pk.as_view(), pt.as_view(), &mut rng);
             assert_eq!(m, rlwe.decode(pt.as_view()));
             assert_eq!(
                 m,
-                rlwe.decode(rlwe.decrypt(sk.as_view(), ct.as_view()).as_view())
+                rlwe.decode(rlwe.decrypt(sk.as_view(), ct_sk.as_view()).as_view())
+            );
+            assert_eq!(
+                m,
+                rlwe.decode(rlwe.decrypt(sk.as_view(), ct_pk.as_view()).as_view())
             );
         }
     }

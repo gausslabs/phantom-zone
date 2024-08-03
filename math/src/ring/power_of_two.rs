@@ -224,7 +224,7 @@ fn f64_mod_u64(v: f64) -> u64 {
     let exponent = ((bits >> 52) & 0x7ff) as i64;
     let mantissa = (bits << 11) | 0x8000000000000000;
     let value = match 1086 - exponent {
-        shift @ -64..=0 => mantissa << -shift,
+        shift @ -63..=0 => mantissa << -shift,
         shift @ 1..=63 => mantissa.wrapping_add(1 << (shift - 1)) >> shift,
         _ => 0,
     };

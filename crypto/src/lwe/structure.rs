@@ -6,9 +6,13 @@ use phantom_zone_math::{
 };
 
 #[derive(Clone, Copy, Debug, AsSliceWrapper)]
-pub struct LweSecretKey<S>(pub(crate) S);
+pub struct LweSecretKey<S>(S);
 
 impl<S: AsSlice> LweSecretKey<S> {
+    pub fn new(data: S) -> Self {
+        Self(data)
+    }
+
     pub fn dimension(&self) -> usize {
         self.as_ref().len()
     }
@@ -16,7 +20,7 @@ impl<S: AsSlice> LweSecretKey<S> {
 
 impl<T: Default> LweSecretKey<Vec<T>> {
     pub fn allocate(dimension: usize) -> Self {
-        Self(repeat_with(T::default).take(dimension).collect())
+        Self::new(repeat_with(T::default).take(dimension).collect())
     }
 }
 
@@ -27,6 +31,10 @@ pub struct LwePlaintext<T>(pub T);
 pub struct LweCiphertext<S>(S);
 
 impl<S: AsSlice> LweCiphertext<S> {
+    pub fn new(data: S) -> Self {
+        Self(data)
+    }
+
     pub fn dimension(&self) -> usize {
         self.as_ref().len() - 1
     }
@@ -62,7 +70,7 @@ impl<S: AsMutSlice> LweCiphertext<S> {
 
 impl<T: Default> LweCiphertext<Vec<T>> {
     pub fn allocate(dimension: usize) -> Self {
-        Self(repeat_with(T::default).take(dimension + 1).collect())
+        Self::new(repeat_with(T::default).take(dimension + 1).collect())
     }
 }
 
@@ -75,6 +83,18 @@ pub struct LweKeySwitchKey<S> {
 }
 
 impl<S: AsSlice> LweKeySwitchKey<S> {
+    pub fn new(data: S, to_dimension: usize, decomposition_param: DecompositionParam) -> Self {
+        debug_assert_eq!(
+            data.len() % ((to_dimension + 1) * decomposition_param.level),
+            0
+        );
+        Self {
+            data,
+            to_dimension,
+            decomposition_param,
+        }
+    }
+
     pub fn to_dimension(&self) -> usize {
         self.to_dimension
     }
@@ -107,10 +127,10 @@ impl<T: Default> LweKeySwitchKey<Vec<T>> {
         decomposition_param: DecompositionParam,
     ) -> Self {
         let len = from_dimension * (to_dimension + 1) * decomposition_param.level;
-        Self {
-            data: repeat_with(T::default).take(len).collect(),
+        Self::new(
+            repeat_with(T::default).take(len).collect(),
             to_dimension,
             decomposition_param,
-        }
+        )
     }
 }
