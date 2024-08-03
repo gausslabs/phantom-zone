@@ -1,13 +1,16 @@
-use crate::lwe::LweSecretKey;
+use crate::{distribution::SecretKeyDistribution, lwe::LweSecretKey};
 use core::iter::repeat_with;
+use num_traits::{FromPrimitive, Signed};
 use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
+    distribution::DistributionSized,
     misc::{
         as_slice::{AsMutSlice, AsSlice},
         automorphism::{AutomorphismMap, AutomorphismMapView},
     },
 };
+use rand::RngCore;
 
 #[derive(Clone, Copy, Debug, AsSliceWrapper)]
 pub struct RlweSecretKey<S>(S);
@@ -25,6 +28,17 @@ impl<S: AsSlice> RlweSecretKey<S> {
 impl<T: Default> RlweSecretKey<Vec<T>> {
     pub fn allocate(ring_size: usize) -> Self {
         Self::new(repeat_with(T::default).take(ring_size).collect())
+    }
+
+    pub fn sample(
+        ring_size: usize,
+        sk_distribution: SecretKeyDistribution,
+        rng: impl RngCore,
+    ) -> Self
+    where
+        T: Signed + FromPrimitive,
+    {
+        Self::new(sk_distribution.sample_vec(ring_size, rng))
     }
 }
 

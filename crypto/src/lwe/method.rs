@@ -1,63 +1,66 @@
 use crate::{
-    distribution::{NoiseDistribution, SecretKeyDistribution},
+    distribution::NoiseDistribution,
     lwe::structure::{
         LweCiphertextMutView, LweCiphertextView, LweKeySwitchKeyMutView, LweKeySwitchKeyView,
-        LwePlaintext, LweSecretKeyMutView, LweSecretKeyView,
+        LwePlaintext, LweSecretKeyView,
     },
 };
 use itertools::Itertools;
-use num_traits::{FromPrimitive, Signed};
 use phantom_zone_math::{
     decomposer::Decomposer,
-    distribution::DistributionSized,
     izip_eq,
     ring::{ElemFrom, RingOps},
 };
 use rand::RngCore;
 
-pub fn sk_gen<T: Signed + FromPrimitive>(
-    mut sk: LweSecretKeyMutView<T>,
-    sk_distribution: SecretKeyDistribution,
-    rng: impl RngCore,
-) {
-    sk_distribution.sample_into(sk.as_mut(), rng)
-}
-
-pub fn sk_encrypt<R: RingOps + ElemFrom<T>, T: Copy>(
+pub fn sk_encrypt<'a, 'b, R, T>(
     ring: &R,
-    mut ct: LweCiphertextMutView<R::Elem>,
-    sk: LweSecretKeyView<T>,
+    ct: impl Into<LweCiphertextMutView<'a, R::Elem>>,
+    sk: impl Into<LweSecretKeyView<'b, T>>,
     pt: LwePlaintext<R::Elem>,
     noise_distribution: NoiseDistribution,
     mut rng: impl RngCore,
-) {
+) where
+    R: RingOps + ElemFrom<T>,
+    T: 'b + Copy,
+{
+    let mut ct = ct.into();
     ring.sample_uniform_into(ct.a_mut(), &mut rng);
-    let a_sk = ring.slice_dot_elem_from(ct.a(), sk.as_ref());
+    let a_sk = ring.slice_dot_elem_from(ct.a(), sk.into().as_ref());
     let e = ring.sample::<i64>(&noise_distribution, &mut rng);
     *ct.b_mut() = ring.add(&ring.add(&a_sk, &e), &pt.0);
 }
 
-pub fn decrypt<R: RingOps + ElemFrom<T>, T: Copy>(
+pub fn decrypt<'a, 'b, R, T>(
     ring: &R,
-    sk: LweSecretKeyView<T>,
-    ct: LweCiphertextView<R::Elem>,
-) -> LwePlaintext<R::Elem> {
-    let a_sk = ring.slice_dot_elem_from(ct.a(), sk.as_ref());
+    sk: impl Into<LweSecretKeyView<'a, T>>,
+    ct: impl Into<LweCiphertextView<'b, R::Elem>>,
+) -> LwePlaintext<R::Elem>
+where
+    R: RingOps + ElemFrom<T>,
+    T: 'a + Copy,
+{
+    let ct = ct.into();
+    let a_sk = ring.slice_dot_elem_from(ct.a(), sk.into().as_ref());
     LwePlaintext(ring.sub(ct.b(), &a_sk))
 }
 
-pub fn ks_key_gen<R: RingOps + ElemFrom<T>, T: Copy>(
+pub fn ks_key_gen<'a, 'b, 'c, R, T>(
     ring: &R,
-    mut ks_key: LweKeySwitchKeyMutView<R::Elem>,
-    sk_from: LweSecretKeyView<T>,
-    sk_to: LweSecretKeyView<T>,
+    ks_key: impl Into<LweKeySwitchKeyMutView<'a, R::Elem>>,
+    sk_from: impl Into<LweSecretKeyView<'b, T>>,
+    sk_to: impl Into<LweSecretKeyView<'c, T>>,
     noise_distribution: NoiseDistribution,
     mut rng: impl RngCore,
-) {
+) where
+    R: RingOps + ElemFrom<T>,
+    T: 'b + 'c + Copy,
+{
+    let (mut ks_key, sk_to) = (ks_key.into(), sk_to.into());
     let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
     izip_eq!(
         &ks_key.ct_iter_mut().chunks(decomposer.level()),
-        sk_from.as_ref(),
+        sk_from.into().as_ref(),
     )
     .for_each(|(ks_key_i, sk_from_i)| {
         izip_eq!(ks_key_i, decomposer.gadget_iter()).for_each(|(ks_key_i_j, beta_j)| {
@@ -67,12 +70,13 @@ pub fn ks_key_gen<R: RingOps + ElemFrom<T>, T: Copy>(
     });
 }
 
-pub fn key_switch<R: RingOps>(
+pub fn key_switch<'a, 'b, 'c, R: RingOps>(
     ring: &R,
-    mut ct_to: LweCiphertextMutView<R::Elem>,
-    ks_key: LweKeySwitchKeyView<R::Elem>,
-    ct_from: LweCiphertextView<R::Elem>,
+    ct_to: impl Into<LweCiphertextMutView<'a, R::Elem>>,
+    ks_key: impl Into<LweKeySwitchKeyView<'b, R::Elem>>,
+    ct_from: impl Into<LweCiphertextView<'c, R::Elem>>,
 ) {
+    let (mut ct_to, ks_key, ct_from) = (ct_to.into(), ks_key.into(), ct_from.into());
     let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
     izip_eq!(&ks_key.ct_iter().chunks(decomposer.level()), ct_from.a()).for_each(
         |(ks_key_i, a_i)| {

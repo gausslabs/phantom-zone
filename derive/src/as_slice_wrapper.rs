@@ -1,6 +1,7 @@
 use core::{
     array::from_fn,
     fmt::Display,
+    iter::once,
     ops::{Deref, DerefMut},
 };
 use proc_macro2::{Ident, Span, TokenStream};
@@ -140,10 +141,15 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
     let mut as_mut_view_generics = Generics::default();
     let mut input_owned_impl_generics = Generics::default();
     let mut input_owned_type_genercs = Generics::default();
-    let mut input_view_impl_generics = Generics([quote! { 'a }].into_iter().collect());
+    let mut input_view_impl_generics = Generics(once(quote!('alias)).collect());
     let mut input_view_type_genercs = Generics::default();
-    let mut input_mut_view_impl_generics = Generics([quote! { 'a }].into_iter().collect());
+    let mut input_mut_view_impl_generics = Generics(once(quote!('alias)).collect());
     let mut input_mut_view_type_genercs = Generics::default();
+    let mut from_impl_generics = input.generics.clone();
+    from_impl_generics.params = once(parse(quote! { 'from }))
+        .chain(from_impl_generics.params)
+        .collect();
+    let mut from_type_generics = Generics(once(quote!('from)).collect());
 
     as_slice_generics.iter().for_each(|(ident, elem_bound)| {
         as_view_where_clause
@@ -156,8 +162,8 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
         as_mut_view_generics.push(quote! { &mut [#ident::Elem] });
         if let Some(elem_bound) = elem_bound {
             input_owned_type_genercs.push(quote! { Vec<#elem_bound> });
-            input_view_type_genercs.push(quote! { &'a [#elem_bound] });
-            input_mut_view_type_genercs.push(quote! { &'a mut [#elem_bound] });
+            input_view_type_genercs.push(quote! { &'alias [#elem_bound] });
+            input_mut_view_type_genercs.push(quote! { &'alias mut [#elem_bound] });
         } else {
             let generic_ident = {
                 let ident = ident.to_string();
@@ -167,9 +173,10 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
             input_owned_impl_generics.push(quote! { #generic_ident });
             input_owned_type_genercs.push(quote! { Vec<#generic_ident> });
             input_view_impl_generics.push(quote! { #generic_ident });
-            input_view_type_genercs.push(quote! { &'a [#generic_ident] });
+            input_view_type_genercs.push(quote! { &'alias [#generic_ident] });
             input_mut_view_impl_generics.push(quote! { #generic_ident });
-            input_mut_view_type_genercs.push(quote! { &'a mut [#generic_ident] });
+            input_mut_view_type_genercs.push(quote! { &'alias mut [#generic_ident] });
+            from_type_generics.push(quote! { #ident::Elem });
         }
     });
 
@@ -215,6 +222,18 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
         impl #input_impl_generics AsMut<[#first_as_slice_generic_ident::Elem]> for #input_ident #input_type_generics #as_mut_view_where_clause {
             fn as_mut(&mut self) -> &mut [#first_as_slice_generic_ident::Elem] {
                 self.#first_as_slice_field_ident.as_mut()
+            }
+        }
+
+        impl #from_impl_generics From<&'from #input_ident #input_type_generics> for #input_view_ident #from_type_generics #as_view_where_clause {
+            fn from(value: &'from #input_ident #input_type_generics) -> Self {
+                value.as_view()
+            }
+        }
+
+        impl #from_impl_generics From<&'from mut #input_ident #input_type_generics> for #input_mut_view_ident #from_type_generics #as_mut_view_where_clause {
+            fn from(value: &'from mut #input_ident #input_type_generics) -> Self {
+                value.as_mut_view()
             }
         }
     })

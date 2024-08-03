@@ -225,7 +225,7 @@ fn f64_mod_u64(v: f64) -> u64 {
     let mantissa = (bits << 11) | 0x8000000000000000;
     let value = match 1086 - exponent {
         shift @ -63..=0 => mantissa << -shift,
-        shift @ 1..=63 => mantissa.wrapping_add(1 << (shift - 1)) >> shift,
+        shift @ 1..=64 => ((mantissa >> (shift - 1)).wrapping_add(1)) >> 1,
         _ => 0,
     };
     if sign == 0 {
@@ -242,12 +242,31 @@ mod test {
         misc::test::assert_precision,
         modulus::PowerOfTwo,
         ring::{
-            power_of_two::{NativeRing, NonNativePowerOfTwoRing},
+            power_of_two::{f64_mod_u64, NativeRing, NonNativePowerOfTwoRing},
             test::{test_poly_mul, test_round_trip},
             RingOps,
         },
     };
+    use num_bigint_dig::BigInt;
+    use num_traits::{FromPrimitive, ToPrimitive};
     use rand::{distributions::Uniform, thread_rng};
+
+    #[test]
+    fn from_f64() {
+        let expected = |a: f64| {
+            let a = BigInt::from_f64(a.round()).unwrap();
+            (a % (1i128 << 64)).to_i128().unwrap() as u64
+        };
+        for exp in -1023..1024 {
+            let a = 2f64.powi(exp);
+            assert_eq!(f64_mod_u64(a), expected(a));
+            assert_eq!(f64_mod_u64(a + 0.5), expected(a + 0.5));
+            assert_eq!(f64_mod_u64(a - 0.5), expected(a - 0.5));
+            assert_eq!(f64_mod_u64(-a), expected(-a));
+            assert_eq!(f64_mod_u64(-a + 0.5), expected(-a + 0.5));
+            assert_eq!(f64_mod_u64(-a - 0.5), expected(-a - 0.5));
+        }
+    }
 
     fn round_trip_prec_loss(log_ring_size: usize, log_q: usize) -> usize {
         (log_ring_size + log_q).saturating_sub((f64::MANTISSA_DIGITS - 1) as usize)

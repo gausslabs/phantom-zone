@@ -1,9 +1,8 @@
 use crate::{
     distribution::{NoiseDistribution, SecretKeyDistribution},
     lwe::{
-        self, LweCiphertext, LweCiphertextOwned, LweCiphertextView, LweKeySwitchKey,
-        LweKeySwitchKeyOwned, LweKeySwitchKeyView, LwePlaintext, LweSecretKey, LweSecretKeyOwned,
-        LweSecretKeyView,
+        self, LweCiphertext, LweCiphertextOwned, LweKeySwitchKey, LweKeySwitchKeyOwned,
+        LwePlaintext, LweSecretKey, LweSecretKeyOwned,
     },
 };
 use phantom_zone_math::{
@@ -57,6 +56,10 @@ impl<R: RingOps> Lwe<R> {
         &self.ring
     }
 
+    fn dimension(&self) -> usize {
+        self.param.dimension
+    }
+
     fn encode(&self, m: u64) -> LwePlaintext<R::Elem> {
         assert!(m < self.param.message_modulus);
         LwePlaintext(self.ring.elem_from((m as f64 * self.delta).round() as u64))
@@ -68,22 +71,20 @@ impl<R: RingOps> Lwe<R> {
     }
 
     fn sk_gen(&self, rng: impl RngCore) -> LweSecretKeyOwned<i32> {
-        let mut sk = LweSecretKey::allocate(self.param.dimension);
-        lwe::sk_gen(sk.as_mut_view(), self.param.sk_distribution, rng);
-        sk
+        LweSecretKey::sample(self.dimension(), self.param.sk_distribution, rng)
     }
 
     fn sk_encrypt(
         &self,
-        sk: LweSecretKeyView<i32>,
+        sk: &LweSecretKeyOwned<i32>,
         pt: LwePlaintext<R::Elem>,
         rng: impl RngCore,
     ) -> LweCiphertextOwned<R::Elem> {
-        let mut ct = LweCiphertext::allocate(self.param.dimension);
+        let mut ct = LweCiphertext::allocate(self.dimension());
         lwe::sk_encrypt(
             self.ring(),
-            ct.as_mut_view(),
-            sk.as_view(),
+            &mut ct,
+            sk,
             pt,
             self.param.noise_distribution,
             rng,
@@ -93,19 +94,19 @@ impl<R: RingOps> Lwe<R> {
 
     fn decrypt(
         &self,
-        sk: LweSecretKeyView<i32>,
-        ct: LweCiphertextView<R::Elem>,
+        sk: &LweSecretKeyOwned<i32>,
+        ct: &LweCiphertextOwned<R::Elem>,
     ) -> LwePlaintext<R::Elem> {
-        lwe::decrypt(self.ring(), sk.as_view(), ct.as_view())
+        lwe::decrypt(self.ring(), sk, ct)
     }
 
     fn ks_key_gen(
         &self,
-        sk_from: LweSecretKeyView<i32>,
-        sk_to: LweSecretKeyView<i32>,
+        sk_from: &LweSecretKeyOwned<i32>,
+        sk_to: &LweSecretKeyOwned<i32>,
         rng: impl RngCore,
     ) -> LweKeySwitchKeyOwned<R::Elem> {
-        assert_eq!(self.param.dimension, sk_to.dimension());
+        assert_eq!(self.dimension(), sk_to.dimension());
         let mut ks_key = LweKeySwitchKey::allocate(
             sk_from.dimension(),
             sk_to.dimension(),
@@ -113,7 +114,7 @@ impl<R: RingOps> Lwe<R> {
         );
         lwe::ks_key_gen(
             self.ring(),
-            ks_key.as_mut_view(),
+            &mut ks_key,
             sk_from,
             sk_to,
             self.param.noise_distribution,
@@ -124,11 +125,11 @@ impl<R: RingOps> Lwe<R> {
 
     fn key_switch(
         &self,
-        ks_key: LweKeySwitchKeyView<R::Elem>,
-        ct_from: LweCiphertextView<R::Elem>,
+        ks_key: &LweKeySwitchKeyOwned<R::Elem>,
+        ct_from: &LweCiphertextOwned<R::Elem>,
     ) -> LweCiphertextOwned<R::Elem> {
         let mut ct_to = LweCiphertext::allocate(ks_key.to_dimension());
-        lwe::key_switch(self.ring(), ct_to.as_mut_view(), ks_key, ct_from);
+        lwe::key_switch(self.ring(), &mut ct_to, ks_key, ct_from);
         ct_to
     }
 }
@@ -155,9 +156,9 @@ fn encrypt_decrypt() {
         let sk = lwe.sk_gen(&mut rng);
         for m in 0..param.message_modulus {
             let pt = lwe.encode(m);
-            let ct = lwe.sk_encrypt(sk.as_view(), pt, &mut rng);
+            let ct = lwe.sk_encrypt(&sk, pt, &mut rng);
             assert_eq!(m, lwe.decode(pt));
-            assert_eq!(m, lwe.decode(lwe.decrypt(sk.as_view(), ct.as_view())));
+            assert_eq!(m, lwe.decode(lwe.decrypt(&sk, &ct)));
         }
     }
 
@@ -174,15 +175,12 @@ fn key_switch() {
         let lwe_to = param.dimension(2 * param.dimension).build::<R>();
         let sk_from = lwe_from.sk_gen(&mut rng);
         let sk_to = lwe_to.sk_gen(&mut rng);
-        let ks_key = lwe_to.ks_key_gen(sk_from.as_view(), sk_to.as_view(), &mut rng);
+        let ks_key = lwe_to.ks_key_gen(&sk_from, &sk_to, &mut rng);
         for m in 0..param.message_modulus {
             let pt = lwe_from.encode(m);
-            let ct_from = lwe_from.sk_encrypt(sk_from.as_view(), pt, &mut rng);
-            let ct_to = lwe_to.key_switch(ks_key.as_view(), ct_from.as_view());
-            assert_eq!(
-                m,
-                lwe_to.decode(lwe_to.decrypt(sk_to.as_view(), ct_to.as_view()))
-            );
+            let ct_from = lwe_from.sk_encrypt(&sk_from, pt, &mut rng);
+            let ct_to = lwe_to.key_switch(&ks_key, &ct_from);
+            assert_eq!(m, lwe_to.decode(lwe_to.decrypt(&sk_to, &ct_to)));
         }
     }
 
