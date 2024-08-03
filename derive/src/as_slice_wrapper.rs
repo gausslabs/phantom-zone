@@ -1,7 +1,15 @@
-use crate::call_site_err;
-use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
-use syn::{Data, DeriveInput, Fields, Index, Result};
+use core::{
+    array::from_fn,
+    fmt::Display,
+    ops::{Deref, DerefMut},
+};
+use proc_macro2::{Ident, Span, TokenStream};
+use quote::{format_ident, quote, ToTokens};
+use std::collections::BTreeMap;
+use syn::{
+    parse::Parse, parse2, punctuated::Punctuated, Attribute, Data, DeriveInput, Error, Fields,
+    GenericArgument, GenericParam, Index, PathArguments, Result, Token, TypeParamBound,
+};
 
 pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
     let Data::Struct(data_struct) = &input.data else {
@@ -14,65 +22,173 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
         _ => return Err(call_site_err("Only non-unit struct is supported")),
     };
 
-    let as_slice_field_idx = fields
+    let mut as_slice_fields: BTreeMap<usize, bool> = fields
         .iter()
-        .position(|field| {
-            field
-                .attrs
-                .iter()
-                .flat_map(|attr| &attr.path().segments)
-                .any(|seg| seg.ident == "as_slice")
+        .enumerate()
+        .flat_map(|(idx, field)| {
+            let find = |attr: &Attribute| match attr.path().segments.first() {
+                Some(seg) if seg.ident == "as_slice" => match attr.parse_args::<Ident>() {
+                    Ok(nested) if nested == "nested" => Some((idx, true)),
+                    _ => Some((idx, false)),
+                },
+                _ => None,
+            };
+            field.attrs.iter().find_map(find)
         })
-        .or_else(|| (fields.len() == 1).then_some(0))
-        .ok_or(call_site_err(
-            "Struct with multiple fields must have `#[as_slice]` specified",
-        ))?;
+        .collect();
+
+    if as_slice_fields.is_empty() {
+        if fields.len() == 1 {
+            as_slice_fields.insert(0, false);
+        } else {
+            return Err(call_site_err(
+                "Struct with multiple fields must have `#[as_slice]` specified",
+            ));
+        }
+    }
 
     let field_idents: Vec<_> = match &data_struct.fields {
         Fields::Unnamed(fields) => (0..fields.unnamed.len())
-            .map(|idx| {
-                let idx = Index::from(idx);
-                quote! { #idx }
-            })
+            .map(Index::from)
+            .map(|idx| quote!(#idx))
             .collect(),
         Fields::Named(fields) => fields
             .named
             .iter()
-            .map(|field| {
-                let ident = field.ident.as_ref().unwrap();
-                quote! { #ident }
-            })
+            .map(|field| &field.ident)
+            .map(|ident| quote!(#ident))
             .collect(),
         _ => unreachable!(),
     };
-    let as_slice_field_ident = &field_idents[as_slice_field_idx];
-    let rest_field_idents: Vec<_> = field_idents
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| *idx != as_slice_field_idx)
-        .map(|(_, field)| field)
-        .collect();
 
     let input_ident = &input.ident;
-    let input_owned_ident = format_ident!("{}Owned", input_ident);
-    let input_view_ident = format_ident!("{}View", input_ident);
-    let input_mut_view_ident = format_ident!("{}MutView", input_ident);
+    let [input_owned_ident, input_view_ident, input_mut_view_ident] =
+        ["Owned", "View", "MutView"].map(|suffix| format_ident!("{input_ident}{suffix}"));
+    let first_as_slice_field_ident = &field_idents[*as_slice_fields.first_entry().unwrap().key()];
+    let [as_slice_nested_field_idents, as_slice_field_idents, other_field_idents] =
+        field_idents.iter().enumerate().fold(
+            from_fn(|_| Vec::new()),
+            |mut field_idents, (idx, field_ident)| {
+                let kind = match as_slice_fields.get(&idx) {
+                    Some(true) => 0,
+                    Some(false) => 1,
+                    None => 2,
+                };
+                field_idents[kind].push(field_ident);
+                field_idents
+            },
+        );
+
+    let as_slice_generics = input
+        .generics
+        .params
+        .iter()
+        .map(|param| match &param {
+            GenericParam::Type(ty) => {
+                let ident = &ty.ident;
+                let elem_bound = ty
+                    .bounds
+                    .iter()
+                    .flat_map(|bound| match bound {
+                        TypeParamBound::Trait(tr) => tr
+                            .path
+                            .segments
+                            .iter()
+                            .flat_map(|seg| {
+                                if seg.ident == "AsSlice" {
+                                    match &seg.arguments {
+                                        PathArguments::AngleBracketed(generic) => generic
+                                            .args
+                                            .iter()
+                                            .flat_map(|arg| match arg {
+                                                GenericArgument::AssocType(assoc)
+                                                    if assoc.ident == "Elem" =>
+                                                {
+                                                    Some(&assoc.ty)
+                                                }
+                                                _ => None,
+                                            })
+                                            .next(),
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .next(),
+                        _ => None,
+                    })
+                    .next();
+                Ok((ident, elem_bound))
+            }
+            _ => Err(call_site_err(
+                "Lifetime or const generics are not supported yet",
+            )),
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let first_as_slice_generic_ident = as_slice_generics.first().unwrap().0;
+
+    let (input_impl_generics, input_type_generics, input_where_clause) =
+        input.generics.split_for_impl();
+    let input_where_clause = input_where_clause
+        .cloned()
+        .unwrap_or_else(|| parse(quote!(where)));
+    let mut as_view_where_clause = input_where_clause.clone();
+    let mut as_mut_view_where_clause = input_where_clause;
+    let mut as_view_generics = Generics::default();
+    let mut as_mut_view_generics = Generics::default();
+    let mut input_owned_impl_generics = Generics::default();
+    let mut input_owned_type_genercs = Generics::default();
+    let mut input_view_impl_generics = Generics([quote! { 'a }].into_iter().collect());
+    let mut input_view_type_genercs = Generics::default();
+    let mut input_mut_view_impl_generics = Generics([quote! { 'a }].into_iter().collect());
+    let mut input_mut_view_type_genercs = Generics::default();
+
+    as_slice_generics.iter().for_each(|(ident, elem_bound)| {
+        as_view_where_clause
+            .predicates
+            .push(parse(quote! { #ident: AsSlice }));
+        as_mut_view_where_clause
+            .predicates
+            .push(parse(quote! { #ident: AsMutSlice }));
+        as_view_generics.push(quote! { &[#ident::Elem] });
+        as_mut_view_generics.push(quote! { &mut [#ident::Elem] });
+        if let Some(elem_bound) = elem_bound {
+            input_owned_type_genercs.push(quote! { Vec<#elem_bound> });
+            input_view_type_genercs.push(quote! { &'a [#elem_bound] });
+            input_mut_view_type_genercs.push(quote! { &'a mut [#elem_bound] });
+        } else {
+            let generic_ident = {
+                let ident = ident.to_string();
+                let suffix = ident.trim_start_matches(char::is_alphabetic);
+                format_ident!("T{suffix}")
+            };
+            input_owned_impl_generics.push(quote! { #generic_ident });
+            input_owned_type_genercs.push(quote! { Vec<#generic_ident> });
+            input_view_impl_generics.push(quote! { #generic_ident });
+            input_view_type_genercs.push(quote! { &'a [#generic_ident] });
+            input_mut_view_impl_generics.push(quote! { #generic_ident });
+            input_mut_view_type_genercs.push(quote! { &'a mut [#generic_ident] });
+        }
+    });
 
     Ok(quote! {
-        pub type #input_owned_ident<T> = #input_ident<Vec<T>>;
-        pub type #input_view_ident<'a, T> = #input_ident<&'a [T]>;
-        pub type #input_mut_view_ident<'a, T> = #input_ident<&'a mut [T]>;
+        pub type #input_owned_ident #input_owned_impl_generics = #input_ident #input_owned_type_genercs;
+        pub type #input_view_ident #input_view_impl_generics = #input_ident #input_view_type_genercs;
+        pub type #input_mut_view_ident #input_mut_view_impl_generics = #input_ident #input_mut_view_type_genercs;
 
-        impl<S: AsSlice> #input_ident<S> {
-            pub fn as_view(&self) -> #input_view_ident<S::Elem> {
+        impl #input_impl_generics #input_ident #input_type_generics #as_view_where_clause {
+            pub fn as_view(&self) -> #input_ident #as_view_generics {
                 #input_ident {
-                    #(#rest_field_idents: self.#rest_field_idents,)*
-                    #as_slice_field_ident: self.#as_slice_field_ident.as_ref(),
+                    #(#other_field_idents: self.#other_field_idents,)*
+                    #(#as_slice_nested_field_idents: self.#as_slice_nested_field_idents.as_view(),)*
+                    #(#as_slice_field_idents: self.#as_slice_field_idents.as_ref(),)*
                 }
             }
 
             pub fn len(&self) -> usize {
-                self.#as_slice_field_ident.len()
+                self.#first_as_slice_field_ident.len()
             }
 
             pub fn is_empty(&self) -> bool {
@@ -80,25 +196,58 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
             }
         }
 
-        impl<S: AsMutSlice> #input_ident<S> {
-            pub fn as_mut_view(&mut self) -> #input_mut_view_ident<S::Elem> {
+        impl #input_impl_generics #input_ident #input_type_generics #as_mut_view_where_clause {
+            pub fn as_mut_view(&mut self) -> #input_ident #as_mut_view_generics {
                 #input_ident {
-                    #(#rest_field_idents: self.#rest_field_idents,)*
-                    #as_slice_field_ident: self.#as_slice_field_ident.as_mut(),
+                    #(#other_field_idents: self.#other_field_idents,)*
+                    #(#as_slice_nested_field_idents: self.#as_slice_nested_field_idents.as_mut_view(),)*
+                    #(#as_slice_field_idents: self.#as_slice_field_idents.as_mut(),)*
                 }
             }
         }
 
-        impl<S: AsSlice> AsRef<[S::Elem]> for #input_ident<S> {
-            fn as_ref(&self) -> &[S::Elem] {
-                self.#as_slice_field_ident.as_ref()
+        impl #input_impl_generics AsRef<[#first_as_slice_generic_ident::Elem]> for #input_ident #input_type_generics #as_view_where_clause {
+            fn as_ref(&self) -> &[#first_as_slice_generic_ident::Elem] {
+                self.#first_as_slice_field_ident.as_ref()
             }
         }
 
-        impl<S: AsMutSlice> AsMut<[S::Elem]> for #input_ident<S> {
-            fn as_mut(&mut self) -> &mut [S::Elem] {
-                self.#as_slice_field_ident.as_mut()
+        impl #input_impl_generics AsMut<[#first_as_slice_generic_ident::Elem]> for #input_ident #input_type_generics #as_mut_view_where_clause {
+            fn as_mut(&mut self) -> &mut [#first_as_slice_generic_ident::Elem] {
+                self.#first_as_slice_field_ident.as_mut()
             }
         }
     })
+}
+
+fn call_site_err(msg: impl Display) -> Error {
+    Error::new(Span::call_site(), msg)
+}
+
+fn parse<T: Parse>(ts: TokenStream) -> T {
+    parse2(ts).unwrap()
+}
+
+#[derive(Default)]
+struct Generics(Punctuated<TokenStream, Token![,]>);
+
+impl Deref for Generics {
+    type Target = Punctuated<TokenStream, Token![,]>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Generics {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl ToTokens for Generics {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        <Token![<]>::default().to_tokens(tokens);
+        self.0.to_tokens(tokens);
+        <Token![>]>::default().to_tokens(tokens);
+    }
 }

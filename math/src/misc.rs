@@ -1,7 +1,10 @@
-pub(crate) fn bit_reverse<T, V: AsMut<[T]>>(mut values: V) -> V {
+pub mod as_slice;
+pub mod automorphism;
+
+pub fn bit_reverse<T, V: AsMut<[T]>>(mut values: V) -> V {
     let n = values.as_mut().len();
     if n > 2 {
-        debug_assert!(n.is_power_of_two());
+        assert!(n.is_power_of_two());
         let log_n = n.ilog2();
         for i in 0..n {
             let j = i.reverse_bits() >> (usize::BITS - log_n);

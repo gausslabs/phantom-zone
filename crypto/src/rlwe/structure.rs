@@ -1,10 +1,13 @@
-use crate::{
-    lwe::LweSecretKey,
-    misc::{AsMutSlice, AsSlice},
-};
+use crate::lwe::LweSecretKey;
 use core::iter::repeat_with;
 use phantom_zone_derive::AsSliceWrapper;
-use phantom_zone_math::decomposer::DecompositionParam;
+use phantom_zone_math::{
+    decomposer::DecompositionParam,
+    misc::{
+        as_slice::{AsMutSlice, AsSlice},
+        automorphism::{AutomorphismMap, AutomorphismMapView},
+    },
+};
 
 #[derive(Clone, Copy, Debug, AsSliceWrapper)]
 pub struct RlweSecretKey<S>(S);
@@ -116,6 +119,43 @@ impl<T: Default> RlweKeySwitchKey<Vec<T>> {
             data: repeat_with(T::default).take(len).collect(),
             ring_size,
             decomposition_param,
+        }
+    }
+}
+
+#[derive(Clone, Debug, AsSliceWrapper)]
+pub struct RlweAutoKey<S1, S2: AsSlice<Elem = usize>> {
+    #[as_slice(nested)]
+    ks_key: RlweKeySwitchKey<S1>,
+    #[as_slice(nested)]
+    map: AutomorphismMap<S2>,
+}
+
+impl<S1, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
+    pub fn map(&self) -> AutomorphismMapView {
+        self.map.as_view()
+    }
+}
+
+impl<S1: AsSlice, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
+    pub fn as_ks_key(&self) -> RlweKeySwitchKeyView<S1::Elem> {
+        self.ks_key.as_view()
+    }
+}
+
+impl<S1: AsMutSlice, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
+    pub fn split_into_map_and_ks_key_mut(
+        &mut self,
+    ) -> (AutomorphismMapView, RlweKeySwitchKeyMutView<S1::Elem>) {
+        (self.map.as_view(), self.ks_key.as_mut_view())
+    }
+}
+
+impl<T: Default> RlweAutoKey<Vec<T>, Vec<usize>> {
+    pub fn allocate(ring_size: usize, decomposition_param: DecompositionParam, k: i64) -> Self {
+        Self {
+            ks_key: RlweKeySwitchKey::allocate(ring_size, decomposition_param),
+            map: AutomorphismMap::new(ring_size, k),
         }
     }
 }

@@ -1,7 +1,9 @@
-use crate::misc::{AsMutSlice, AsSlice};
 use core::iter::repeat_with;
 use phantom_zone_derive::AsSliceWrapper;
-use phantom_zone_math::decomposer::DecompositionParam;
+use phantom_zone_math::{
+    decomposer::DecompositionParam,
+    misc::as_slice::{AsMutSlice, AsSlice},
+};
 
 #[derive(Clone, Copy, Debug, AsSliceWrapper)]
 pub struct LweSecretKey<S>(pub(crate) S);

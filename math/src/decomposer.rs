@@ -2,7 +2,7 @@ use crate::{
     izip_eq,
     modulus::{add_mod, mul_mod, Modulus, PowerOfTwo, Prime},
 };
-use core::{fmt::Debug, iter::repeat_with};
+use core::{borrow::Borrow, fmt::Debug, iter::repeat_with};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DecompositionParam {
@@ -48,8 +48,8 @@ pub trait Decomposer<T: Copy + Debug + 'static> {
 
     fn recompose(&self, a: impl IntoIterator<Item = T>) -> T;
 
-    fn slice_round(&self, b: &mut [T], a: &[T]) {
-        izip_eq!(b, a).for_each(|(b, a)| *b = self.round(a));
+    fn slice_round(&self, b: &mut [T], a: impl IntoIterator<Item: Borrow<T>>) {
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.round(a.borrow()));
     }
 
     fn slice_decompose_next(&self, b: &mut [T], a: &mut [T]) {
@@ -58,12 +58,12 @@ pub trait Decomposer<T: Copy + Debug + 'static> {
 
     fn slice_decompose_zip_for_each<B>(
         &self,
-        a: &[T],
+        a: impl IntoIterator<Item: Borrow<T>>,
         b: impl IntoIterator<Item = B>,
         scratch: &mut [T],
         mut f: impl FnMut((&[T], B)),
     ) {
-        let (state, limb) = scratch.split_at_mut(a.len());
+        let (state, limb) = scratch.split_at_mut(scratch.len() / 2);
         self.slice_round(state, a);
         izip_eq!(0..self.level(), b).for_each(|(_, b)| {
             self.slice_decompose_next(limb, state);

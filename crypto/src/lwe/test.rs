@@ -1,10 +1,10 @@
 use crate::{
+    distribution::{NoiseDistribution, SecretKeyDistribution},
     lwe::{
         self, LweCiphertext, LweCiphertextOwned, LweCiphertextView, LweKeySwitchKey,
         LweKeySwitchKeyOwned, LweKeySwitchKeyView, LwePlaintext, LweSecretKey, LweSecretKeyOwned,
         LweSecretKeyView,
     },
-    misc::{NoiseDistribution, SecretKeyDistribution},
 };
 use phantom_zone_math::{
     decomposer::DecompositionParam,
@@ -99,36 +99,36 @@ impl<R: RingOps> Lwe<R> {
         lwe::decrypt(self.ring(), sk.as_view(), ct.as_view())
     }
 
-    fn ksk_gen(
+    fn ks_key_gen(
         &self,
         sk_from: LweSecretKeyView<i32>,
         sk_to: LweSecretKeyView<i32>,
         rng: impl RngCore,
     ) -> LweKeySwitchKeyOwned<R::Elem> {
         assert_eq!(self.param.dimension, sk_to.dimension());
-        let mut ksk = LweKeySwitchKey::allocate(
+        let mut ks_key = LweKeySwitchKey::allocate(
             sk_from.dimension(),
             sk_to.dimension(),
             self.param.ks_decomposition_param,
         );
-        lwe::ksk_gen(
+        lwe::ks_key_gen(
             self.ring(),
-            ksk.as_mut_view(),
+            ks_key.as_mut_view(),
             sk_from,
             sk_to,
             self.param.noise_distribution,
             rng,
         );
-        ksk
+        ks_key
     }
 
     fn key_switch(
         &self,
-        ksk: LweKeySwitchKeyView<R::Elem>,
+        ks_key: LweKeySwitchKeyView<R::Elem>,
         ct_from: LweCiphertextView<R::Elem>,
     ) -> LweCiphertextOwned<R::Elem> {
-        let mut ct_to = LweCiphertext::allocate(ksk.to_dimension());
-        lwe::key_switch(self.ring(), ct_to.as_mut_view(), ksk, ct_from);
+        let mut ct_to = LweCiphertext::allocate(ks_key.to_dimension());
+        lwe::key_switch(self.ring(), ct_to.as_mut_view(), ks_key, ct_from);
         ct_to
     }
 }
@@ -174,11 +174,11 @@ fn key_switch() {
         let lwe_to = param.dimension(2 * param.dimension).build::<R>();
         let sk_from = lwe_from.sk_gen(&mut rng);
         let sk_to = lwe_to.sk_gen(&mut rng);
-        let ksk = lwe_to.ksk_gen(sk_from.as_view(), sk_to.as_view(), &mut rng);
+        let ks_key = lwe_to.ks_key_gen(sk_from.as_view(), sk_to.as_view(), &mut rng);
         for m in 0..param.message_modulus {
             let pt = lwe_from.encode(m);
             let ct_from = lwe_from.sk_encrypt(sk_from.as_view(), pt, &mut rng);
-            let ct_to = lwe_to.key_switch(ksk.as_view(), ct_from.as_view());
+            let ct_to = lwe_to.key_switch(ks_key.as_view(), ct_from.as_view());
             assert_eq!(
                 m,
                 lwe_to.decode(lwe_to.decrypt(sk_to.as_view(), ct_to.as_view()))

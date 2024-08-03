@@ -66,6 +66,16 @@ pub trait SliceOps: ArithmeticOps {
         izip_eq!(b, a).for_each(|(b, a)| *b = self.elem_from(*a))
     }
 
+    fn slice_elem_from_iter<T: Copy>(
+        &self,
+        b: &mut [Self::Elem],
+        a: impl IntoIterator<Item: Borrow<T>>,
+    ) where
+        Self: ElemFrom<T>,
+    {
+        izip!(b, a).for_each(|(b, a)| *b = self.elem_from(*a.borrow()))
+    }
+
     fn slice_neg_assign(&self, a: &mut [Self::Elem]) {
         a.iter_mut().for_each(|a| *a = self.neg(a))
     }

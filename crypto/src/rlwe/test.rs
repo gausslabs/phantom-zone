@@ -1,17 +1,19 @@
 use crate::{
+    distribution::{NoiseDistribution, SecretKeyDistribution},
     lwe::{self, LweCiphertextOwned, LweCiphertextView, LwePlaintext},
-    misc::{NoiseDistribution, SecretKeyDistribution},
     rlwe::{
-        self, RlweCiphertext, RlweCiphertextOwned, RlweCiphertextView, RlweKeySwitchKey,
-        RlweKeySwitchKeyOwned, RlweKeySwitchKeyView, RlwePlaintext, RlwePlaintextOwned,
-        RlwePlaintextView, RlweSecretKey, RlweSecretKeyOwned, RlweSecretKeyView,
+        self, RlweAutoKey, RlweAutoKeyOwned, RlweAutoKeyView, RlweCiphertext, RlweCiphertextOwned,
+        RlweCiphertextView, RlweKeySwitchKey, RlweKeySwitchKeyOwned, RlweKeySwitchKeyView,
+        RlwePlaintext, RlwePlaintextOwned, RlwePlaintextView, RlweSecretKey, RlweSecretKeyOwned,
+        RlweSecretKeyView,
     },
 };
+use itertools::Itertools;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::{DistributionSized, Gaussian},
     izip_eq,
-    modulus::{Modulus, PowerOfTwo, Prime},
+    modulus::{neg_mod, powers_mod, Modulus, PowerOfTwo, Prime},
     ring::{
         power_of_two::{NativeRing, NonNativePowerOfTwoRing},
         prime::PrimeRing,
@@ -122,32 +124,32 @@ impl<R: RingOps> Rlwe<R> {
         lwe::decrypt(self.ring(), sk.as_view().into(), ct.as_view())
     }
 
-    fn ksk_gen(
+    fn ks_key_gen(
         &self,
         sk_from: RlweSecretKeyView<i32>,
         sk_to: RlweSecretKeyView<i32>,
         rng: impl RngCore,
     ) -> RlweKeySwitchKeyOwned<R::Elem> {
-        let mut ksk =
+        let mut ks_key =
             RlweKeySwitchKey::allocate(self.ring_size(), self.param.ks_decomposition_param);
-        rlwe::ksk_gen(
+        rlwe::ks_key_gen(
             self.ring(),
-            ksk.as_mut_view(),
+            ks_key.as_mut_view(),
             sk_from,
             sk_to,
             self.param.noise_distribution,
             rng,
         );
-        ksk
+        ks_key
     }
 
     fn key_switch(
         &self,
-        ksk: RlweKeySwitchKeyView<R::Elem>,
+        ks_key: RlweKeySwitchKeyView<R::Elem>,
         ct_from: RlweCiphertextView<R::Elem>,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct_to = RlweCiphertext::allocate(self.ring_size());
-        rlwe::key_switch(self.ring(), ct_to.as_mut_view(), ksk, ct_from);
+        rlwe::key_switch(self.ring(), ct_to.as_mut_view(), ks_key, ct_from);
         ct_to
     }
 
@@ -159,6 +161,34 @@ impl<R: RingOps> Rlwe<R> {
         let mut ct_lwe = LweCiphertextOwned::allocate(self.ring_size());
         rlwe::sample_extract(self.ring(), ct_lwe.as_mut_view(), ct_rlwe.as_view(), idx);
         ct_lwe
+    }
+
+    fn auto_key_gen(
+        &self,
+        sk: RlweSecretKeyView<i32>,
+        k: i64,
+        rng: impl RngCore,
+    ) -> RlweAutoKeyOwned<R::Elem> {
+        let mut auto_key =
+            RlweAutoKey::allocate(self.ring_size(), self.param.ks_decomposition_param, k);
+        rlwe::auto_key_gen(
+            self.ring(),
+            auto_key.as_mut_view(),
+            sk,
+            self.param.noise_distribution,
+            rng,
+        );
+        auto_key
+    }
+
+    fn automorphism(
+        &self,
+        auto_key: RlweAutoKeyView<R::Elem>,
+        ct: RlweCiphertextView<R::Elem>,
+    ) -> RlweCiphertextOwned<R::Elem> {
+        let mut ct_auto = RlweCiphertext::allocate(self.ring_size());
+        rlwe::automorphism(self.ring(), ct_auto.as_mut_view(), auto_key, ct);
+        ct_auto
     }
 }
 
@@ -206,12 +236,12 @@ fn key_switch() {
         let rlwe = param.build::<R>();
         let sk_from = rlwe.sk_gen(&mut rng);
         let sk_to = rlwe.sk_gen(&mut rng);
-        let ksk = rlwe.ksk_gen(sk_from.as_view(), sk_to.as_view(), &mut rng);
+        let ks_key = rlwe.ks_key_gen(sk_from.as_view(), sk_to.as_view(), &mut rng);
         for _ in 0..100 {
             let m = Uniform::new(0, param.message_modulus).sample_vec(param.ring_size, &mut rng);
             let pt = rlwe.encode(&m);
             let ct_from = rlwe.sk_encrypt(sk_from.as_view(), pt.as_view(), &mut rng);
-            let ct_to = rlwe.key_switch(ksk.as_view(), ct_from.as_view());
+            let ct_to = rlwe.key_switch(ks_key.as_view(), ct_from.as_view());
             assert_eq!(
                 m,
                 rlwe.decode(rlwe.decrypt(sk_to.as_view(), ct_to.as_view()).as_view())
@@ -238,6 +268,34 @@ fn sample_extract() {
             assert_eq!(
                 *m,
                 rlwe.decode_lwe(rlwe.decrypt_lwe(sk.as_view(), ct_lwe.as_view()))
+            );
+        }
+    }
+
+    run::<NativeRing>(test_param(Modulus::native()));
+    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<PrimeRing>(test_param(Prime::gen(50, 9)));
+}
+
+#[test]
+fn automorphism() {
+    fn run<R: RingOps>(param: RlweParam) {
+        let mut rng = thread_rng();
+        let rlwe = param.build::<R>();
+        let sk = rlwe.sk_gen(&mut rng);
+        for k in powers_mod(5, 2 * rlwe.ring_size() as u64).take(rlwe.ring_size() / 2) {
+            let auto_key = rlwe.auto_key_gen(sk.as_view(), k as _, &mut rng);
+            let m = Uniform::new(0, param.message_modulus).sample_vec(param.ring_size, &mut rng);
+            let pt = rlwe.encode(&m);
+            let ct = rlwe.sk_encrypt(sk.as_view(), pt.as_view(), &mut rng);
+            let ct_auto = rlwe.automorphism(auto_key.as_view(), ct.as_view());
+            let m_auto = {
+                let neg = |v: &_| neg_mod(*v, param.message_modulus);
+                auto_key.map().apply(&m, neg).collect_vec()
+            };
+            assert_eq!(
+                m_auto,
+                rlwe.decode(rlwe.decrypt(sk.as_view(), ct_auto.as_view()).as_view())
             );
         }
     }

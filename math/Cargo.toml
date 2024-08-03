@@ -11,6 +11,7 @@ num-traits = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 rustfft = { workspace = true }
+phantom-zone-derive = { path = "../derive" }
 
 [dev-dependencies]
 criterion = { workspace = true }

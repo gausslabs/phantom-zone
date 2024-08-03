@@ -144,26 +144,34 @@ pub(crate) fn is_prime(q: u64) -> bool {
     probably_prime(&(q).into(), 20)
 }
 
-pub(crate) fn pow_mod(b: u64, e: u64, q: u64) -> u64 {
+pub fn pow_mod(b: u64, e: u64, q: u64) -> u64 {
     BigUint::from(b)
         .modpow(&e.into(), &q.into())
         .to_u64()
         .unwrap()
 }
 
-pub(crate) fn inv_mod(a: u64, q: u64) -> Option<u64> {
+pub fn inv_mod(a: u64, q: u64) -> Option<u64> {
     let inv = pow_mod(a, q - 2, q);
     (mul_mod(a, inv, q) == 1).then_some(inv)
 }
 
-pub(crate) fn add_mod(a: u64, b: u64, q: u64) -> u64 {
+pub fn neg_mod(a: u64, q: u64) -> u64 {
+    (a == 0).then_some(0).unwrap_or_else(|| q - (a % q))
+}
+
+pub fn add_mod(a: u64, b: u64, q: u64) -> u64 {
     ((a as u128 + b as u128) % q as u128) as _
 }
 
-pub(crate) fn mul_mod(a: u64, b: u64, q: u64) -> u64 {
+pub fn sub_mod(a: u64, b: u64, q: u64) -> u64 {
+    add_mod(a, neg_mod(b, q), q)
+}
+
+pub fn mul_mod(a: u64, b: u64, q: u64) -> u64 {
     ((a as u128 * b as u128) % q as u128) as _
 }
 
-pub(crate) fn powers_mod(b: u64, q: u64) -> impl Iterator<Item = u64> {
+pub fn powers_mod(b: u64, q: u64) -> impl Iterator<Item = u64> {
     successors(Some(1), move |v| mul_mod(*v, b, q).into())
 }

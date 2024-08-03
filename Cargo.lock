@@ -381,6 +381,7 @@ dependencies = [
  "num-bigint-dig",
  "num-complex",
  "num-traits",
+ "phantom-zone-derive",
  "rand",
  "rand_distr",
  "rustfft",
