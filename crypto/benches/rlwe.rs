@@ -6,11 +6,7 @@ use phantom_zone_crypto::{
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     modulus::{Modulus, PowerOfTwo, Prime},
-    ring::{
-        power_of_two::{NoisyNativeRing, NoisyNonNativePowerOfTwoRing},
-        prime::PrimeRing,
-        RingOps,
-    },
+    ring::{NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing, PrimeRing, RingOps},
 };
 
 fn automorphism(c: &mut Criterion) {
@@ -20,12 +16,8 @@ fn automorphism(c: &mut Criterion) {
         decomposition_param: DecompositionParam,
     ) -> Box<dyn FnMut()> {
         let ring = R::new(modulus, ring_size);
-        let auto_key_prep = RlweAutoKey::allocate_prep(
-            ring.ring_size(),
-            ring.eval_prep_size(),
-            decomposition_param,
-            5,
-        );
+        let auto_key_prep =
+            RlweAutoKey::allocate_prep(ring.ring_size(), ring.eval_size(), decomposition_param, 5);
         let ct = RlweCiphertext::allocate(ring.ring_size());
         let mut ct_auto = RlweCiphertext::allocate(ring.ring_size());
         let mut scratch = ring.allocate_scratch(2, 3);
@@ -51,8 +43,12 @@ fn automorphism(c: &mut Criterion) {
                 let modulus = PowerOfTwo::new(54).into();
                 runner::<NoisyNonNativePowerOfTwoRing>(modulus, ring_size, decomposition_param)
             }),
+            ("noisy_prime", {
+                let modulus = Prime::gen(54, log_ring_size + 1).into();
+                runner::<NoisyPrimeRing>(modulus, ring_size, decomposition_param)
+            }),
             ("prime", {
-                let modulus = Prime::r#gen(54, log_ring_size + 1).into();
+                let modulus = Prime::gen(54, log_ring_size + 1).into();
                 runner::<PrimeRing>(modulus, ring_size, decomposition_param)
             }),
         ];
@@ -74,7 +70,7 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
         let ring = R::new(modulus, ring_size);
         let ct_rgsw_prep = RgswCiphertext::allocate_prep(
             ring.ring_size(),
-            ring.eval_prep_size(),
+            ring.eval_size(),
             decomposition_log_base,
             decomposition_level_a,
             decomposition_level_b,
@@ -100,8 +96,12 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
                 let modulus = PowerOfTwo::new(54).into();
                 runner::<NoisyNonNativePowerOfTwoRing>(modulus, ring_size, decomposition_param)
             }),
+            ("noisy_prime", {
+                let modulus = Prime::gen(54, log_ring_size + 1).into();
+                runner::<NoisyPrimeRing>(modulus, ring_size, decomposition_param)
+            }),
             ("prime", {
-                let modulus = Prime::r#gen(54, log_ring_size + 1).into();
+                let modulus = Prime::gen(54, log_ring_size + 1).into();
                 runner::<PrimeRing>(modulus, ring_size, decomposition_param)
             }),
         ];

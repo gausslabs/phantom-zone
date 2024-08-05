@@ -5,21 +5,18 @@ use crate::{
 };
 use rand::distributions::{Distribution, Uniform};
 
-mod noisy;
-mod precise;
-
-pub use noisy::{NoisyNativeRing, NoisyNonNativePowerOfTwoRing};
-pub use precise::{NativeRing, NonNativePowerOfTwoRing};
+pub mod noisy;
+pub mod precise;
 
 #[derive(Clone, Copy, Debug)]
 pub struct PowerOfTwoRing<T, const NATIVE: bool> {
     modulus: PowerOfTwo,
     mask: u64,
-    ffnt: T,
+    fft: T,
 }
 
 impl<T, const NATIVE: bool> PowerOfTwoRing<T, NATIVE> {
-    fn new(modulus: PowerOfTwo, ffnt: T) -> Self {
+    fn new(modulus: PowerOfTwo, fft: T) -> Self {
         if NATIVE {
             assert_eq!(modulus.bits(), 64);
         } else {
@@ -28,7 +25,7 @@ impl<T, const NATIVE: bool> PowerOfTwoRing<T, NATIVE> {
         Self {
             modulus,
             mask: modulus.mask(),
-            ffnt,
+            fft,
         }
     }
 

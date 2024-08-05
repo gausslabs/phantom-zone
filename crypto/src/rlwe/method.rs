@@ -268,7 +268,7 @@ where
     let eval = ring.take_eval(&mut scratch);
     let mut ks_key_prep = RlweKeySwitchKey::allocate_prep(
         ring.ring_size(),
-        ring.eval_prep_size(),
+        ring.eval_size(),
         ks_key.decomposition_param(),
     );
     izip_eq!(ks_key_prep.ct_iter_mut(), ks_key.ct_iter()).for_each(|(mut ct_prep, ct)| {

@@ -89,8 +89,8 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        misc::automorphism::{automorphism, AutomorphismMap},
         modulus::powers_mod,
+        poly::automorphism::{automorphism, AutomorphismMap},
     };
     use itertools::Itertools;
 

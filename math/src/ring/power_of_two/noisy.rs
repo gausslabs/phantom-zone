@@ -1,7 +1,8 @@
 use crate::{
     decomposer::PowerOfTwoDecomposer,
     modulus::Modulus,
-    ring::{ffnt::Ffnt, power_of_two, ElemFrom, ElemTo, RingOps, SliceOps},
+    poly::ffnt::Ffnt,
+    ring::{power_of_two, ElemFrom, ElemTo, RingOps, SliceOps},
 };
 use num_complex::Complex64;
 
@@ -25,52 +26,48 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
     }
 
     fn ring_size(&self) -> usize {
-        self.ffnt.ring_size()
+        self.fft.ring_size()
     }
 
     fn eval_size(&self) -> usize {
-        self.ffnt.fft_size()
-    }
-
-    fn eval_prep_size(&self) -> usize {
-        self.ffnt.fft_size()
+        self.fft.fft_size()
     }
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
-        self.ffnt.forward(b, a, |a| self.to_i64(*a) as _);
+        self.fft.forward(b, a, |a| self.to_i64(*a) as _);
     }
 
     fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T])
     where
         Self: ElemFrom<T>,
     {
-        self.ffnt.forward(b, a, |a| {
+        self.fft.forward(b, a, |a| {
             let a: i64 = self.elem_to(self.elem_from(*a));
             a as _
         });
     }
 
     fn forward_normalized(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
-        self.ffnt.forward_normalized(b, a, |a| self.to_i64(*a) as _);
+        self.fft.forward_normalized(b, a, |a| self.to_i64(*a) as _);
     }
 
     fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.ffnt.backward(b, a, |a| self.reduce(f64_mod_u64(a)));
+        self.fft.backward(b, a, |a| self.reduce(f64_mod_u64(a)));
     }
 
     fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.ffnt
+        self.fft
             .backward_normalized(b, a, |a| self.reduce(f64_mod_u64(a)));
     }
 
     fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.ffnt.add_backward(b, a, |b, a| {
+        self.fft.add_backward(b, a, |b, a| {
             *b = self.reduce(b.wrapping_add(f64_mod_u64(a)))
         });
     }
 
     fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.ffnt.add_backward_normalized(b, a, |b, a| {
+        self.fft.add_backward_normalized(b, a, |b, a| {
             *b = self.reduce(b.wrapping_add(f64_mod_u64(a)))
         });
     }
@@ -80,15 +77,15 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
     }
 
     fn eval_mul(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
-        self.ffnt.slice_mul(c, a, b)
+        self.fft.slice_mul(c, a, b)
     }
 
     fn eval_mul_assign(&self, b: &mut [Self::Eval], a: &[Self::Eval]) {
-        self.ffnt.slice_mul_assign(b, a)
+        self.fft.slice_mul_assign(b, a)
     }
 
     fn eval_fma(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
-        self.ffnt.slice_fma(c, a, b)
+        self.fft.slice_fma(c, a, b)
     }
 
     fn eval_mul_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]) {
@@ -127,8 +124,9 @@ mod test {
         distribution::Sampler,
         misc::test::assert_precision,
         modulus::{Modulus, PowerOfTwo},
+        poly::ffnt::test::{poly_mul_prec_loss, round_trip_prec_loss},
         ring::{
-            power_of_two::{noisy, NoisyNativeRing, NoisyNonNativePowerOfTwoRing},
+            power_of_two::noisy::{self, NoisyNativeRing, NoisyNonNativePowerOfTwoRing},
             test::{test_poly_mul, test_round_trip},
             RingOps,
         },
@@ -152,10 +150,6 @@ mod test {
             assert_eq!(noisy::f64_mod_u64(-a + 0.5), expected(-a + 0.5));
             assert_eq!(noisy::f64_mod_u64(-a - 0.5), expected(-a - 0.5));
         }
-    }
-
-    fn round_trip_prec_loss(log_ring_size: usize, log_q: usize) -> usize {
-        (log_ring_size + log_q).saturating_sub((f64::MANTISSA_DIGITS - 1) as usize)
     }
 
     #[test]
@@ -185,10 +179,6 @@ mod test {
                 test_round_trip(&ring, &a, |a, b| assert_precision!(a, b, prec_loss));
             }
         }
-    }
-
-    fn poly_mul_prec_loss(log_ring_size: usize, log_q: usize, log_b: usize) -> usize {
-        (log_ring_size + log_q + log_b).saturating_sub((f64::MANTISSA_DIGITS - 1) as usize)
     }
 
     #[test]

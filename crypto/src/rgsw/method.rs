@@ -88,7 +88,7 @@ pub fn prepare_rgsw<'a, R: RingOps>(
     let eval = ring.take_eval(&mut scratch);
     let mut ct_prep = RgswCiphertext::allocate_prep(
         ring.ring_size(),
-        ring.eval_prep_size(),
+        ring.eval_size(),
         ct.decomposition_log_base(),
         ct.decomposition_level_a(),
         ct.decomposition_level_b(),

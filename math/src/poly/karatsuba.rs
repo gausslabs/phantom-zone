@@ -2,25 +2,6 @@ use crate::{misc::as_slice::AsSlice, ring::SliceOps};
 use core::array::from_fn;
 use itertools::izip;
 
-pub fn nega_cyclic_schoolbook_mul<T: SliceOps>(
-    arith: &T,
-    c: &mut [T::Elem],
-    a: &[T::Elem],
-    b: &[T::Elem],
-) {
-    let n = a.len();
-    izip!(&mut *c, b).for_each(|(c, b)| *c = arith.mul(&a[0], b));
-    izip!(0.., a).skip(1).for_each(|(i, a)| {
-        izip!(0.., b).for_each(|(j, b)| {
-            if i + j < n {
-                c[i + j] = arith.add(&c[i + j], &arith.mul(a, b));
-            } else {
-                c[i + j - n] = arith.sub(&c[i + j - n], &arith.mul(a, b));
-            }
-        })
-    });
-}
-
 pub fn nega_cyclic_karatsuba_mul<T: SliceOps>(
     arith: &T,
     c: &mut [T::Elem],
@@ -117,12 +98,15 @@ fn nega_cyclic_karatsuba_mul_inner<T: SliceOps>(
 mod test {
     use crate::{
         distribution::Sampler,
-        misc::poly_mul::{
-            nega_cyclic_karatsuba_fma, nega_cyclic_karatsuba_mul, nega_cyclic_karatsuba_mul_assign,
-            nega_cyclic_schoolbook_mul,
-        },
         modulus::Modulus,
-        ring::{power_of_two::NativeRing, RingOps},
+        poly::{
+            karatsuba::{
+                nega_cyclic_karatsuba_fma, nega_cyclic_karatsuba_mul,
+                nega_cyclic_karatsuba_mul_assign,
+            },
+            test::nega_cyclic_schoolbook_mul,
+        },
+        ring::{NativeRing, RingOps},
     };
     use rand::thread_rng;
 

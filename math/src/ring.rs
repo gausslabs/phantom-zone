@@ -8,9 +8,14 @@ use crate::{
 use core::{borrow::Borrow, fmt::Debug, mem::size_of};
 use itertools::izip;
 
-pub(crate) mod ffnt;
-pub mod power_of_two;
-pub mod prime;
+pub(crate) mod power_of_two;
+pub(crate) mod prime;
+
+pub use power_of_two::{
+    noisy::{NoisyNativeRing, NoisyNonNativePowerOfTwoRing},
+    precise::{NativeRing, NonNativePowerOfTwoRing},
+};
+pub use prime::{noisy::NoisyPrimeRing, precise::PrimeRing};
 
 pub trait ArithmeticOps {
     type Elem: Copy + Debug + Default + 'static;
@@ -286,8 +291,6 @@ pub trait RingOps:
 
     fn eval_size(&self) -> usize;
 
-    fn eval_prep_size(&self) -> usize;
-
     fn allocate_poly(&self) -> Vec<Self::Elem> {
         vec![Default::default(); self.ring_size()]
     }
@@ -446,7 +449,7 @@ pub trait RingOps:
 
 #[cfg(test)]
 mod test {
-    use crate::{izip_eq, misc::poly_mul::nega_cyclic_schoolbook_mul, ring::RingOps};
+    use crate::{izip_eq, poly::test::nega_cyclic_schoolbook_mul, ring::RingOps};
 
     pub(crate) fn test_round_trip<R: RingOps>(
         ring: &R,

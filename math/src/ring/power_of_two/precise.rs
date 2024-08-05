@@ -1,9 +1,9 @@
 use crate::{
     decomposer::PowerOfTwoDecomposer,
-    misc::poly_mul::{
+    modulus::Modulus,
+    poly::karatsuba::{
         nega_cyclic_karatsuba_fma, nega_cyclic_karatsuba_mul, nega_cyclic_karatsuba_mul_assign,
     },
-    modulus::Modulus,
     ring::{power_of_two, ElemFrom, RingOps, SliceOps},
 };
 
@@ -27,15 +27,11 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
     }
 
     fn ring_size(&self) -> usize {
-        self.ffnt
+        self.fft
     }
 
     fn eval_size(&self) -> usize {
-        self.ffnt
-    }
-
-    fn eval_prep_size(&self) -> usize {
-        self.ffnt
+        self.fft
     }
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
@@ -104,7 +100,7 @@ mod test {
         distribution::Sampler,
         modulus::{Modulus, PowerOfTwo},
         ring::{
-            power_of_two::{NativeRing, NonNativePowerOfTwoRing},
+            power_of_two::precise::{NativeRing, NonNativePowerOfTwoRing},
             test::{test_poly_mul, test_round_trip},
             RingOps,
         },

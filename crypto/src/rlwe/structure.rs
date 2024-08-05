@@ -5,10 +5,8 @@ use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::DistributionSized,
-    misc::{
-        as_slice::{AsMutSlice, AsSlice},
-        automorphism::{AutomorphismMap, AutomorphismMapView},
-    },
+    misc::as_slice::{AsMutSlice, AsSlice},
+    poly::automorphism::{AutomorphismMap, AutomorphismMapView},
 };
 use rand::RngCore;
 

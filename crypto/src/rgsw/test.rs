@@ -12,11 +12,8 @@ use phantom_zone_math::{
     izip_eq,
     modulus::{Modulus, PowerOfTwo, Prime},
     ring::{
-        power_of_two::{
-            NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NonNativePowerOfTwoRing,
-        },
-        prime::PrimeRing,
-        RingOps,
+        NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
+        NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
 };
 use rand::{thread_rng, RngCore};
@@ -165,5 +162,6 @@ fn rlwe_by_rgsw() {
     run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
     run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }
