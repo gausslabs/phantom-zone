@@ -163,6 +163,16 @@ impl<R: RingOps> Rlwe<R> {
         lwe::decrypt(self.ring(), sk.as_view(), ct)
     }
 
+    pub fn sample_extract(
+        &self,
+        ct_rlwe: &RlweCiphertextOwned<R::Elem>,
+        idx: usize,
+    ) -> LweCiphertextOwned<R::Elem> {
+        let mut ct_lwe = LweCiphertextOwned::allocate(self.ring_size());
+        rlwe::sample_extract(self.ring(), &mut ct_lwe, ct_rlwe, idx);
+        ct_lwe
+    }
+
     pub fn ks_key_gen(
         &self,
         sk_from: &RlweSecretKeyOwned<i32>,
@@ -201,16 +211,6 @@ impl<R: RingOps> Rlwe<R> {
         ct_to
     }
 
-    pub fn sample_extract(
-        &self,
-        ct_rlwe: &RlweCiphertextOwned<R::Elem>,
-        idx: usize,
-    ) -> LweCiphertextOwned<R::Elem> {
-        let mut ct_lwe = LweCiphertextOwned::allocate(self.ring_size());
-        rlwe::sample_extract(self.ring(), &mut ct_lwe, ct_rlwe, idx);
-        ct_lwe
-    }
-
     pub fn auto_key_gen(
         &self,
         sk: &RlweSecretKeyOwned<i32>,
@@ -242,6 +242,56 @@ impl<R: RingOps> Rlwe<R> {
             self.ring(),
             &mut ct_auto,
             auto_key,
+            ct,
+            scratch.borrow_mut(),
+        );
+        ct_auto
+    }
+
+    pub fn prepare_ks_key(
+        &self,
+        ks_key: &RlweKeySwitchKeyOwned<R::Elem>,
+    ) -> RlweKeySwitchKeyOwned<R::EvalPrep> {
+        let mut scratch = self.ring().allocate_scratch(0, 1);
+        rlwe::prepare_ks_key(self.ring(), ks_key, scratch.borrow_mut())
+    }
+
+    pub fn prepare_auto_key(
+        &self,
+        auto_key: &RlweAutoKeyOwned<R::Elem>,
+    ) -> RlweAutoKeyOwned<R::EvalPrep> {
+        let mut scratch = self.ring().allocate_scratch(0, 1);
+        rlwe::prepare_auto_key(self.ring(), auto_key, scratch.borrow_mut())
+    }
+
+    pub fn key_switch_prep(
+        &self,
+        ks_key_prep: &RlweKeySwitchKeyOwned<R::EvalPrep>,
+        ct_from: &RlweCiphertextOwned<R::Elem>,
+    ) -> RlweCiphertextOwned<R::Elem> {
+        let mut ct_to = RlweCiphertext::allocate(self.ring_size());
+        let mut scratch = self.ring().allocate_scratch(2, 3);
+        rlwe::key_switch_prep(
+            self.ring(),
+            &mut ct_to,
+            ks_key_prep,
+            ct_from,
+            scratch.borrow_mut(),
+        );
+        ct_to
+    }
+
+    pub fn automorphism_prep(
+        &self,
+        auto_key_prep: &RlweAutoKeyOwned<R::EvalPrep>,
+        ct: &RlweCiphertextOwned<R::Elem>,
+    ) -> RlweCiphertextOwned<R::Elem> {
+        let mut ct_auto = RlweCiphertext::allocate(self.ring_size());
+        let mut scratch = self.ring().allocate_scratch(2, 3);
+        rlwe::automorphism_prep(
+            self.ring(),
+            &mut ct_auto,
+            auto_key_prep,
             ct,
             scratch.borrow_mut(),
         );
@@ -289,30 +339,6 @@ fn encrypt_decrypt() {
 }
 
 #[test]
-fn key_switch() {
-    fn run<R: RingOps>(param: RlweParam) {
-        let mut rng = thread_rng();
-        let rlwe = param.build::<R>();
-        let sk_from = rlwe.sk_gen(&mut rng);
-        let sk_to = rlwe.sk_gen(&mut rng);
-        let ks_key = rlwe.ks_key_gen(&sk_from, &sk_to, &mut rng);
-        for _ in 0..100 {
-            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
-            let pt = rlwe.encode(&m);
-            let ct_from = rlwe.sk_encrypt(&sk_from, &pt, &mut rng);
-            let ct_to = rlwe.key_switch(&ks_key, &ct_from);
-            assert_eq!(m, rlwe.decode(&rlwe.decrypt(&sk_to, &ct_to)));
-        }
-    }
-
-    run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
-    run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
-    run::<PrimeRing>(test_param(Prime::gen(50, 9)));
-}
-
-#[test]
 fn sample_extract() {
     fn run<R: RingOps>(param: RlweParam) {
         let mut rng = thread_rng();
@@ -335,6 +361,33 @@ fn sample_extract() {
 }
 
 #[test]
+fn key_switch() {
+    fn run<R: RingOps>(param: RlweParam) {
+        let mut rng = thread_rng();
+        let rlwe = param.build::<R>();
+        let sk_from = rlwe.sk_gen(&mut rng);
+        let sk_to = rlwe.sk_gen(&mut rng);
+        let ks_key = rlwe.ks_key_gen(&sk_from, &sk_to, &mut rng);
+        let ks_key_prep = rlwe.prepare_ks_key(&ks_key);
+        for _ in 0..100 {
+            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
+            let pt = rlwe.encode(&m);
+            let ct_from = rlwe.sk_encrypt(&sk_from, &pt, &mut rng);
+            let ct_to = rlwe.key_switch(&ks_key, &ct_from);
+            assert_eq!(m, rlwe.decode(&rlwe.decrypt(&sk_to, &ct_to)));
+            let ct_to = rlwe.key_switch_prep(&ks_key_prep, &ct_from);
+            assert_eq!(m, rlwe.decode(&rlwe.decrypt(&sk_to, &ct_to)));
+        }
+    }
+
+    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NativeRing>(test_param(Modulus::native()));
+    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<PrimeRing>(test_param(Prime::gen(50, 9)));
+}
+
+#[test]
 fn automorphism() {
     fn run<R: RingOps>(param: RlweParam) {
         let mut rng = thread_rng();
@@ -342,14 +395,16 @@ fn automorphism() {
         let sk = rlwe.sk_gen(&mut rng);
         for k in powers_mod(5, 2 * rlwe.ring_size() as u64).take(rlwe.ring_size() / 2) {
             let auto_key = rlwe.auto_key_gen(&sk, k as _, &mut rng);
+            let auto_key_prep = rlwe.prepare_auto_key(&auto_key);
             let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
-            let pt = rlwe.encode(&m);
-            let ct = rlwe.sk_encrypt(&sk, &pt, &mut rng);
-            let ct_auto = rlwe.automorphism(&auto_key, &ct);
+            let ct = rlwe.sk_encrypt(&sk, &rlwe.encode(&m), &mut rng);
             let m_auto = {
                 let neg = |v: &_| neg_mod(*v, param.message_modulus);
                 auto_key.map().apply(&m, neg).collect_vec()
             };
+            let ct_auto = rlwe.automorphism(&auto_key, &ct);
+            assert_eq!(m_auto, rlwe.decode(&rlwe.decrypt(&sk, &ct_auto)));
+            let ct_auto = rlwe.automorphism_prep(&auto_key_prep, &ct);
             assert_eq!(m_auto, rlwe.decode(&rlwe.decrypt(&sk, &ct_auto)));
         }
     }

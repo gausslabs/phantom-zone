@@ -1,4 +1,7 @@
-use crate::ring::{ArithmeticOps, SliceOps};
+use crate::{
+    misc::as_slice::{AsMutSlice, AsSlice},
+    ring::{ArithmeticOps, SliceOps},
+};
 use core::{
     f64::consts::PI,
     fmt::{self, Debug, Formatter},
@@ -106,7 +109,7 @@ impl Ffnt {
         if a.len() == 1 {
             b[0] = to_f64(&a[0]).into();
         } else {
-            let (lo, hi) = a.split_at(a.len() / 2);
+            let (lo, hi) = a.split_at_mid();
             izip!(&mut *b, lo, hi, &self.twiddle)
                 .for_each(|(b, lo, hi, t)| *b = Complex64::new(to_f64(lo), to_f64(hi)) * t);
         }
@@ -118,7 +121,7 @@ impl Ffnt {
         if b.len() == 1 {
             b[0] = from_f64(a[0].re);
         } else {
-            let (lo, hi) = b.split_at_mut(b.len() / 2);
+            let (lo, hi) = b.split_at_mid_mut();
             izip!(lo, hi, a, &self.twiddle_inv).for_each(|(lo, hi, a, t)| {
                 let a = *a * t;
                 *lo = from_f64(a.re);
@@ -138,7 +141,7 @@ impl Ffnt {
         if b.len() == 1 {
             add_from_f64(&mut b[0], a[0].re);
         } else {
-            let (lo, hi) = b.split_at_mut(b.len() / 2);
+            let (lo, hi) = b.split_at_mid_mut();
             izip!(lo, hi, a, &self.twiddle_inv).for_each(|(lo, hi, a, t)| {
                 let a = *a * t;
                 add_from_f64(lo, a.re);

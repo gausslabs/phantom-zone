@@ -13,3 +13,7 @@ phantom-zone-math = { path = "../math" }
 
 [dev-dependencies]
 criterion = { workspace = true }
+
+[[bench]]
+name = "rlwe"
+harness = false

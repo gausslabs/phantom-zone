@@ -2,9 +2,10 @@ use crate::{
     distribution::NoiseDistribution,
     lwe::LweCiphertextMutView,
     rlwe::structure::{
-        RlweAutoKeyMutView, RlweAutoKeyView, RlweCiphertextMutView, RlweCiphertextView,
-        RlweKeySwitchKeyMutView, RlweKeySwitchKeyView, RlwePlaintextMutView, RlwePlaintextView,
-        RlwePublicKeyMutView, RlwePublicKeyView, RlweSecretKeyView,
+        RlweAutoKeyMutView, RlweAutoKeyOwned, RlweAutoKeyView, RlweCiphertextMutView,
+        RlweCiphertextView, RlweKeySwitchKey, RlweKeySwitchKeyMutView, RlweKeySwitchKeyOwned,
+        RlweKeySwitchKeyView, RlwePlaintextMutView, RlwePlaintextView, RlwePublicKeyMutView,
+        RlwePublicKeyView, RlweSecretKeyView,
     },
 };
 use core::{borrow::Borrow, ops::Neg};
@@ -112,6 +113,21 @@ pub fn decrypt<'a, 'b, 'c, R, T>(
     ring.slice_add_assign(pt.as_mut(), ct.b().as_ref());
 }
 
+pub fn sample_extract<'a, 'b, R: RingOps>(
+    ring: &R,
+    ct_lwe: impl Into<LweCiphertextMutView<'a, R::Elem>>,
+    ct_rlwe: impl Into<RlweCiphertextView<'b, R::Elem>>,
+    idx: usize,
+) {
+    assert!(idx < ring.ring_size());
+    let (mut ct_lwe, ct_rlwe) = (ct_lwe.into(), ct_rlwe.into());
+    ct_lwe.a_mut().copy_from_slice(ct_rlwe.a());
+    ct_lwe.a_mut().reverse();
+    ring.slice_neg_assign(&mut ct_lwe.a_mut()[..ring.ring_size() - idx - 1]);
+    ct_lwe.a_mut().rotate_left(ring.ring_size() - idx - 1);
+    *ct_lwe.b_mut() = ct_rlwe.b()[idx];
+}
+
 pub fn ks_key_gen<'a, 'b, 'c, R, T>(
     ring: &R,
     ks_key: impl Into<RlweKeySwitchKeyMutView<'a, R::Elem>>,
@@ -202,21 +218,6 @@ fn key_switch_inner<R: RingOps>(
     ring.slice_add_assign_iter(ct_to.b_mut(), ct_from_b);
 }
 
-pub fn sample_extract<'a, 'b, R: RingOps>(
-    ring: &R,
-    ct_lwe: impl Into<LweCiphertextMutView<'a, R::Elem>>,
-    ct_rlwe: impl Into<RlweCiphertextView<'b, R::Elem>>,
-    idx: usize,
-) {
-    assert!(idx < ring.ring_size());
-    let (mut ct_lwe, ct_rlwe) = (ct_lwe.into(), ct_rlwe.into());
-    ct_lwe.a_mut().copy_from_slice(ct_rlwe.a());
-    ct_lwe.a_mut().reverse();
-    ring.slice_neg_assign(&mut ct_lwe.a_mut()[..ring.ring_size() - idx - 1]);
-    ct_lwe.a_mut().rotate_left(ring.ring_size() - idx - 1);
-    *ct_lwe.b_mut() = ct_rlwe.b()[idx];
-}
-
 pub fn auto_key_gen<'a, 'b, R, T>(
     ring: &R,
     auto_key: impl Into<RlweAutoKeyMutView<'a, R::Elem>>,
@@ -246,6 +247,112 @@ pub fn automorphism<'a, 'b, 'c, R: RingOps>(
     let ct_a = map.apply(ct.a(), |v| ring.neg(v));
     let ct_b = map.apply(ct.b(), |v| ring.neg(v));
     key_switch_inner(
+        ring,
+        ct_auto.into(),
+        auto_key.as_ks_key(),
+        ct_a,
+        ct_b,
+        scratch,
+    )
+}
+
+pub fn prepare_ks_key<'a, 'b, 'c, R>(
+    ring: &R,
+    ks_key: impl Into<RlweKeySwitchKeyView<'a, R::Elem>>,
+    mut scratch: Scratch,
+) -> RlweKeySwitchKeyOwned<R::EvalPrep>
+where
+    R: RingOps,
+{
+    let ks_key = ks_key.into();
+    let eval = ring.take_eval(&mut scratch);
+    let mut ks_key_prep = RlweKeySwitchKey::allocate_prep(
+        ring.ring_size(),
+        ring.eval_prep_size(),
+        ks_key.decomposition_param(),
+    );
+    izip_eq!(ks_key_prep.ct_iter_mut(), ks_key.ct_iter()).for_each(|(mut ct_prep, ct)| {
+        ring.forward_normalized(eval, ct.a());
+        ring.eval_prepare(ct_prep.a_mut(), eval);
+        ring.forward_normalized(eval, ct.b());
+        ring.eval_prepare(ct_prep.b_mut(), eval);
+    });
+    ks_key_prep
+}
+
+pub fn prepare_auto_key<'a, 'b, 'c, R>(
+    ring: &R,
+    auto_key: impl Into<RlweAutoKeyView<'a, R::Elem>>,
+    scratch: Scratch,
+) -> RlweAutoKeyOwned<R::EvalPrep>
+where
+    R: RingOps,
+{
+    let auto_key = auto_key.into();
+    let ks_key_prep = prepare_ks_key(ring, auto_key.as_ks_key(), scratch);
+    RlweAutoKeyOwned::new(ks_key_prep, auto_key.map().cloned())
+}
+
+pub fn key_switch_prep<'a, 'b, 'c, R: RingOps>(
+    ring: &R,
+    ct_to: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
+    ks_key_prep: impl Into<RlweKeySwitchKeyView<'b, R::EvalPrep>>,
+    ct_from: impl Into<RlweCiphertextView<'c, R::Elem>>,
+    scratch: Scratch,
+) {
+    let ct_from = ct_from.into();
+    key_switch_prep_inner(
+        ring,
+        ct_to.into(),
+        ks_key_prep.into(),
+        ct_from.a(),
+        ct_from.b(),
+        scratch,
+    )
+}
+
+fn key_switch_prep_inner<R: RingOps>(
+    ring: &R,
+    mut ct_to: RlweCiphertextMutView<R::Elem>,
+    ks_key_prep: RlweKeySwitchKeyView<R::EvalPrep>,
+    ct_from_a: impl IntoIterator<Item: Borrow<R::Elem>>,
+    ct_from_b: impl IntoIterator<Item: Borrow<R::Elem>>,
+    mut scratch: Scratch,
+) {
+    let decomposer = R::Decomposer::new(ring.modulus(), ks_key_prep.decomposition_param());
+    let [ct_to_a_eval, ct_to_b_eval, t0] = ring.take_evals(&mut scratch);
+    decomposer.slice_decompose_zip_for_each(
+        ct_from_a,
+        ks_key_prep.ct_iter(),
+        scratch.reborrow(),
+        |i, a_i, ks_key_i| {
+            let eval_fma_prep = if i == 0 {
+                R::eval_mul_prep
+            } else {
+                R::eval_fma_prep
+            };
+            ring.forward(t0, a_i);
+            eval_fma_prep(ring, ct_to_a_eval, t0, ks_key_i.a());
+            eval_fma_prep(ring, ct_to_b_eval, t0, ks_key_i.b());
+        },
+    );
+    ring.backward(ct_to.a_mut(), ct_to_a_eval);
+    ring.backward(ct_to.b_mut(), ct_to_b_eval);
+    ring.slice_add_assign_iter(ct_to.b_mut(), ct_from_b);
+}
+
+pub fn automorphism_prep<'a, 'b, 'c, R: RingOps>(
+    ring: &R,
+    ct_auto: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
+    auto_key: impl Into<RlweAutoKeyView<'b, R::EvalPrep>>,
+    ct: impl Into<RlweCiphertextView<'c, R::Elem>>,
+    scratch: Scratch,
+) {
+    let (auto_key, ct) = (auto_key.into(), ct.into());
+    let map = auto_key.map();
+    let ct_a = map.apply(ct.a(), |v| ring.neg(v));
+    let ct_b = map.apply(ct.b(), |v| ring.neg(v));
+    key_switch_prep_inner(
         ring,
         ct_auto.into(),
         auto_key.as_ks_key(),

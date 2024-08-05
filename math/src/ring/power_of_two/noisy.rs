@@ -13,6 +13,7 @@ pub type NoisyNonNativePowerOfTwoRing = NoisyPowerOfTwoRing<false>;
 
 impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
     type Eval = Complex64;
+    type EvalPrep = Complex64;
     type Decomposer = PowerOfTwoDecomposer<NATIVE>;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self {
@@ -28,6 +29,10 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
     }
 
     fn eval_size(&self) -> usize {
+        self.ffnt.fft_size()
+    }
+
+    fn eval_prep_size(&self) -> usize {
         self.ffnt.fft_size()
     }
 
@@ -70,6 +75,10 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
         });
     }
 
+    fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]) {
+        b.copy_from_slice(a)
+    }
+
     fn eval_mul(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
         self.ffnt.slice_mul(c, a, b)
     }
@@ -80,6 +89,18 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
 
     fn eval_fma(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
         self.ffnt.slice_fma(c, a, b)
+    }
+
+    fn eval_mul_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]) {
+        self.eval_mul(c, a, b)
+    }
+
+    fn eval_mul_assign_prep(&self, b: &mut [Self::Eval], a: &[Self::EvalPrep]) {
+        self.eval_mul_assign(b, a)
+    }
+
+    fn eval_fma_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]) {
+        self.eval_fma(c, a, b)
     }
 }
 

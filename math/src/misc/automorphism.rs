@@ -21,6 +21,10 @@ pub struct AutomorphismMap<S: AsSlice<Elem = usize>> {
 }
 
 impl<S: AsSlice<Elem = usize>> AutomorphismMap<S> {
+    pub fn ring_size(&self) -> usize {
+        self.map.len()
+    }
+
     pub fn k(&self) -> usize {
         self.k
     }

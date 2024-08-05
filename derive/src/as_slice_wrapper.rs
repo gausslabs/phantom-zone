@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use syn::{
     parse::Parse, parse2, punctuated::Punctuated, Attribute, Data, DeriveInput, Error, Fields,
     GenericArgument, GenericParam, Index, PathArguments, Result, Token, TypeParamBound,
+    WhereClause,
 };
 
 pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
@@ -145,6 +146,8 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
     let mut input_view_type_genercs = Generics::default();
     let mut input_mut_view_impl_generics = Generics(once(quote!('alias)).collect());
     let mut input_mut_view_type_genercs = Generics::default();
+    let mut cloned_impl_generics = Generics::default();
+    let mut cloned_where_clause: WhereClause = parse(quote!(where));
     let mut from_impl_generics = input.generics.clone();
     from_impl_generics.params = once(parse(quote! { 'from }))
         .chain(from_impl_generics.params)
@@ -160,6 +163,10 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
             .push(parse(quote! { #ident: AsMutSlice }));
         as_view_generics.push(quote! { &[#ident::Elem] });
         as_mut_view_generics.push(quote! { &mut [#ident::Elem] });
+        cloned_impl_generics.push(quote! { Vec<#ident::Elem> });
+        cloned_where_clause
+            .predicates
+            .push(parse(quote! { #ident::Elem: Clone }));
         if let Some(elem_bound) = elem_bound {
             input_owned_type_genercs.push(quote! { Vec<#elem_bound> });
             input_view_type_genercs.push(quote! { &'alias [#elem_bound] });
@@ -200,6 +207,14 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
 
             pub fn is_empty(&self) -> bool {
                 self.len() == 0
+            }
+
+            pub fn cloned(&self) -> #input_ident #cloned_impl_generics #cloned_where_clause {
+                #input_ident {
+                    #(#other_field_idents: self.#other_field_idents,)*
+                    #(#as_slice_nested_field_idents: self.#as_slice_nested_field_idents.cloned(),)*
+                    #(#as_slice_field_idents: self.#as_slice_field_idents.as_ref().to_vec(),)*
+                }
             }
         }
 

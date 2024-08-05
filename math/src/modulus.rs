@@ -109,6 +109,11 @@ impl PowerOfTwo {
 pub struct Prime(pub(crate) u64);
 
 impl Prime {
+    pub fn new(q: u64) -> Self {
+        debug_assert!(is_prime(q));
+        Self(q)
+    }
+
     pub fn gen(bits: usize, two_adicity: usize) -> Self {
         Self::gen_iter(bits, two_adicity).next().unwrap()
     }

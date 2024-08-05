@@ -2,7 +2,7 @@ use crate::{
     decomposer::PrimeDecomposer,
     distribution::{DistributionSized, Sampler},
     izip_eq,
-    misc::bit_reverse,
+    misc::{as_slice::AsMutSlice, bit_reverse},
     modulus::{inv_mod, pow_mod, powers_mod, Modulus, Prime},
     ring::{ArithmeticOps, ElemFrom, ElemTo, RingOps, SliceOps},
 };
@@ -140,7 +140,7 @@ impl PrimeRing {
         for layer in 0..log_n {
             let (m, size) = (1 << layer, 1 << (log_n - layer - 1));
             izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo[m..]).for_each(|(a, t)| {
-                let (a, b) = a.split_at_mut(size);
+                let (a, b) = a.split_at_mid_mut();
                 if layer == log_n - 1 {
                     izip!(a, b).for_each(|(a, b)| self.dit(a, b, t));
                 } else {
@@ -156,7 +156,7 @@ impl PrimeRing {
         for layer in (0..log_n).rev() {
             let (m, size) = (1 << layer, 1 << (log_n - layer - 1));
             izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo_inv[m..]).for_each(|(a, t)| {
-                let (a, b) = a.split_at_mut(size);
+                let (a, b) = a.split_at_mid_mut();
                 izip!(a, b).for_each(|(a, b)| self.dif(a, b, t));
             });
         }
@@ -284,21 +284,7 @@ impl ElemTo<i64> for PrimeRing {
     }
 }
 
-impl SliceOps for PrimeRing {
-    fn matrix_fma_prep<'a>(
-        &self,
-        c: &mut [Self::Elem],
-        a: impl IntoIterator<Item = &'a [Self::Elem]>,
-        b: impl IntoIterator<Item = &'a [Self::Prep]>,
-    ) {
-        izip_eq!(a, b).for_each(|(a, b)| {
-            izip_eq!(&mut *c, a, b).for_each(|(c, a, b)| {
-                *c = c.wrapping_add(self.mul_prep(a, b));
-                self.reduce_twice_assign(c);
-            })
-        });
-    }
-}
+impl SliceOps for PrimeRing {}
 
 impl Sampler for PrimeRing {
     fn uniform_distribution(
@@ -310,6 +296,7 @@ impl Sampler for PrimeRing {
 
 impl RingOps for PrimeRing {
     type Eval = u64;
+    type EvalPrep = Shoup;
     type Decomposer = PrimeDecomposer;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self {
@@ -325,6 +312,10 @@ impl RingOps for PrimeRing {
     }
 
     fn eval_size(&self) -> usize {
+        self.ring_size
+    }
+
+    fn eval_prep_size(&self) -> usize {
         self.ring_size
     }
 
@@ -371,6 +362,10 @@ impl RingOps for PrimeRing {
         izip_eq!(b, a).for_each(|(b, a)| *b = self.add(&self.mul_prep(a, &self.n_inv), b))
     }
 
+    fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]) {
+        self.slice_prepare(b, a)
+    }
+
     fn eval_mul(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
         self.slice_mul(c, a, b)
     }
@@ -380,7 +375,22 @@ impl RingOps for PrimeRing {
     }
 
     fn eval_fma(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
-        self.slice_fma(c, a, b)
+        self.slice_fma(c, a, b);
+    }
+
+    fn eval_mul_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]) {
+        self.slice_mul_prep(c, a, b)
+    }
+
+    fn eval_mul_assign_prep(&self, b: &mut [Self::Eval], a: &[Self::EvalPrep]) {
+        self.slice_mul_assign_prep(b, a)
+    }
+
+    fn eval_fma_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]) {
+        self.slice_op(c, a, b, |c, a, b| {
+            *c = c.wrapping_add(self.mul_prep(a, b));
+            self.reduce_assign(c)
+        })
     }
 }
 

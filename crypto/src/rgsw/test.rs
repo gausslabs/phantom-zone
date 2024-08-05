@@ -110,7 +110,23 @@ impl<R: RingOps> Rgsw<R> {
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct_rlwe = ct_rlwe.clone();
         let mut scratch = self.ring().allocate_scratch(2, 4);
-        rgsw::rlwe_by_rgsw_in_place(self.ring(), &mut ct_rlwe, ct_rgsw, scratch.borrow_mut());
+        rgsw::rlwe_by_rgsw(self.ring(), &mut ct_rlwe, ct_rgsw, scratch.borrow_mut());
+        ct_rlwe
+    }
+
+    fn prepare_rgsw(&self, ct: &RgswCiphertextOwned<R::Elem>) -> RgswCiphertextOwned<R::EvalPrep> {
+        let mut scratch = self.ring().allocate_scratch(0, 1);
+        rgsw::prepare_rgsw(self.ring(), ct, scratch.borrow_mut())
+    }
+
+    fn rlwe_by_rgsw_prep(
+        &self,
+        ct_rlwe: &RlweCiphertextOwned<R::Elem>,
+        ct_rgsw: &RgswCiphertextOwned<R::EvalPrep>,
+    ) -> RlweCiphertextOwned<R::Elem> {
+        let mut ct_rlwe = ct_rlwe.clone();
+        let mut scratch = self.ring().allocate_scratch(2, 3);
+        rgsw::rlwe_by_rgsw_prep(self.ring(), &mut ct_rlwe, ct_rgsw, scratch.borrow_mut());
         ct_rlwe
     }
 }
@@ -137,7 +153,10 @@ fn rlwe_by_rgsw() {
             let m = rgsw.message_poly_mul(&m_rlwe, &m_rgsw);
             let ct_rlwe = rlwe.sk_encrypt(&sk, &rlwe.encode(&m_rlwe), &mut rng);
             let ct_rgsw = rgsw.sk_encrypt(&sk, &rgsw.encode(&m_rgsw), &mut rng);
+            let ct_rgsw_prep = rgsw.prepare_rgsw(&ct_rgsw);
             let ct = rgsw.rlwe_by_rgsw(&ct_rlwe, &ct_rgsw);
+            assert_eq!(m, rlwe.decode(&rlwe.decrypt(&sk, &ct)));
+            let ct = rgsw.rlwe_by_rgsw_prep(&ct_rlwe, &ct_rgsw_prep);
             assert_eq!(m, rlwe.decode(&rlwe.decrypt(&sk, &ct)));
         }
     }

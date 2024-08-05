@@ -15,6 +15,7 @@ pub type NonNativePowerOfTwoRing = PowerOfTwoRing<false>;
 
 impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
     type Eval = Self::Elem;
+    type EvalPrep = Self::Elem;
     type Decomposer = PowerOfTwoDecomposer<NATIVE>;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self {
@@ -30,6 +31,10 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
     }
 
     fn eval_size(&self) -> usize {
+        self.ffnt
+    }
+
+    fn eval_prep_size(&self) -> usize {
         self.ffnt
     }
 
@@ -64,6 +69,10 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
         self.slice_add_assign(b, a)
     }
 
+    fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]) {
+        b.copy_from_slice(a)
+    }
+
     fn eval_mul(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
         nega_cyclic_karatsuba_mul(self, c, a, b)
     }
@@ -74,6 +83,18 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
 
     fn eval_fma(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
         nega_cyclic_karatsuba_fma(self, c, a, b)
+    }
+
+    fn eval_mul_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]) {
+        self.eval_mul(c, a, b)
+    }
+
+    fn eval_mul_assign_prep(&self, b: &mut [Self::Eval], a: &[Self::EvalPrep]) {
+        self.eval_mul_assign(b, a)
+    }
+
+    fn eval_fma_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]) {
+        self.eval_fma(c, a, b)
     }
 }
 

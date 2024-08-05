@@ -1,4 +1,4 @@
-use crate::ring::SliceOps;
+use crate::{misc::as_slice::AsSlice, ring::SliceOps};
 use core::array::from_fn;
 use itertools::izip;
 
@@ -64,8 +64,8 @@ fn nega_cyclic_karatsuba_mul_inner<T: SliceOps>(
     let n = a.len();
     let m = n / 2;
 
-    let (al, ar) = a.split_at(m);
-    let (bl, br) = b.unwrap_or(c).split_at(m);
+    let (al, ar) = a.split_at_mid();
+    let (bl, br) = b.unwrap_or(c).split_at_mid();
 
     let [t0, t1, t2] = &mut from_fn(|_| vec![Default::default(); n]);
     let [alr, blr] = &mut from_fn(|_| vec![Default::default(); m]);
@@ -93,8 +93,8 @@ fn nega_cyclic_karatsuba_mul_inner<T: SliceOps>(
             let n = c.len();
             let m = n / 2;
             let q = n / 4;
-            let (al, ar) = a.split_at(q);
-            let (bl, br) = b.split_at(q);
+            let (al, ar) = a.split_at_mid();
+            let (bl, br) = b.split_at_mid();
 
             let [t0, t1, t2] = &mut from_fn(|_| vec![Default::default(); m]);
             let [alr, blr] = &mut from_fn(|_| vec![Default::default(); q]);

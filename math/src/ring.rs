@@ -98,6 +98,10 @@ pub trait SliceOps: ArithmeticOps {
         izip!(c, a, b).for_each(|(c, a, b)| f(c, a, b.borrow()))
     }
 
+    fn slice_prepare(&self, b: &mut [Self::Prep], a: &[Self::Elem]) {
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.prepare(a))
+    }
+
     fn slice_elem_from<T: Copy>(&self, b: &mut [Self::Elem], a: &[T])
     where
         Self: ElemFrom<T>,
@@ -129,6 +133,10 @@ pub trait SliceOps: ArithmeticOps {
 
     fn slice_mul_assign(&self, b: &mut [Self::Elem], a: &[Self::Elem]) {
         self.slice_op_assign(b, a, |b, a| *b = self.mul(b, a))
+    }
+
+    fn slice_mul_assign_prep(&self, b: &mut [Self::Elem], a: &[Self::Prep]) {
+        self.slice_op_assign(b, a, |b, a| *b = self.mul_prep(b, a))
     }
 
     fn slice_scalar_mul_assign(&self, b: &mut [Self::Elem], a: &Self::Elem) {
@@ -184,6 +192,10 @@ pub trait SliceOps: ArithmeticOps {
         self.slice_op(c, a, b, |c, a, b| *c = self.mul(a, b))
     }
 
+    fn slice_mul_prep(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Prep]) {
+        self.slice_op(c, a, b, |c, a, b| *c = self.mul_prep(a, b))
+    }
+
     fn slice_scalar_mul(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Elem) {
         self.slice_op_assign(c, a, |c, a| *c = self.mul(a, b))
     }
@@ -234,6 +246,10 @@ pub trait SliceOps: ArithmeticOps {
         self.slice_op(c, a, b, |c, a, b| *c = self.add(c, &self.mul(a, b)))
     }
 
+    fn slice_fma_prep(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Prep]) {
+        self.slice_op(c, a, b, |c, a, b| *c = self.add(c, &self.mul_prep(a, b)))
+    }
+
     fn slice_scalar_fma(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Elem) {
         self.slice_op_assign(c, a, |c, a| *c = self.add(c, &self.mul(a, b)))
     }
@@ -245,17 +261,6 @@ pub trait SliceOps: ArithmeticOps {
         self.slice_op(c, a, b, |c, a, b| {
             *c = self.add(c, &self.mul_elem_from(a, b))
         })
-    }
-
-    fn matrix_fma_prep<'a>(
-        &self,
-        c: &mut [Self::Elem],
-        a: impl IntoIterator<Item = &'a [Self::Elem]>,
-        b: impl IntoIterator<Item = &'a [Self::Prep]>,
-    ) {
-        izip_eq!(a, b).for_each(|(a, b)| {
-            self.slice_op(c, a, b, |c, a, b| *c = self.add(c, &self.mul_prep(a, b)))
-        });
     }
 }
 
@@ -270,6 +275,7 @@ pub trait RingOps:
     + ElemTo<i64>
 {
     type Eval: Copy + Debug + Default + 'static;
+    type EvalPrep: Copy + Debug + Default + 'static;
     type Decomposer: Decomposer<Self::Elem>;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self;
@@ -279,6 +285,8 @@ pub trait RingOps:
     fn ring_size(&self) -> usize;
 
     fn eval_size(&self) -> usize;
+
+    fn eval_prep_size(&self) -> usize;
 
     fn allocate_poly(&self) -> Vec<Self::Elem> {
         vec![Default::default(); self.ring_size()]
@@ -332,11 +340,19 @@ pub trait RingOps:
 
     fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]);
 
+    fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]);
+
     fn eval_mul(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]);
 
     fn eval_mul_assign(&self, b: &mut [Self::Eval], a: &[Self::Eval]);
 
     fn eval_fma(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]);
+
+    fn eval_mul_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]);
+
+    fn eval_mul_assign_prep(&self, b: &mut [Self::Eval], a: &[Self::EvalPrep]);
+
+    fn eval_fma_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]);
 
     fn poly_mul(
         &self,
