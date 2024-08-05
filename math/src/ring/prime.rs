@@ -320,10 +320,6 @@ impl RingOps for PrimeRing {
         Prime(self.q).into()
     }
 
-    fn eval(&self) -> &impl SliceOps<Elem = Self::Eval> {
-        self
-    }
-
     fn ring_size(&self) -> usize {
         self.ring_size
     }
@@ -373,6 +369,18 @@ impl RingOps for PrimeRing {
     fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
         self.intt(a);
         izip_eq!(b, a).for_each(|(b, a)| *b = self.add(&self.mul_prep(a, &self.n_inv), b))
+    }
+
+    fn eval_mul(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
+        self.slice_mul(c, a, b)
+    }
+
+    fn eval_mul_assign(&self, b: &mut [Self::Eval], a: &[Self::Eval]) {
+        self.slice_mul_assign(b, a)
+    }
+
+    fn eval_fma(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
+        self.slice_fma(c, a, b)
     }
 }
 

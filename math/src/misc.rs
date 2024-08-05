@@ -1,5 +1,7 @@
 pub mod as_slice;
 pub mod automorphism;
+pub mod poly_mul;
+pub mod scratch;
 
 pub fn bit_reverse<T, V: AsMut<[T]>>(mut values: V) -> V {
     let n = values.as_mut().len();

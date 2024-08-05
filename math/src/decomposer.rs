@@ -1,5 +1,6 @@
 use crate::{
     izip_eq,
+    misc::scratch::Scratch,
     modulus::{add_mod, mul_mod, Modulus, PowerOfTwo, Prime},
 };
 use core::{borrow::Borrow, fmt::Debug, iter::repeat_with};
@@ -60,14 +61,15 @@ pub trait Decomposer<T: Copy + Debug + 'static> {
         &self,
         a: impl IntoIterator<Item: Borrow<T>>,
         b: impl IntoIterator<Item = B>,
-        scratch: &mut [T],
-        mut f: impl FnMut((&[T], B)),
+        mut scratch: Scratch,
+        mut f: impl FnMut(usize, &[T], B),
     ) {
-        let (state, limb) = scratch.split_at_mut(scratch.len() / 2);
+        let a = a.into_iter();
+        let [state, limb] = scratch.take_slice_array(a.size_hint().1.unwrap());
         self.slice_round(state, a);
-        izip_eq!(0..self.level(), b).for_each(|(_, b)| {
+        izip_eq!(0..self.level(), b).for_each(|(i, b)| {
             self.slice_decompose_next(limb, state);
-            f((limb, b));
+            f(i, limb, b);
         });
     }
 

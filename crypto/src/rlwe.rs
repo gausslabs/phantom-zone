@@ -2,7 +2,7 @@ mod method;
 mod structure;
 
 #[cfg(test)]
-mod test;
+pub(crate) mod test;
 
 pub use method::{
     auto_key_gen, automorphism, decrypt, key_switch, ks_key_gen, pk_encrypt, pk_gen,

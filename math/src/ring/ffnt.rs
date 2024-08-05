@@ -9,7 +9,7 @@ use rustfft::{Fft, FftPlanner};
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub(crate) struct Ffnt {
+pub struct Ffnt {
     ring_size: usize,
     fft_size: usize,
     fft_size_inv: f64,
@@ -20,7 +20,7 @@ pub(crate) struct Ffnt {
 }
 
 impl Ffnt {
-    pub(crate) fn new(ring_size: usize) -> Self {
+    pub fn new(ring_size: usize) -> Self {
         assert!(ring_size.is_power_of_two());
 
         let twiddle = (0..ring_size / 2)
@@ -43,40 +43,30 @@ impl Ffnt {
         }
     }
 
-    pub(crate) fn ring_size(&self) -> usize {
+    pub fn ring_size(&self) -> usize {
         self.ring_size
     }
 
-    pub(crate) fn fft_size(&self) -> usize {
+    pub fn fft_size(&self) -> usize {
         self.fft_size
     }
 
-    pub(crate) fn forward<T>(&self, b: &mut [Complex64], a: &[T], to_f64: impl Fn(&T) -> f64) {
+    pub fn forward<T>(&self, b: &mut [Complex64], a: &[T], to_f64: impl Fn(&T) -> f64) {
         self.fold_twist(b, a, to_f64);
         self.fft.process(b);
     }
 
-    pub(crate) fn forward_normalized<T>(
-        &self,
-        b: &mut [Complex64],
-        a: &[T],
-        to_f64: impl Fn(&T) -> f64,
-    ) {
+    pub fn forward_normalized<T>(&self, b: &mut [Complex64], a: &[T], to_f64: impl Fn(&T) -> f64) {
         self.forward(b, a, to_f64);
         self.normalize(b);
     }
 
-    pub(crate) fn backward<T>(
-        &self,
-        b: &mut [T],
-        a: &mut [Complex64],
-        from_f64: impl Fn(f64) -> T,
-    ) {
+    pub fn backward<T>(&self, b: &mut [T], a: &mut [Complex64], from_f64: impl Fn(f64) -> T) {
         self.ifft.process(a);
         self.unfold_untwist(b, a, from_f64);
     }
 
-    pub(crate) fn backward_normalized<T>(
+    pub fn backward_normalized<T>(
         &self,
         b: &mut [T],
         a: &mut [Complex64],
@@ -86,7 +76,7 @@ impl Ffnt {
         self.backward(b, a, from_f64);
     }
 
-    pub(crate) fn add_backward<T>(
+    pub fn add_backward<T>(
         &self,
         b: &mut [T],
         a: &mut [Complex64],
@@ -96,7 +86,7 @@ impl Ffnt {
         self.add_unfold_untwist(b, a, add_from_f64);
     }
 
-    pub(crate) fn add_backward_normalized<T>(
+    pub fn add_backward_normalized<T>(
         &self,
         b: &mut [T],
         a: &mut [Complex64],

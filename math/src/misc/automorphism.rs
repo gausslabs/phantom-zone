@@ -76,6 +76,10 @@ where
             }
         })
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.map.size_hint()
+    }
 }
 
 #[cfg(test)]

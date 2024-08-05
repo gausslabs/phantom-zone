@@ -14,7 +14,9 @@ use phantom_zone_math::{
     izip_eq,
     modulus::{neg_mod, powers_mod, Modulus, PowerOfTwo, Prime},
     ring::{
-        power_of_two::{NativeRing, NonNativePowerOfTwoRing},
+        power_of_two::{
+            NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NonNativePowerOfTwoRing,
+        },
         prime::PrimeRing,
         RingOps,
     },
@@ -34,7 +36,7 @@ struct RlweParam {
 impl RlweParam {
     fn build<R: RingOps>(self) -> Rlwe<R> {
         let delta = self.ciphertext_modulus.to_f64() / self.message_modulus as f64;
-        let ring = RingOps::new(self.ciphertext_modulus, self.ring_size);
+        let ring = R::new(self.ciphertext_modulus, self.ring_size);
         Rlwe {
             param: self,
             delta,
@@ -91,7 +93,15 @@ impl<R: RingOps> Rlwe<R> {
         rng: impl RngCore,
     ) -> RlwePublicKeyOwned<R::Elem> {
         let mut pk = RlwePublicKey::allocate(self.ring_size());
-        rlwe::pk_gen(self.ring(), &mut pk, sk, self.param.noise_distribution, rng);
+        let mut scratch = self.ring().allocate_scratch(0, 2);
+        rlwe::pk_gen(
+            self.ring(),
+            &mut pk,
+            sk,
+            self.param.noise_distribution,
+            scratch.borrow_mut(),
+            rng,
+        );
         pk
     }
 
@@ -102,12 +112,14 @@ impl<R: RingOps> Rlwe<R> {
         rng: impl RngCore,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct = RlweCiphertext::allocate(self.ring_size());
+        let mut scratch = self.ring().allocate_scratch(0, 2);
         rlwe::sk_encrypt(
             self.ring(),
             &mut ct,
             sk,
             pt,
             self.param.noise_distribution,
+            scratch.borrow_mut(),
             rng,
         );
         ct
@@ -120,7 +132,8 @@ impl<R: RingOps> Rlwe<R> {
         rng: impl RngCore,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct = RlweCiphertext::allocate(self.ring_size());
-        rlwe::pk_encrypt(self.ring(), &mut ct, pk, pt, rng);
+        let mut scratch = self.ring().allocate_scratch(0, 2);
+        rlwe::pk_encrypt(self.ring(), &mut ct, pk, pt, scratch.borrow_mut(), rng);
         ct
     }
 
@@ -130,7 +143,8 @@ impl<R: RingOps> Rlwe<R> {
         ct: &RlweCiphertextOwned<R::Elem>,
     ) -> RlwePlaintextOwned<R::Elem> {
         let mut pt = RlwePlaintext::allocate(self.ring_size());
-        rlwe::decrypt(self.ring(), &mut pt, sk, ct);
+        let mut scratch = self.ring().allocate_scratch(0, 2);
+        rlwe::decrypt(self.ring(), &mut pt, sk, ct, scratch.borrow_mut());
         pt
     }
 
@@ -150,12 +164,14 @@ impl<R: RingOps> Rlwe<R> {
     ) -> RlweKeySwitchKeyOwned<R::Elem> {
         let mut ks_key =
             RlweKeySwitchKey::allocate(self.ring_size(), self.param.ks_decomposition_param);
+        let mut scratch = self.ring().allocate_scratch(0, 2);
         rlwe::ks_key_gen(
             self.ring(),
             &mut ks_key,
             sk_from,
             sk_to,
             self.param.noise_distribution,
+            scratch.borrow_mut(),
             rng,
         );
         ks_key
@@ -167,7 +183,14 @@ impl<R: RingOps> Rlwe<R> {
         ct_from: &RlweCiphertextOwned<R::Elem>,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct_to = RlweCiphertext::allocate(self.ring_size());
-        rlwe::key_switch(self.ring(), &mut ct_to, ks_key, ct_from);
+        let mut scratch = self.ring().allocate_scratch(2, 4);
+        rlwe::key_switch(
+            self.ring(),
+            &mut ct_to,
+            ks_key,
+            ct_from,
+            scratch.borrow_mut(),
+        );
         ct_to
     }
 
@@ -189,11 +212,13 @@ impl<R: RingOps> Rlwe<R> {
     ) -> RlweAutoKeyOwned<R::Elem> {
         let mut auto_key =
             RlweAutoKey::allocate(self.ring_size(), self.param.ks_decomposition_param, k);
+        let mut scratch = self.ring().allocate_scratch(0, 2);
         rlwe::auto_key_gen(
             self.ring(),
             &mut auto_key,
             sk,
             self.param.noise_distribution,
+            scratch.borrow_mut(),
             rng,
         );
         auto_key
@@ -205,7 +230,14 @@ impl<R: RingOps> Rlwe<R> {
         ct: &RlweCiphertextOwned<R::Elem>,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct_auto = RlweCiphertext::allocate(self.ring_size());
-        rlwe::automorphism(self.ring(), &mut ct_auto, auto_key, ct);
+        let mut scratch = self.ring().allocate_scratch(2, 4);
+        rlwe::automorphism(
+            self.ring(),
+            &mut ct_auto,
+            auto_key,
+            ct,
+            scratch.borrow_mut(),
+        );
         ct_auto
     }
 }
@@ -242,6 +274,8 @@ fn encrypt_decrypt() {
         }
     }
 
+    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
     run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
@@ -264,6 +298,8 @@ fn key_switch() {
         }
     }
 
+    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
     run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
@@ -284,6 +320,8 @@ fn sample_extract() {
         }
     }
 
+    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
     run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
@@ -309,6 +347,8 @@ fn automorphism() {
         }
     }
 
+    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
     run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));

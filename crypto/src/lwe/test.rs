@@ -10,7 +10,9 @@ use phantom_zone_math::{
     distribution::Gaussian,
     modulus::{Modulus, PowerOfTwo, Prime},
     ring::{
-        power_of_two::{NativeRing, NonNativePowerOfTwoRing},
+        power_of_two::{
+            NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NonNativePowerOfTwoRing,
+        },
         prime::PrimeRing,
         RingOps,
     },
@@ -162,6 +164,8 @@ fn encrypt_decrypt() {
         }
     }
 
+    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
     run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<PrimeRing>(test_param(Prime::gen(50, 0)));
@@ -184,6 +188,8 @@ fn key_switch() {
         }
     }
 
+    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
     run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
     run::<PrimeRing>(test_param(Prime::gen(50, 0)));

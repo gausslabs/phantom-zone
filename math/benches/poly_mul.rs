@@ -1,9 +1,8 @@
-use core::array::from_fn;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use phantom_zone_math::{
     modulus::{Modulus, PowerOfTwo, Prime},
     ring::{
-        power_of_two::{NativeRing, NonNativePowerOfTwoRing},
+        power_of_two::{NoisyNativeRing, NoisyNonNativePowerOfTwoRing},
         prime::PrimeRing,
         RingOps,
     },
@@ -11,11 +10,11 @@ use phantom_zone_math::{
 
 fn poly_mul(c: &mut Criterion) {
     fn runner<R: RingOps + 'static>(ring: R) -> Box<dyn FnMut()> {
-        let mut abc = black_box(from_fn(|_| vec![R::Elem::default(); ring.ring_size()]));
-        let mut scratch = black_box(vec![R::Eval::default(); ring.scratch_size()]);
+        let mut scratch = black_box(ring.allocate_scratch(3, 2));
         Box::new(move || {
-            let [a, b, c] = &mut abc;
-            ring.poly_mul(c, a, b, &mut scratch)
+            let scratch = &mut scratch.borrow_mut();
+            let [a, b, c] = ring.take_polys(scratch);
+            ring.poly_mul(c, a, b, scratch.reborrow())
         })
     }
 
@@ -23,13 +22,13 @@ fn poly_mul(c: &mut Criterion) {
     for log_ring_size in 11..15 {
         let ring_size = 1 << log_ring_size;
         let runners = [
-            ("native", {
+            ("noisy_native", {
                 let modulus = Modulus::native();
-                runner(NativeRing::new(modulus, ring_size))
+                runner(NoisyNativeRing::new(modulus, ring_size))
             }),
-            ("non_native_power_of_two", {
+            ("noisy_non_native_power_of_two", {
                 let modulus = PowerOfTwo::new(50).into();
-                runner(NonNativePowerOfTwoRing::new(modulus, ring_size))
+                runner(NoisyNonNativePowerOfTwoRing::new(modulus, ring_size))
             }),
             ("prime", {
                 let modulus = Prime::gen(50, log_ring_size + 1).into();
