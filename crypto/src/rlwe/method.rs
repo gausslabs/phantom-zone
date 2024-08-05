@@ -149,16 +149,10 @@ fn ks_key_gen_inner<R, T>(
 {
     let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
     izip_eq!(ks_key.ct_iter_mut(), decomposer.gadget_iter()).for_each(|(mut ks_key_i, beta_i)| {
+        let scratch = scratch.reborrow();
         ring.slice_elem_from_iter(ks_key_i.b_mut(), sk_from.clone());
         ring.slice_scalar_mul_assign(ks_key_i.b_mut(), &ring.neg(&beta_i));
-        sk_encrypt_with_pt_in_b(
-            ring,
-            ks_key_i,
-            sk_to,
-            noise_distribution,
-            scratch.reborrow(),
-            &mut rng,
-        );
+        sk_encrypt_with_pt_in_b(ring, ks_key_i, sk_to, noise_distribution, scratch, &mut rng);
     });
 }
 
@@ -195,12 +189,12 @@ fn key_switch_inner<R: RingOps>(
         ks_key.ct_iter(),
         scratch.reborrow(),
         |i, a_i, ks_key_i| {
-            let f = if i == 0 { R::eval_mul } else { R::eval_fma };
+            let eval_fma = if i == 0 { R::eval_mul } else { R::eval_fma };
             ring.forward(t0, a_i);
             ring.forward(t1, ks_key_i.a());
-            f(ring, ct_to_a_eval, t0, t1);
+            eval_fma(ring, ct_to_a_eval, t0, t1);
             ring.forward(t1, ks_key_i.b());
-            f(ring, ct_to_b_eval, t0, t1);
+            eval_fma(ring, ct_to_b_eval, t0, t1);
         },
     );
     ring.backward_normalized(ct_to.a_mut(), ct_to_a_eval);

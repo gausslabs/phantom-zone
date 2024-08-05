@@ -3,7 +3,7 @@ use crate::{
     misc::scratch::Scratch,
     modulus::{add_mod, mul_mod, Modulus, PowerOfTwo, Prime},
 };
-use core::{borrow::Borrow, fmt::Debug, iter::repeat_with};
+use core::{borrow::Borrow, fmt::Debug};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DecompositionParam {
@@ -40,7 +40,7 @@ pub trait Decomposer<T: Copy + Debug + 'static> {
 
     fn decompose_iter(&self, a: &T) -> impl Iterator<Item = T> {
         let mut a = self.round(a);
-        repeat_with(move || self.decompose_next(&mut a)).take(self.level())
+        (0..self.level()).map(move |_| self.decompose_next(&mut a))
     }
 
     fn decompose_vec(&self, a: &T) -> Vec<T> {
@@ -71,13 +71,6 @@ pub trait Decomposer<T: Copy + Debug + 'static> {
             self.slice_decompose_next(limb, state);
             f(i, limb, b);
         });
-    }
-
-    fn allocate_scratch(&self, a: &[T]) -> Vec<T>
-    where
-        T: Default,
-    {
-        vec![T::default(); 2 * a.len()]
     }
 }
 

@@ -10,7 +10,7 @@ use crate::{
 use itertools::Itertools;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    distribution::{DistributionSized, Gaussian},
+    distribution::{Gaussian, Sampler},
     izip_eq,
     modulus::{neg_mod, powers_mod, Modulus, PowerOfTwo, Prime},
     ring::{
@@ -21,73 +21,80 @@ use phantom_zone_math::{
         RingOps,
     },
 };
-use rand::{distributions::Uniform, thread_rng, RngCore};
+use rand::{thread_rng, RngCore};
 
 #[derive(Clone, Copy, Debug)]
-struct RlweParam {
-    message_modulus: u64,
-    ciphertext_modulus: Modulus,
-    ring_size: usize,
-    sk_distribution: SecretKeyDistribution,
-    noise_distribution: NoiseDistribution,
-    ks_decomposition_param: DecompositionParam,
+pub struct RlweParam {
+    pub message_modulus: u64,
+    pub ciphertext_modulus: Modulus,
+    pub ring_size: usize,
+    pub sk_distribution: SecretKeyDistribution,
+    pub noise_distribution: NoiseDistribution,
+    pub ks_decomposition_param: DecompositionParam,
 }
 
 impl RlweParam {
-    fn build<R: RingOps>(self) -> Rlwe<R> {
+    pub fn build<R: RingOps>(self) -> Rlwe<R> {
         let delta = self.ciphertext_modulus.to_f64() / self.message_modulus as f64;
         let ring = R::new(self.ciphertext_modulus, self.ring_size);
+        let message_ring = NonNativePowerOfTwoRing::new(
+            PowerOfTwo::new(self.message_modulus.ilog2() as _).into(),
+            self.ring_size,
+        );
         Rlwe {
             param: self,
             delta,
             ring,
+            message_ring,
         }
     }
 }
 
 #[derive(Clone, Debug)]
-struct Rlwe<R: RingOps> {
+pub struct Rlwe<R: RingOps> {
     param: RlweParam,
     delta: f64,
     ring: R,
+    message_ring: NonNativePowerOfTwoRing,
 }
 
 impl<R: RingOps> Rlwe<R> {
-    fn ring(&self) -> &R {
+    pub fn ring(&self) -> &R {
         &self.ring
     }
 
-    fn ring_size(&self) -> usize {
+    pub fn ring_size(&self) -> usize {
         self.ring().ring_size()
     }
 
-    fn encode(&self, m: &[u64]) -> RlwePlaintextOwned<R::Elem> {
-        let encode = |m: &_| {
-            assert!(*m < self.param.message_modulus);
-            self.ring.elem_from((*m as f64 * self.delta).round() as u64)
-        };
+    pub fn message_ring(&self) -> &NonNativePowerOfTwoRing {
+        &self.message_ring
+    }
+
+    pub fn encode(&self, m: &[u64]) -> RlwePlaintextOwned<R::Elem> {
+        let encode = |m: &_| self.ring.elem_from((*m as f64 * self.delta).round() as u64);
         let mut pt = RlwePlaintext::allocate(self.ring_size());
         izip_eq!(pt.as_mut(), m).for_each(|(pt, m)| *pt = encode(m));
         pt
     }
 
-    fn decode(&self, pt: &RlwePlaintextOwned<R::Elem>) -> Vec<u64> {
+    pub fn decode(&self, pt: &RlwePlaintextOwned<R::Elem>) -> Vec<u64> {
         pt.as_ref()
             .iter()
             .map(|pt| self.decode_lwe(LwePlaintext(*pt)))
             .collect()
     }
 
-    fn decode_lwe(&self, pt: LwePlaintext<R::Elem>) -> u64 {
+    pub fn decode_lwe(&self, pt: LwePlaintext<R::Elem>) -> u64 {
         let pt: u64 = self.ring.elem_to(pt.0);
         (pt as f64 / self.delta).round() as u64 % self.param.message_modulus
     }
 
-    fn sk_gen(&self, rng: impl RngCore) -> RlweSecretKeyOwned<i32> {
+    pub fn sk_gen(&self, rng: impl RngCore) -> RlweSecretKeyOwned<i32> {
         RlweSecretKey::sample(self.ring_size(), self.param.sk_distribution, rng)
     }
 
-    fn pk_gen(
+    pub fn pk_gen(
         &self,
         sk: &RlweSecretKeyOwned<i32>,
         rng: impl RngCore,
@@ -105,7 +112,7 @@ impl<R: RingOps> Rlwe<R> {
         pk
     }
 
-    fn sk_encrypt(
+    pub fn sk_encrypt(
         &self,
         sk: &RlweSecretKeyOwned<i32>,
         pt: &RlwePlaintextOwned<R::Elem>,
@@ -125,7 +132,7 @@ impl<R: RingOps> Rlwe<R> {
         ct
     }
 
-    fn pk_encrypt(
+    pub fn pk_encrypt(
         &self,
         pk: &RlwePublicKeyOwned<R::Elem>,
         pt: &RlwePlaintextOwned<R::Elem>,
@@ -137,7 +144,7 @@ impl<R: RingOps> Rlwe<R> {
         ct
     }
 
-    fn decrypt(
+    pub fn decrypt(
         &self,
         sk: &RlweSecretKeyOwned<i32>,
         ct: &RlweCiphertextOwned<R::Elem>,
@@ -148,7 +155,7 @@ impl<R: RingOps> Rlwe<R> {
         pt
     }
 
-    fn decrypt_lwe(
+    pub fn decrypt_lwe(
         &self,
         sk: &RlweSecretKeyOwned<i32>,
         ct: &LweCiphertextOwned<R::Elem>,
@@ -156,7 +163,7 @@ impl<R: RingOps> Rlwe<R> {
         lwe::decrypt(self.ring(), sk.as_view(), ct)
     }
 
-    fn ks_key_gen(
+    pub fn ks_key_gen(
         &self,
         sk_from: &RlweSecretKeyOwned<i32>,
         sk_to: &RlweSecretKeyOwned<i32>,
@@ -177,7 +184,7 @@ impl<R: RingOps> Rlwe<R> {
         ks_key
     }
 
-    fn key_switch(
+    pub fn key_switch(
         &self,
         ks_key: &RlweKeySwitchKeyOwned<R::Elem>,
         ct_from: &RlweCiphertextOwned<R::Elem>,
@@ -194,7 +201,7 @@ impl<R: RingOps> Rlwe<R> {
         ct_to
     }
 
-    fn sample_extract(
+    pub fn sample_extract(
         &self,
         ct_rlwe: &RlweCiphertextOwned<R::Elem>,
         idx: usize,
@@ -204,7 +211,7 @@ impl<R: RingOps> Rlwe<R> {
         ct_lwe
     }
 
-    fn auto_key_gen(
+    pub fn auto_key_gen(
         &self,
         sk: &RlweSecretKeyOwned<i32>,
         k: i64,
@@ -224,7 +231,7 @@ impl<R: RingOps> Rlwe<R> {
         auto_key
     }
 
-    fn automorphism(
+    pub fn automorphism(
         &self,
         auto_key: &RlweAutoKeyOwned<R::Elem>,
         ct: &RlweCiphertextOwned<R::Elem>,
@@ -242,7 +249,7 @@ impl<R: RingOps> Rlwe<R> {
     }
 }
 
-fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RlweParam {
+pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RlweParam {
     RlweParam {
         message_modulus: 1 << 6,
         ciphertext_modulus: ciphertext_modulus.into(),
@@ -264,7 +271,7 @@ fn encrypt_decrypt() {
         let sk = rlwe.sk_gen(&mut rng);
         let pk = rlwe.pk_gen(&sk, &mut rng);
         for _ in 0..100 {
-            let m = Uniform::new(0, param.message_modulus).sample_vec(param.ring_size, &mut rng);
+            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let pt = rlwe.encode(&m);
             let ct_sk = rlwe.sk_encrypt(&sk, &pt, &mut rng);
             let ct_pk = rlwe.pk_encrypt(&pk, &pt, &mut rng);
@@ -290,7 +297,7 @@ fn key_switch() {
         let sk_to = rlwe.sk_gen(&mut rng);
         let ks_key = rlwe.ks_key_gen(&sk_from, &sk_to, &mut rng);
         for _ in 0..100 {
-            let m = Uniform::new(0, param.message_modulus).sample_vec(param.ring_size, &mut rng);
+            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let pt = rlwe.encode(&m);
             let ct_from = rlwe.sk_encrypt(&sk_from, &pt, &mut rng);
             let ct_to = rlwe.key_switch(&ks_key, &ct_from);
@@ -311,7 +318,7 @@ fn sample_extract() {
         let mut rng = thread_rng();
         let rlwe = param.build::<R>();
         let sk = rlwe.sk_gen(&mut rng);
-        let m = Uniform::new(0, param.message_modulus).sample_vec(param.ring_size, &mut rng);
+        let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
         let pt = rlwe.encode(&m);
         let ct_rlwe = rlwe.sk_encrypt(&sk, &pt, &mut rng);
         for (idx, m) in m.iter().enumerate() {
@@ -335,7 +342,7 @@ fn automorphism() {
         let sk = rlwe.sk_gen(&mut rng);
         for k in powers_mod(5, 2 * rlwe.ring_size() as u64).take(rlwe.ring_size() / 2) {
             let auto_key = rlwe.auto_key_gen(&sk, k as _, &mut rng);
-            let m = Uniform::new(0, param.message_modulus).sample_vec(param.ring_size, &mut rng);
+            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let pt = rlwe.encode(&m);
             let ct = rlwe.sk_encrypt(&sk, &pt, &mut rng);
             let ct_auto = rlwe.automorphism(&auto_key, &ct);

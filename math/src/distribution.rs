@@ -1,4 +1,4 @@
-use crate::ring::{ArithmeticOps, ElemFrom};
+use crate::ring::{ArithmeticOps, ElemFrom, RingOps};
 use core::{convert::identity, iter::repeat_with};
 use itertools::{izip, Itertools};
 use num_traits::{FromPrimitive, PrimInt, Signed};
@@ -69,6 +69,13 @@ pub trait Sampler: ArithmeticOps {
 
     fn sample_uniform_vec(&self, n: usize, rng: impl RngCore) -> Vec<Self::Elem> {
         self.uniform_distribution().sample_vec(n, rng)
+    }
+
+    fn sample_uniform_poly(&self, rng: impl RngCore) -> Vec<Self::Elem>
+    where
+        Self: RingOps,
+    {
+        self.sample_uniform_vec(self.ring_size(), rng)
     }
 }
 
