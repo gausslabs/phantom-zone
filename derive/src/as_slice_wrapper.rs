@@ -66,7 +66,6 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
     let input_ident = &input.ident;
     let [input_owned_ident, input_view_ident, input_mut_view_ident] =
         ["Owned", "View", "MutView"].map(|suffix| format_ident!("{input_ident}{suffix}"));
-    let first_as_slice_field_ident = &field_idents[*as_slice_fields.first_entry().unwrap().key()];
     let [as_slice_nested_field_idents, as_slice_field_idents, other_field_idents] =
         field_idents.iter().enumerate().fold(
             from_fn(|_| Vec::new()),
@@ -129,8 +128,6 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let first_as_slice_generic_ident = as_slice_generics.first().unwrap().0;
-
     let (input_impl_generics, input_type_generics, input_where_clause) =
         input.generics.split_for_impl();
     let input_where_clause = input_where_clause
@@ -187,6 +184,30 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
         }
     });
 
+    let impl_as_ref_and_as_mut = {
+        let nested = *as_slice_fields.first_entry().unwrap().get();
+        (as_slice_fields.len() == 1 && !nested)
+            .then(|| {
+                let field_ident = &field_idents[*as_slice_fields.first_entry().unwrap().key()];
+                let generic_ident = as_slice_generics[0].0;
+
+                quote! {
+                    impl #input_impl_generics AsRef<[#generic_ident::Elem]> for #input_ident #input_type_generics #as_view_where_clause {
+                        fn as_ref(&self) -> &[#generic_ident::Elem] {
+                            self.#field_ident.as_ref()
+                        }
+                    }
+
+                    impl #input_impl_generics AsMut<[#generic_ident::Elem]> for #input_ident #input_type_generics #as_mut_view_where_clause {
+                        fn as_mut(&mut self) -> &mut [#generic_ident::Elem] {
+                            self.#field_ident.as_mut()
+                        }
+                    }
+                }
+            })
+            .unwrap_or_default()
+    };
+
     Ok(quote! {
         pub type #input_owned_ident #input_owned_impl_generics = #input_ident #input_owned_type_genercs;
         pub type #input_view_ident #input_view_impl_generics = #input_ident #input_view_type_genercs;
@@ -199,14 +220,6 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
                     #(#as_slice_nested_field_idents: self.#as_slice_nested_field_idents.as_view(),)*
                     #(#as_slice_field_idents: self.#as_slice_field_idents.as_ref(),)*
                 }
-            }
-
-            pub fn len(&self) -> usize {
-                self.#first_as_slice_field_ident.len()
-            }
-
-            pub fn is_empty(&self) -> bool {
-                self.len() == 0
             }
 
             pub fn cloned(&self) -> #input_ident #cloned_impl_generics #cloned_where_clause {
@@ -228,18 +241,6 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
             }
         }
 
-        impl #input_impl_generics AsRef<[#first_as_slice_generic_ident::Elem]> for #input_ident #input_type_generics #as_view_where_clause {
-            fn as_ref(&self) -> &[#first_as_slice_generic_ident::Elem] {
-                self.#first_as_slice_field_ident.as_ref()
-            }
-        }
-
-        impl #input_impl_generics AsMut<[#first_as_slice_generic_ident::Elem]> for #input_ident #input_type_generics #as_mut_view_where_clause {
-            fn as_mut(&mut self) -> &mut [#first_as_slice_generic_ident::Elem] {
-                self.#first_as_slice_field_ident.as_mut()
-            }
-        }
-
         impl #from_impl_generics From<&'from #input_ident #input_type_generics> for #input_view_ident #from_type_generics #as_view_where_clause {
             fn from(value: &'from #input_ident #input_type_generics) -> Self {
                 value.as_view()
@@ -251,6 +252,8 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
                 value.as_mut_view()
             }
         }
+
+        #impl_as_ref_and_as_mut
     })
 }
 

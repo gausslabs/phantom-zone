@@ -115,7 +115,7 @@ impl<S: AsSlice> LweKeySwitchKey<S> {
     }
 
     pub fn from_dimension(&self) -> usize {
-        self.len() / ((self.to_dimension + 1) * self.decomposition_param.level)
+        self.data.len() / ((self.to_dimension + 1) * self.decomposition_param.level)
     }
 
     pub fn decomposition_param(&self) -> DecompositionParam {

@@ -1,17 +1,6 @@
 use crate::misc::as_slice::{AsMutSlice, AsSlice};
-use core::{ops::Neg, slice::Iter};
+use core::slice::Iter;
 use phantom_zone_derive::AsSliceWrapper;
-
-pub fn automorphism<T: Copy + Default + Neg<Output = T>>(input: &[T], k: i64) -> Vec<T> {
-    assert!(input.len().is_power_of_two());
-    let n = input.len();
-    let k = k.rem_euclid(2 * n as i64) as usize;
-    let mut out = vec![T::default(); n];
-    (0..n)
-        .map(|i| (i, (i * k) % (2 * n)))
-        .for_each(|(i, j)| out[j % n] = if j < n { input[i] } else { -input[i] });
-    out
-}
 
 #[derive(Clone, Debug, AsSliceWrapper)]
 pub struct AutomorphismMap<S: AsSlice<Elem = usize>> {
@@ -35,7 +24,7 @@ impl<S: AsSlice<Elem = usize>> AutomorphismMap<S> {
     {
         debug_assert_eq!(self.map.len(), poly.len());
         AutomorphismIter {
-            map: self.map.as_ref().iter(),
+            iter: self.map.as_ref().iter(),
             poly,
             neg,
         }
@@ -59,7 +48,7 @@ impl AutomorphismMapOwned {
 
 #[derive(Clone, Debug)]
 pub struct AutomorphismIter<'a, T, F> {
-    map: Iter<'a, usize>,
+    iter: Iter<'a, usize>,
     poly: &'a [T],
     neg: F,
 }
@@ -72,7 +61,7 @@ where
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.map.next().map(|idx| {
+        self.iter.next().map(|idx| {
             if (idx & 1) == 1 {
                 (self.neg)(&self.poly[idx >> 1])
             } else {
@@ -82,17 +71,26 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.map.size_hint()
+        self.iter.size_hint()
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        modulus::powers_mod,
-        poly::automorphism::{automorphism, AutomorphismMap},
-    };
+    use crate::{modulus::powers_mod, poly::automorphism::AutomorphismMap};
+    use core::ops::Neg;
     use itertools::Itertools;
+
+    fn automorphism<T: Copy + Default + Neg<Output = T>>(input: &[T], k: i64) -> Vec<T> {
+        assert!(input.len().is_power_of_two());
+        let n = input.len();
+        let k = k.rem_euclid(2 * n as i64) as usize;
+        let mut out = vec![T::default(); n];
+        (0..n)
+            .map(|i| (i, (i * k) % (2 * n)))
+            .for_each(|(i, j)| out[j % n] = if j < n { input[i] } else { -input[i] });
+        out
+    }
 
     #[test]
     fn automorphism_iter() {

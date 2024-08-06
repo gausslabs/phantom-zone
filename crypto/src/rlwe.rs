@@ -11,6 +11,7 @@ pub use method::{
 };
 pub use structure::{
     RlweAutoKey, RlweAutoKeyMutView, RlweAutoKeyOwned, RlweAutoKeyView, RlweCiphertext,
+    RlweCiphertextList, RlweCiphertextListMutView, RlweCiphertextListOwned, RlweCiphertextListView,
     RlweCiphertextMutView, RlweCiphertextOwned, RlweCiphertextView, RlweKeySwitchKey,
     RlweKeySwitchKeyMutView, RlweKeySwitchKeyOwned, RlweKeySwitchKeyView, RlwePlaintext,
     RlwePlaintextMutView, RlwePlaintextOwned, RlwePlaintextView, RlwePublicKey,

@@ -81,6 +81,10 @@ impl<S: AsSlice> RlweCiphertext<S> {
         Self { data, ring_size }
     }
 
+    pub fn ct_size(&self) -> usize {
+        self.data.len()
+    }
+
     pub fn ring_size(&self) -> usize {
         self.ring_size
     }
@@ -114,105 +118,174 @@ impl<S: AsMutSlice> RlweCiphertext<S> {
 
 impl<T: Default> RlweCiphertext<Vec<T>> {
     pub fn allocate(ring_size: usize) -> Self {
-        Self::new(
-            repeat_with(T::default).take(2 * ring_size).collect(),
-            ring_size,
-        )
+        let ct_size = 2 * ring_size;
+        Self::new(repeat_with(T::default).take(ct_size).collect(), ring_size)
+    }
+
+    pub fn allocate_prep(ring_size: usize, prep_size: usize) -> Self {
+        let ct_size = 2 * prep_size;
+        Self::new(repeat_with(T::default).take(ct_size).collect(), ring_size)
     }
 }
 
 #[derive(Clone, Copy, Debug, AsSliceWrapper)]
-pub struct RlwePublicKey<S> {
+pub struct RlweCiphertextList<S> {
     #[as_slice]
     data: S,
     ring_size: usize,
+    ct_size: usize,
 }
 
-impl<S: AsSlice> RlwePublicKey<S> {
-    pub fn new(data: S, ring_size: usize) -> Self {
-        Self { data, ring_size }
+impl<S: AsSlice> RlweCiphertextList<S> {
+    pub fn new(data: S, ring_size: usize, ct_size: usize) -> Self {
+        debug_assert_eq!(data.len() % ct_size, 0);
+        Self {
+            data,
+            ring_size,
+            ct_size,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len() / self.ct_size()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn ct_size(&self) -> usize {
+        self.ct_size
     }
 
     pub fn ring_size(&self) -> usize {
         self.ring_size
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = RlweCiphertextView<S::Elem>> {
+        let ring_size = self.ring_size();
+        let ct_size = self.ct_size();
+        self.as_ref()
+            .chunks(ct_size)
+            .map(move |ct| RlweCiphertext::new(ct, ring_size))
+    }
+
+    pub fn chunks(
+        &self,
+        chunk_size: usize,
+    ) -> impl Iterator<Item = RlweCiphertextListView<S::Elem>> {
+        let ring_size = self.ring_size();
+        let ct_size = self.ct_size();
+        self.as_ref()
+            .chunks(chunk_size * ct_size)
+            .map(move |ct| RlweCiphertextList::new(ct, ring_size, ct_size))
+    }
+}
+
+impl<S: AsMutSlice> RlweCiphertextList<S> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = RlweCiphertextMutView<S::Elem>> {
+        let ring_size = self.ring_size();
+        let ct_size = self.ct_size();
+        self.as_mut()
+            .chunks_mut(ct_size)
+            .map(move |ct| RlweCiphertext::new(ct, ring_size))
+    }
+
+    pub fn chunks_mut(
+        &mut self,
+        chunk_size: usize,
+    ) -> impl Iterator<Item = RlweCiphertextListMutView<S::Elem>> {
+        let ring_size = self.ring_size();
+        let ct_size = self.ct_size();
+        self.as_mut()
+            .chunks_mut(chunk_size * ct_size)
+            .map(move |ct| RlweCiphertextList::new(ct, ring_size, ct_size))
+    }
+}
+
+impl<T: Default> RlweCiphertextList<Vec<T>> {
+    pub fn allocate(ring_size: usize, n: usize) -> Self {
+        let ct_size = 2 * ring_size;
+        Self::new(
+            repeat_with(T::default).take(n * ct_size).collect(),
+            ring_size,
+            ct_size,
+        )
+    }
+
+    pub fn allocate_prep(ring_size: usize, prep_size: usize, n: usize) -> Self {
+        let ct_size = 2 * prep_size;
+        Self::new(
+            repeat_with(T::default).take(n * ct_size).collect(),
+            ring_size,
+            ct_size,
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+pub struct RlwePublicKey<S>(#[as_slice(nested)] RlweCiphertext<S>);
+
+impl<S: AsSlice> RlwePublicKey<S> {
+    pub fn new(ct: RlweCiphertext<S>) -> Self {
+        Self(ct)
+    }
+
+    pub fn ring_size(&self) -> usize {
+        self.0.ring_size()
+    }
+
     pub fn a(&self) -> &[S::Elem] {
-        self.a_b().0
+        self.0.a()
     }
 
     pub fn b(&self) -> &[S::Elem] {
-        self.a_b().1
+        self.0.b()
     }
 
     pub fn a_b(&self) -> (&[S::Elem], &[S::Elem]) {
-        self.data.split_at_mid()
+        self.0.a_b()
     }
 
     pub fn as_ct(&self) -> RlweCiphertextView<S::Elem> {
-        RlweCiphertext::new(self.as_ref(), self.ring_size())
+        self.0.as_view()
     }
 }
 
 impl<S: AsMutSlice> RlwePublicKey<S> {
-    pub fn a_mut(&mut self) -> &mut [S::Elem] {
-        self.a_b_mut().0
-    }
-
-    pub fn b_mut(&mut self) -> &mut [S::Elem] {
-        self.a_b_mut().1
-    }
-
-    pub fn a_b_mut(&mut self) -> (&mut [S::Elem], &mut [S::Elem]) {
-        self.data.split_at_mid_mut()
-    }
-
     pub fn as_ct_mut(&mut self) -> RlweCiphertextMutView<S::Elem> {
-        let ring_size = self.ring_size();
-        RlweCiphertext::new(self.as_mut(), ring_size)
+        self.0.as_mut_view()
     }
 }
 
 impl<T: Default> RlwePublicKey<Vec<T>> {
     pub fn allocate(ring_size: usize) -> Self {
-        Self::new(
-            repeat_with(T::default).take(2 * ring_size).collect(),
-            ring_size,
-        )
+        Self::new(RlweCiphertext::allocate(ring_size))
     }
 }
 
 #[derive(Clone, Copy, Debug, AsSliceWrapper)]
 pub struct RlweKeySwitchKey<S> {
-    #[as_slice]
-    data: S,
-    ring_size: usize,
-    ct_size: usize,
+    #[as_slice(nested)]
+    cts: RlweCiphertextList<S>,
     decomposition_param: DecompositionParam,
 }
 
 impl<S: AsSlice> RlweKeySwitchKey<S> {
-    pub fn new(
-        data: S,
-        ring_size: usize,
-        ct_size: usize,
-        decomposition_param: DecompositionParam,
-    ) -> Self {
-        debug_assert_eq!(data.len(), ct_size * decomposition_param.level);
+    pub fn new(cts: RlweCiphertextList<S>, decomposition_param: DecompositionParam) -> Self {
+        debug_assert_eq!(cts.len(), decomposition_param.level);
         Self {
-            data,
-            ct_size,
-            ring_size,
+            cts,
             decomposition_param,
         }
     }
 
     pub fn ring_size(&self) -> usize {
-        self.ring_size
+        self.cts.ring_size
     }
 
     pub fn ct_size(&self) -> usize {
-        self.ct_size
+        self.cts.ct_size
     }
 
     pub fn decomposition_param(&self) -> DecompositionParam {
@@ -220,30 +293,20 @@ impl<S: AsSlice> RlweKeySwitchKey<S> {
     }
 
     pub fn ct_iter(&self) -> impl Iterator<Item = RlweCiphertextView<S::Elem>> {
-        self.as_ref()
-            .chunks(self.ct_size())
-            .map(|ct| RlweCiphertext::new(ct, self.ring_size()))
+        self.cts.iter()
     }
 }
 
 impl<S: AsMutSlice> RlweKeySwitchKey<S> {
     pub fn ct_iter_mut(&mut self) -> impl Iterator<Item = RlweCiphertextMutView<S::Elem>> {
-        let ct_size = self.ct_size();
-        let ring_size = self.ring_size();
-        self.as_mut()
-            .chunks_mut(ct_size)
-            .map(move |ct| RlweCiphertext::new(ct, ring_size))
+        self.cts.iter_mut()
     }
 }
 
 impl<T: Default> RlweKeySwitchKey<Vec<T>> {
     pub fn allocate(ring_size: usize, decomposition_param: DecompositionParam) -> Self {
-        let ct_size = 2 * ring_size;
-        let len = ct_size * decomposition_param.level;
         Self::new(
-            repeat_with(T::default).take(len).collect(),
-            ring_size,
-            ct_size,
+            RlweCiphertextList::allocate(ring_size, decomposition_param.level),
             decomposition_param,
         )
     }
@@ -253,12 +316,8 @@ impl<T: Default> RlweKeySwitchKey<Vec<T>> {
         prep_size: usize,
         decomposition_param: DecompositionParam,
     ) -> Self {
-        let ct_size = 2 * prep_size;
-        let len = ct_size * decomposition_param.level;
         Self::new(
-            repeat_with(T::default).take(len).collect(),
-            ring_size,
-            ct_size,
+            RlweCiphertextList::allocate_prep(ring_size, prep_size, decomposition_param.level),
             decomposition_param,
         )
     }
