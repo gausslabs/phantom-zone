@@ -1,4 +1,10 @@
-use crate::misc::as_slice::{AsMutSlice, AsSlice};
+use crate::{
+    izip_eq,
+    misc::{
+        as_slice::{AsMutSlice, AsSlice},
+        scratch::Scratch,
+    },
+};
 use core::slice::Iter;
 use phantom_zone_derive::AsSliceWrapper;
 
@@ -28,6 +34,14 @@ impl<S: AsSlice<Elem = usize>> AutomorphismMap<S> {
             poly,
             neg,
         }
+    }
+
+    pub fn apply_in_place<T: 'static + Copy, F>(&self, poly: &mut [T], neg: F, mut scratch: Scratch)
+    where
+        F: Fn(&T) -> T,
+    {
+        let tmp = scratch.copy_slice(poly);
+        izip_eq!(poly, self.apply(tmp, neg)).for_each(|(a, b)| *a = b);
     }
 }
 

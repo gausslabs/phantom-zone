@@ -17,13 +17,12 @@ fn automorphism(c: &mut Criterion) {
     ) -> Box<dyn FnMut()> {
         let ring = R::new(modulus, ring_size);
         let auto_key_prep =
-            RlweAutoKey::allocate_prep(ring.ring_size(), ring.eval_size(), decomposition_param, 5);
-        let ct = RlweCiphertext::allocate(ring.ring_size());
-        let mut ct_auto = RlweCiphertext::allocate(ring.ring_size());
+            RlweAutoKey::allocate_eval(ring.ring_size(), ring.eval_size(), decomposition_param, 5);
+        let mut ct = RlweCiphertext::allocate(ring.ring_size());
         let mut scratch = ring.allocate_scratch(2, 3);
         Box::new(move || {
             let mut scratch = scratch.borrow_mut();
-            rlwe::automorphism_prep(&ring, &mut ct_auto, &auto_key_prep, &ct, scratch.reborrow());
+            rlwe::automorphism_prep_in_place(&ring, &mut ct, &auto_key_prep, scratch.reborrow());
         })
     }
 
@@ -68,7 +67,7 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
         let (decomposition_log_base, decomposition_level_a, decomposition_level_b) =
             decomposition_param;
         let ring = R::new(modulus, ring_size);
-        let ct_rgsw_prep = RgswCiphertext::allocate_prep(
+        let ct_rgsw_prep = RgswCiphertext::allocate_eval(
             ring.ring_size(),
             ring.eval_size(),
             decomposition_log_base,
@@ -79,7 +78,12 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
         let mut scratch = ring.allocate_scratch(2, 3);
         Box::new(move || {
             let mut scratch = scratch.borrow_mut();
-            rgsw::rlwe_by_rgsw_prep(&ring, &mut ct_rlwe, &ct_rgsw_prep, scratch.reborrow());
+            rgsw::rlwe_by_rgsw_prep_in_place(
+                &ring,
+                &mut ct_rlwe,
+                &ct_rgsw_prep,
+                scratch.reborrow(),
+            );
         })
     }
 

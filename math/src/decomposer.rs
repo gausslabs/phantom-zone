@@ -11,7 +11,7 @@ pub struct DecompositionParam {
     pub level: usize,
 }
 
-pub trait Decomposer<T: Copy + Debug + 'static> {
+pub trait Decomposer<T: 'static + Copy + Debug> {
     fn new(modulus: Modulus, param: DecompositionParam) -> Self;
 
     fn modulus(&self) -> Modulus;

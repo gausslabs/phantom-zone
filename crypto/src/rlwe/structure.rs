@@ -5,7 +5,10 @@ use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::DistributionSized,
-    misc::as_slice::{AsMutSlice, AsSlice},
+    misc::{
+        as_slice::{AsMutSlice, AsSlice},
+        scratch::Scratch,
+    },
     poly::automorphism::{AutomorphismMap, AutomorphismMapView},
 };
 use rand::RngCore;
@@ -122,9 +125,16 @@ impl<T: Default> RlweCiphertext<Vec<T>> {
         Self::new(repeat_with(T::default).take(ct_size).collect(), ring_size)
     }
 
-    pub fn allocate_prep(ring_size: usize, prep_size: usize) -> Self {
-        let ct_size = 2 * prep_size;
+    pub fn allocate_eval(ring_size: usize, eval_size: usize) -> Self {
+        let ct_size = 2 * eval_size;
         Self::new(repeat_with(T::default).take(ct_size).collect(), ring_size)
+    }
+}
+
+impl<'a, T> RlweCiphertext<&'a mut [T]> {
+    pub fn scratch(ring_size: usize, eval_size: usize, scratch: &mut Scratch<'a>) -> Self {
+        let ct_size = 2 * eval_size;
+        Self::new(scratch.take_slice(ct_size), ring_size)
     }
 }
 
@@ -213,8 +223,8 @@ impl<T: Default> RlweCiphertextList<Vec<T>> {
         )
     }
 
-    pub fn allocate_prep(ring_size: usize, prep_size: usize, n: usize) -> Self {
-        let ct_size = 2 * prep_size;
+    pub fn allocate_eval(ring_size: usize, eval_size: usize, n: usize) -> Self {
+        let ct_size = 2 * eval_size;
         Self::new(
             repeat_with(T::default).take(n * ct_size).collect(),
             ring_size,
@@ -311,13 +321,13 @@ impl<T: Default> RlweKeySwitchKey<Vec<T>> {
         )
     }
 
-    pub fn allocate_prep(
+    pub fn allocate_eval(
         ring_size: usize,
-        prep_size: usize,
+        eval_size: usize,
         decomposition_param: DecompositionParam,
     ) -> Self {
         Self::new(
-            RlweCiphertextList::allocate_prep(ring_size, prep_size, decomposition_param.level),
+            RlweCiphertextList::allocate_eval(ring_size, eval_size, decomposition_param.level),
             decomposition_param,
         )
     }
@@ -328,35 +338,39 @@ pub struct RlweAutoKey<S1, S2: AsSlice<Elem = usize>> {
     #[as_slice(nested)]
     ks_key: RlweKeySwitchKey<S1>,
     #[as_slice(nested)]
-    map: AutomorphismMap<S2>,
+    auto_map: AutomorphismMap<S2>,
 }
 
 impl<S1, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
-    pub fn map(&self) -> AutomorphismMapView {
-        self.map.as_view()
+    pub fn auto_map(&self) -> AutomorphismMapView {
+        self.auto_map.as_view()
     }
 
     pub fn k(&self) -> usize {
-        self.map.k()
+        self.auto_map.k()
     }
 }
 
 impl<S1: AsSlice, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
-    pub fn new(ks_key: RlweKeySwitchKey<S1>, map: AutomorphismMap<S2>) -> Self {
-        debug_assert_eq!(ks_key.ring_size(), map.ring_size());
-        Self { ks_key, map }
+    pub fn new(ks_key: RlweKeySwitchKey<S1>, auto_map: AutomorphismMap<S2>) -> Self {
+        debug_assert_eq!(ks_key.ring_size(), auto_map.ring_size());
+        Self { ks_key, auto_map }
     }
 
     pub fn as_ks_key(&self) -> RlweKeySwitchKeyView<S1::Elem> {
         self.ks_key.as_view()
     }
+
+    pub fn auto_map_and_ks_key(&self) -> (AutomorphismMapView, RlweKeySwitchKeyView<S1::Elem>) {
+        (self.auto_map.as_view(), self.ks_key.as_view())
+    }
 }
 
 impl<S1: AsMutSlice, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
-    pub fn split_into_map_and_ks_key_mut(
+    pub fn auto_map_and_ks_key_mut(
         &mut self,
     ) -> (AutomorphismMapView, RlweKeySwitchKeyMutView<S1::Elem>) {
-        (self.map.as_view(), self.ks_key.as_mut_view())
+        (self.auto_map.as_view(), self.ks_key.as_mut_view())
     }
 }
 
@@ -368,14 +382,14 @@ impl<T: Default> RlweAutoKey<Vec<T>, Vec<usize>> {
         )
     }
 
-    pub fn allocate_prep(
+    pub fn allocate_eval(
         ring_size: usize,
-        prep_size: usize,
+        eval_size: usize,
         decomposition_param: DecompositionParam,
         k: i64,
     ) -> Self {
         Self::new(
-            RlweKeySwitchKey::allocate_prep(ring_size, prep_size, decomposition_param),
+            RlweKeySwitchKey::allocate_eval(ring_size, eval_size, decomposition_param),
             AutomorphismMap::new(ring_size, k),
         )
     }

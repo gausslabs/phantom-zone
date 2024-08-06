@@ -1,6 +1,6 @@
 use crate::{
+    izip_eq,
     misc::as_slice::{AsMutSlice, AsSlice},
-    ring::{ArithmeticOps, SliceOps},
 };
 use core::{
     f64::consts::PI,
@@ -149,59 +149,19 @@ impl Ffnt {
             });
         }
     }
-}
 
-impl ArithmeticOps for Ffnt {
-    type Elem = Complex64;
-    type Prep = Complex64;
-
-    #[inline(always)]
-    fn zero(&self) -> Self::Elem {
-        0f64.into()
+    pub fn eval_mul(&self, c: &mut [Complex64], a: &[Complex64], b: &[Complex64]) {
+        izip_eq!(c, a, b).for_each(|(c, a, b)| *c = a * b);
     }
 
-    #[inline(always)]
-    fn one(&self) -> Self::Elem {
-        1f64.into()
+    pub fn eval_mul_assign(&self, b: &mut [Complex64], a: &[Complex64]) {
+        izip_eq!(b, a).for_each(|(b, a)| *b *= a);
     }
 
-    #[inline(always)]
-    fn neg_one(&self) -> Self::Elem {
-        (-1f64).into()
-    }
-
-    #[inline(always)]
-    fn neg(&self, a: &Self::Elem) -> Self::Elem {
-        -a
-    }
-
-    #[inline(always)]
-    fn add(&self, a: &Self::Elem, b: &Self::Elem) -> Self::Elem {
-        a + b
-    }
-
-    #[inline(always)]
-    fn sub(&self, a: &Self::Elem, b: &Self::Elem) -> Self::Elem {
-        a - b
-    }
-
-    #[inline(always)]
-    fn mul(&self, a: &Self::Elem, b: &Self::Elem) -> Self::Elem {
-        a * b
-    }
-
-    #[inline(always)]
-    fn prepare(&self, a: &Self::Elem) -> Self::Prep {
-        *a
-    }
-
-    #[inline(always)]
-    fn mul_prep(&self, a: &Self::Elem, b: &Self::Prep) -> Self::Elem {
-        a * b
+    pub fn eval_fma(&self, c: &mut [Complex64], a: &[Complex64], b: &[Complex64]) {
+        izip_eq!(c, a, b).for_each(|(c, a, b)| *c += a * b);
     }
 }
-
-impl SliceOps for Ffnt {}
 
 impl Debug for Ffnt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

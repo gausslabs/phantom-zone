@@ -5,7 +5,7 @@ use crate::{
     misc::scratch::{Scratch, ScratchOwned},
     modulus::Modulus,
 };
-use core::{borrow::Borrow, fmt::Debug, mem::size_of};
+use core::{borrow::Borrow, fmt::Debug, hash::Hash, mem::size_of};
 use itertools::izip;
 
 pub(crate) mod power_of_two;
@@ -18,8 +18,8 @@ pub use power_of_two::{
 pub use prime::{noisy::NoisyPrimeRing, precise::PrimeRing};
 
 pub trait ArithmeticOps {
-    type Elem: Copy + Debug + Default + 'static;
-    type Prep: Copy + Debug + Default + 'static;
+    type Elem: 'static + Copy + Debug + Default + Eq + Ord + Hash;
+    type Prep: 'static + Copy + Debug + Default;
 
     fn zero(&self) -> Self::Elem;
 
@@ -279,8 +279,8 @@ pub trait RingOps:
     + ElemTo<u64>
     + ElemTo<i64>
 {
-    type Eval: Copy + Debug + Default + 'static;
-    type EvalPrep: Copy + Debug + Default + 'static;
+    type Eval: 'static + Copy + Debug + Default;
+    type EvalPrep: 'static + Copy + Debug + Default;
     type Decomposer: Decomposer<Self::Elem>;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self;

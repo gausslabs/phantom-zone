@@ -2,7 +2,7 @@ use crate::{
     decomposer::PowerOfTwoDecomposer,
     modulus::Modulus,
     poly::ffnt::Ffnt,
-    ring::{power_of_two, ElemFrom, ElemTo, RingOps, SliceOps},
+    ring::{power_of_two, ElemFrom, ElemTo, RingOps},
 };
 use num_complex::Complex64;
 
@@ -77,15 +77,15 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
     }
 
     fn eval_mul(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
-        self.fft.slice_mul(c, a, b)
+        self.fft.eval_mul(c, a, b)
     }
 
     fn eval_mul_assign(&self, b: &mut [Self::Eval], a: &[Self::Eval]) {
-        self.fft.slice_mul_assign(b, a)
+        self.fft.eval_mul_assign(b, a)
     }
 
     fn eval_fma(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {
-        self.fft.slice_fma(c, a, b)
+        self.fft.eval_fma(c, a, b)
     }
 
     fn eval_mul_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]) {

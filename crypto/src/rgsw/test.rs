@@ -107,7 +107,7 @@ impl<R: RingOps> Rgsw<R> {
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct_rlwe = ct_rlwe.clone();
         let mut scratch = self.ring().allocate_scratch(2, 4);
-        rgsw::rlwe_by_rgsw(self.ring(), &mut ct_rlwe, ct_rgsw, scratch.borrow_mut());
+        rgsw::rlwe_by_rgsw_in_place(self.ring(), &mut ct_rlwe, ct_rgsw, scratch.borrow_mut());
         ct_rlwe
     }
 
@@ -123,7 +123,7 @@ impl<R: RingOps> Rgsw<R> {
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct_rlwe = ct_rlwe.clone();
         let mut scratch = self.ring().allocate_scratch(2, 3);
-        rgsw::rlwe_by_rgsw_prep(self.ring(), &mut ct_rlwe, ct_rgsw, scratch.borrow_mut());
+        rgsw::rlwe_by_rgsw_prep_in_place(self.ring(), &mut ct_rlwe, ct_rgsw, scratch.borrow_mut());
         ct_rlwe
     }
 }

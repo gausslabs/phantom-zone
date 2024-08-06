@@ -128,14 +128,14 @@ impl<T: Default> RgswCiphertext<Vec<T>> {
         )
     }
 
-    pub fn allocate_prep(
+    pub fn allocate_eval(
         ring_size: usize,
-        prep_size: usize,
+        eval_size: usize,
         decomposition_log_base: usize,
         decomposition_level_a: usize,
         decomposition_level_b: usize,
     ) -> Self {
-        let ct_size = 2 * prep_size;
+        let ct_size = 2 * eval_size;
         let len = ct_size * (decomposition_level_a + decomposition_level_b);
         Self::new(
             repeat_with(T::default).take(len).collect(),

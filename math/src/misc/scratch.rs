@@ -64,4 +64,10 @@ impl<'a> Scratch<'a> {
     pub fn take_slice_array<T, const N: usize>(&mut self, count: usize) -> [&'a mut [T]; N] {
         from_fn(|_| self.take_slice(count))
     }
+
+    pub fn copy_slice<T: Copy>(&mut self, src: &[T]) -> &'a mut [T] {
+        let dst = self.take_slice(src.len());
+        dst.copy_from_slice(src);
+        dst
+    }
 }
