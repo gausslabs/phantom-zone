@@ -10,7 +10,7 @@ use crate::{
 use itertools::Itertools;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    distribution::{Gaussian, Sampler},
+    distribution::{Gaussian, Sampler, Ternary},
     izip_eq,
     modulus::{powers_mod, Modulus, PowerOfTwo, Prime},
     ring::{
@@ -26,6 +26,7 @@ pub struct RlweParam {
     pub ciphertext_modulus: Modulus,
     pub ring_size: usize,
     pub sk_distribution: SecretKeyDistribution,
+    pub u_distribution: NoiseDistribution,
     pub noise_distribution: NoiseDistribution,
     pub ks_decomposition_param: DecompositionParam,
 }
@@ -137,7 +138,16 @@ impl<R: RingOps> Rlwe<R> {
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct = RlweCiphertext::allocate(self.ring_size());
         let mut scratch = self.ring().allocate_scratch(0, 2);
-        rlwe::pk_encrypt(self.ring(), &mut ct, pk, pt, scratch.borrow_mut(), rng);
+        rlwe::pk_encrypt(
+            self.ring(),
+            &mut ct,
+            pk,
+            pt,
+            self.param.u_distribution,
+            self.param.noise_distribution,
+            scratch.borrow_mut(),
+            rng,
+        );
         ct
     }
 
@@ -278,6 +288,7 @@ pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RlweParam {
         ciphertext_modulus: ciphertext_modulus.into(),
         ring_size: 256,
         sk_distribution: Gaussian::new(3.2).into(),
+        u_distribution: Ternary(128).into(),
         noise_distribution: Gaussian::new(3.2).into(),
         ks_decomposition_param: DecompositionParam {
             log_base: 8,

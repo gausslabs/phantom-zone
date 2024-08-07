@@ -11,7 +11,6 @@ use crate::{
 use core::{borrow::Borrow, ops::Neg};
 use phantom_zone_math::{
     decomposer::{Decomposer, DecompositionParam},
-    distribution::Ternary,
     izip_eq,
     misc::scratch::Scratch,
     ring::{ElemFrom, RingOps},
@@ -79,21 +78,28 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
     pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
+    u_distribution: NoiseDistribution,
+    noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
     mut rng: impl RngCore,
 ) {
     let (mut ct, pk) = (ct.into(), pk.into());
+
     let t0 = ring.take_eval(&mut scratch);
     let u = ring.take_poly(&mut scratch.reborrow());
-    ring.sample_into::<i64>(u, Ternary(ring.ring_size() / 2), &mut rng);
+    ring.sample_into::<i64>(u, u_distribution, &mut rng);
     ring.forward(t0, u);
+
     let t1 = ring.take_eval(&mut scratch);
     ring.forward(t1, pk.a());
     ring.eval_mul_assign(t1, t0);
-    ring.backward_normalized(ct.a_mut(), t1);
+    ring.sample_into::<i64>(ct.a_mut(), noise_distribution, &mut rng);
+    ring.add_backward_normalized(ct.a_mut(), t1);
+
     ring.forward(t1, pk.b());
     ring.eval_mul_assign(t1, t0);
-    ring.backward_normalized(ct.b_mut(), t1);
+    ring.sample_into::<i64>(ct.b_mut(), noise_distribution, &mut rng);
+    ring.add_backward_normalized(ct.b_mut(), t1);
     ring.slice_add_assign(ct.b_mut(), pt.into().as_ref());
 }
 

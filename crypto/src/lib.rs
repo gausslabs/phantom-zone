@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 pub mod blind_rotation;
 pub mod distribution;
 pub mod lwe;

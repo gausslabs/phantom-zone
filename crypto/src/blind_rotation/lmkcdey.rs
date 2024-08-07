@@ -12,7 +12,6 @@ use phantom_zone_math::{
 };
 
 // Figure 2 + Algorithm 7 in 2022/198.
-#[allow(clippy::too_many_arguments)]
 pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     ring: &R1,
     ring_ks: &R2,
@@ -144,7 +143,7 @@ mod test {
     use itertools::{chain, Itertools};
     use phantom_zone_math::{
         decomposer::DecompositionParam,
-        distribution::Gaussian,
+        distribution::{Gaussian, Ternary},
         misc::scratch::ScratchOwned,
         modulus::{powers_mod, Modulus, PowerOfTwo, Prime},
         ring::{
@@ -164,6 +163,7 @@ mod test {
                 ring_size: 512,
                 sk_distribution: Gaussian::new(3.2).into(),
                 noise_distribution: Gaussian::new(3.2).into(),
+                u_distribution: Ternary(256).into(),
                 ks_decomposition_param: DecompositionParam {
                     log_base: 24,
                     level: 1,
@@ -273,11 +273,11 @@ mod test {
             }
         }
 
-        run::<PrimeRing>(Prime::gen(50, 10));
         run::<NoisyNativeRing>(Modulus::native());
         run::<NoisyNonNativePowerOfTwoRing>(PowerOfTwo::new(50));
         run::<NativeRing>(Modulus::native());
         run::<NonNativePowerOfTwoRing>(PowerOfTwo::new(50));
         run::<NoisyPrimeRing>(Prime::gen(50, 10));
+        run::<PrimeRing>(Prime::gen(50, 10));
     }
 }
