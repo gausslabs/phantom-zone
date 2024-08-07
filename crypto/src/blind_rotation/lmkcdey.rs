@@ -28,22 +28,22 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
         NonNativePowerOfTwoRing::new(modulus.into(), 1)
     };
 
-    let mut ct_big_q_ks = LweCiphertext::scratch(ks_key.from_dimension(), &mut scratch);
-    ring.slice_mod_switch(ct_big_q_ks.as_mut(), ct.as_ref(), ring_ks);
+    let mut ct_mod_switch = LweCiphertext::scratch(ks_key.from_dimension(), &mut scratch);
+    ring.slice_mod_switch(ct_mod_switch.as_mut(), ct.as_ref(), ring_ks);
 
     let mut ct_ks = LweCiphertext::scratch(ks_key.to_dimension(), &mut scratch);
-    lwe::key_switch(ring_ks, &mut ct_ks, ks_key, &ct_big_q_ks);
+    lwe::key_switch(ring_ks, &mut ct_ks, ks_key, &ct_mod_switch);
 
-    let mut ct_n_twice = LweCiphertext::scratch(ks_key.to_dimension(), &mut scratch);
-    ring_ks.slice_mod_switch_odd(ct_n_twice.as_mut(), ct_ks.as_ref(), &n_twice_mod);
+    let mut ct_ks_mod_switch = LweCiphertext::scratch(ks_key.to_dimension(), &mut scratch);
+    ring_ks.slice_mod_switch_odd(ct_ks_mod_switch.as_mut(), ct_ks.as_ref(), &n_twice_mod);
 
     let mut acc = RlweCiphertext::scratch(ring.ring_size(), ring.ring_size(), &mut scratch);
     acc.a_mut().fill_with(Default::default);
     acc.b_mut().copy_from_slice(f_auto_neg_g.as_ref());
-    let gb = ak[1].k() as i64 * n_twice_mod.to_u64(*ct_n_twice.b()) as i64;
+    let gb = ak[1].k() as i64 * n_twice_mod.to_u64(*ct_ks_mod_switch.b()) as i64;
     ring.poly_mul_monomial(acc.b_mut(), gb as _);
 
-    blind_rotate_core(ring, &mut acc, ct_n_twice.a(), brk, ak, scratch);
+    blind_rotate_core(ring, &mut acc, ct_ks_mod_switch.a(), brk, ak, scratch);
 
     rlwe::sample_extract(ring, ct, &acc, 0);
 }
