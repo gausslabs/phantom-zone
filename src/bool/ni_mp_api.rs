@@ -15,7 +15,7 @@ use super::{
         NonInteractiveServerKeyEvaluationDomain, SeededNonInteractiveMultiPartyServerKey,
         ShoupNonInteractiveServerKeyEvaluationDomain,
     },
-    parameters::{BoolParameters, CiphertextModulus, NI_2P, NI_40P, NI_4P_HB_FR, NI_8P},
+    parameters::{BoolParameters, CiphertextModulus, NI_2P, NI_2P_80, NI_40P, NI_4P_HB_FR, NI_8P},
     ClientKey,
 };
 
@@ -39,6 +39,7 @@ static MULTI_PARTY_CRS: OnceLock<NonInteractiveMultiPartyCrs<[u8; 32]>> = OnceLo
 #[derive(Copy, Clone)]
 pub enum ParameterSelector {
     NonInteractiveLTE2Party,
+    NonInteractiveLTE2Party80Bit,
     NonInteractiveLTE4Party,
     NonInteractiveLTE8Party,
     NonInteractiveLTE40PartyExperimental,
@@ -57,6 +58,9 @@ pub fn set_parameter_set(select: ParameterSelector) {
         }
         ParameterSelector::NonInteractiveLTE40PartyExperimental => {
             BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_40P)))
+        }
+        ParameterSelector::NonInteractiveLTE2Party80Bit => {
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_2P_80)))
         }
     }
     ACTIVE_PARAMETER_SET.with_borrow_mut(|v| *v = Some(select));

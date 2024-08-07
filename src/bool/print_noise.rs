@@ -626,12 +626,12 @@ mod tests {
             RuntimeServerKey, SampleExtractor,
         };
 
-        set_parameter_set(ParameterSelector::NonInteractiveLTE40PartyExperimental);
+        set_parameter_set(ParameterSelector::NonInteractiveLTE2Party80Bit);
         let mut seed = [0u8; 32];
         thread_rng().fill_bytes(&mut seed);
         set_common_reference_seed(seed);
 
-        let parties = 40;
+        let parties = 2;
 
         let cks = (0..parties).map(|_| gen_client_key()).collect_vec();
 
@@ -672,10 +672,10 @@ mod tests {
         let mut stats = Stats::new();
 
         for _ in 0..K {
-            // let now = std::time::Instant::now();
+            let now = std::time::Instant::now();
             let ct_out =
                 BoolEvaluator::with_local_mut(|e| e.xor(&ct0, &ct1, RuntimeServerKey::global()));
-            // println!("Time: {:?}", now.elapsed());
+            println!("Time: {:?}", now.elapsed());
 
             let decryption_shares = cks
                 .iter()
@@ -762,7 +762,7 @@ mod tests {
 
         use super::*;
 
-        set_parameter_set(crate::ParameterSelector::NonInteractiveLTE8Party);
+        set_parameter_set(crate::ParameterSelector::NonInteractiveLTE2Party80Bit);
         set_common_reference_seed(NonInteractiveMultiPartyCrs::random().seed);
         let parties = 8;
 

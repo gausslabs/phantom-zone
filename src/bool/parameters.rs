@@ -731,6 +731,33 @@ pub(crate) const NI_40P: BoolParameters<u64> = BoolParameters::<u64> {
     variant: ParameterVariant::NonInteractiveMultiParty,
 };
 
+pub(crate) const NI_2P_80: BoolParameters<u64> = BoolParameters::<u64> {
+    rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    lwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
+    rlwe_q: CiphertextModulus::new_non_native(1152921504606830593),
+    lwe_q: CiphertextModulus::new_non_native(1 << 16),
+    br_q: 1 << 12,
+    rlwe_n: PolynomialSize(1 << 11),
+    lwe_n: LweDimension(370),
+    lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(13)),
+    rlrg_decomposer_params: (
+        DecompostionLogBase(15),
+        (DecompositionCount(1), DecompositionCount(1)),
+    ),
+    rgrg_decomposer_params: Some((
+        DecompostionLogBase(10),
+        (DecompositionCount(4), DecompositionCount(3)),
+    )),
+    auto_decomposer_params: (DecompostionLogBase(27), DecompositionCount(1)),
+    non_interactive_ui_to_s_key_switch_decomposer: Some((
+        DecompostionLogBase(1),
+        DecompositionCount(50),
+    )),
+    g: 5,
+    w: 10,
+    variant: ParameterVariant::NonInteractiveMultiParty,
+};
+
 #[cfg(test)]
 pub(crate) const SP_TEST_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
@@ -753,14 +780,14 @@ pub(crate) const SP_TEST_BOOL_PARAMS: BoolParameters<u64> = BoolParameters::<u64
     variant: ParameterVariant::SingleParty,
 };
 
-// #[cfg(test)]
-// mod tests {
+#[cfg(test)]
+mod tests {
 
-//     #[test]
-//     fn find_prime() {
-//         let bits = 60;
-//         let ring_size = 1 << 11;
-//         let prime = crate::utils::generate_prime(bits, ring_size * 2, 1 <<
-// bits).unwrap();         dbg!(prime);
-//     }
-// }
+    #[test]
+    fn find_prime() {
+        let bits = 60;
+        let ring_size = 1 << 11;
+        let prime = crate::utils::generate_prime(bits, ring_size * 2, 1 << bits).unwrap();
+        dbg!(prime);
+    }
+}
