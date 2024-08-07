@@ -1,11 +1,4 @@
-use crate::{
-    izip_eq,
-    misc::{
-        as_slice::{AsMutSlice, AsSlice},
-        scratch::Scratch,
-    },
-};
-use core::slice::Iter;
+use crate::misc::as_slice::{AsMutSlice, AsSlice};
 use phantom_zone_derive::AsSliceWrapper;
 
 #[derive(Clone, Debug, AsSliceWrapper)]
@@ -24,24 +17,22 @@ impl<S: AsSlice<Elem = usize>> AutomorphismMap<S> {
         self.k
     }
 
-    pub fn apply<'a, T, F>(&'a self, poly: &'a [T], neg: F) -> AutomorphismIter<'a, T, F>
-    where
-        F: Fn(&T) -> T,
-    {
-        debug_assert_eq!(self.map.len(), poly.len());
-        AutomorphismIter {
-            iter: self.map.as_ref().iter(),
-            poly,
-            neg,
-        }
+    pub fn iter(&self) -> impl Clone + Iterator<Item = (bool, usize)> + '_ {
+        self.map.as_ref().iter().map(|v| {
+            let sign = (v & 1) == 1;
+            let idx = v >> 1;
+            (sign, idx)
+        })
     }
 
-    pub fn apply_in_place<T: 'static + Copy, F>(&self, poly: &mut [T], neg: F, mut scratch: Scratch)
+    pub fn apply<'a, T, F>(&'a self, poly: &'a [T], neg: F) -> impl 'a + Clone + Iterator<Item = T>
     where
-        F: Fn(&T) -> T,
+        T: Copy,
+        F: 'a + Clone + Fn(&T) -> T,
     {
-        let tmp = scratch.copy_slice(poly);
-        izip_eq!(poly, self.apply(tmp, neg)).for_each(|(a, b)| *a = b);
+        debug_assert_eq!(self.map.len(), poly.len());
+        self.iter()
+            .map(move |(sign, idx)| if sign { neg(&poly[idx]) } else { poly[idx] })
     }
 }
 
@@ -54,38 +45,10 @@ impl AutomorphismMapOwned {
         let mut map = vec![0; ring_size];
         (0..ring_size).for_each(|i| {
             let j = i * k;
-            map[j & mask] = (i << 1) | ((j >> log_n) & 1)
+            let sign = (j >> log_n) & 1;
+            map[j & mask] = (i << 1) | sign
         });
         Self { map, k }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct AutomorphismIter<'a, T, F> {
-    iter: Iter<'a, usize>,
-    poly: &'a [T],
-    neg: F,
-}
-
-impl<'a, T, F> Iterator for AutomorphismIter<'a, T, F>
-where
-    T: Clone,
-    F: Fn(&T) -> T,
-{
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|idx| {
-            if (idx & 1) == 1 {
-                (self.neg)(&self.poly[idx >> 1])
-            } else {
-                self.poly[idx >> 1].clone()
-            }
-        })
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
     }
 }
 

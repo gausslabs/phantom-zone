@@ -5,7 +5,6 @@ use crate::{
         LwePlaintext, LweSecretKeyView,
     },
 };
-use itertools::Itertools;
 use phantom_zone_math::{
     decomposer::Decomposer,
     izip_eq,
@@ -58,12 +57,8 @@ pub fn ks_key_gen<'a, 'b, 'c, R, T>(
 {
     let (mut ks_key, sk_to) = (ks_key.into(), sk_to.into());
     let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
-    izip_eq!(
-        &ks_key.ct_iter_mut().chunks(decomposer.level()),
-        sk_from.into().as_ref(),
-    )
-    .for_each(|(ks_key_i, sk_from_i)| {
-        izip_eq!(ks_key_i, decomposer.gadget_iter()).for_each(|(ks_key_i_j, beta_j)| {
+    izip_eq!(ks_key.iter_mut(), sk_from.into().as_ref()).for_each(|(mut ks_key_i, sk_from_i)| {
+        izip_eq!(ks_key_i.iter_mut(), decomposer.gadget_iter()).for_each(|(ks_key_i_j, beta_j)| {
             let pt = LwePlaintext(ring.mul_elem_from(&ring.neg(&beta_j), sk_from_i));
             sk_encrypt(ring, ks_key_i_j, sk_to, pt, noise_distribution, &mut rng)
         })
@@ -78,12 +73,19 @@ pub fn key_switch<'a, 'b, 'c, R: RingOps>(
 ) {
     let (mut ct_to, ks_key, ct_from) = (ct_to.into(), ks_key.into(), ct_from.into());
     let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
-    izip_eq!(&ks_key.ct_iter().chunks(decomposer.level()), ct_from.a()).for_each(
-        |(ks_key_i, a_i)| {
-            izip_eq!(ks_key_i, decomposer.decompose_iter(a_i)).for_each(|(ks_key_i_j, a_i_j)| {
-                ring.slice_scalar_fma(ct_to.as_mut(), ks_key_i_j.as_ref(), &a_i_j)
-            })
-        },
-    );
+    izip_eq!(ks_key.iter(), ct_from.a())
+        .enumerate()
+        .for_each(|(i, (ks_key_i, a_i))| {
+            izip_eq!(ks_key_i.iter(), decomposer.decompose_iter(a_i))
+                .enumerate()
+                .for_each(|(j, (ks_key_i_j, a_i_j))| {
+                    let slice_scalar_fma = if i == 0 && j == 0 {
+                        R::slice_scalar_mul
+                    } else {
+                        R::slice_scalar_fma
+                    };
+                    slice_scalar_fma(ring, ct_to.as_mut(), ks_key_i_j.as_ref(), &a_i_j)
+                })
+        });
     *ct_to.b_mut() = ring.add(ct_to.b(), ct_from.b());
 }

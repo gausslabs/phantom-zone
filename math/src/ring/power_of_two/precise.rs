@@ -22,10 +22,6 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
         Self::new(modulus.try_into().unwrap(), ring_size)
     }
 
-    fn modulus(&self) -> Modulus {
-        self.modulus.into()
-    }
-
     fn ring_size(&self) -> usize {
         self.fft
     }

@@ -19,11 +19,11 @@ use phantom_zone_math::{
 use rand::{thread_rng, RngCore};
 
 #[derive(Clone, Copy, Debug)]
-struct RgswParam {
-    rlwe: RlweParam,
-    decomposition_log_base: usize,
-    decomposition_level_a: usize,
-    decomposition_level_b: usize,
+pub struct RgswParam {
+    pub rlwe: RlweParam,
+    pub decomposition_log_base: usize,
+    pub decomposition_level_a: usize,
+    pub decomposition_level_b: usize,
 }
 
 impl Deref for RgswParam {
@@ -35,39 +35,43 @@ impl Deref for RgswParam {
 }
 
 impl RgswParam {
-    fn build<R: RingOps>(self) -> Rgsw<R> {
+    pub fn build<R: RingOps>(self) -> Rgsw<R> {
         let rlwe = self.rlwe.build();
         Rgsw { param: self, rlwe }
     }
 }
 
 #[derive(Clone, Debug)]
-struct Rgsw<R: RingOps> {
+pub struct Rgsw<R: RingOps> {
     param: RgswParam,
     rlwe: Rlwe<R>,
 }
 
 impl<R: RingOps> Rgsw<R> {
-    fn ring(&self) -> &R {
+    pub fn rlwe(&self) -> &Rlwe<R> {
+        &self.rlwe
+    }
+
+    pub fn ring(&self) -> &R {
         self.rlwe.ring()
     }
 
-    fn ring_size(&self) -> usize {
+    pub fn ring_size(&self) -> usize {
         self.ring().ring_size()
     }
 
-    fn message_ring(&self) -> &NonNativePowerOfTwoRing {
+    pub fn message_ring(&self) -> &NonNativePowerOfTwoRing {
         self.rlwe.message_ring()
     }
 
-    fn encode(&self, m: &[u64]) -> RlwePlaintextOwned<R::Elem> {
+    pub fn encode(&self, m: &[u64]) -> RlwePlaintextOwned<R::Elem> {
         let encode = |m: &_| self.ring().elem_from(*m);
         let mut pt = RlwePlaintext::allocate(self.ring_size());
         izip_eq!(pt.as_mut(), m).for_each(|(pt, m)| *pt = encode(m));
         pt
     }
 
-    fn message_poly_mul(&self, a: &[u64], b: &[u64]) -> Vec<u64> {
+    pub fn message_poly_mul(&self, a: &[u64], b: &[u64]) -> Vec<u64> {
         let mut scratch = self.message_ring().allocate_scratch(0, 2);
         let mut c = self.message_ring().allocate_poly();
         self.message_ring()
@@ -75,7 +79,7 @@ impl<R: RingOps> Rgsw<R> {
         c
     }
 
-    fn sk_encrypt(
+    pub fn sk_encrypt(
         &self,
         sk: &RlweSecretKeyOwned<i32>,
         pt: &RlwePlaintextOwned<R::Elem>,
@@ -100,7 +104,7 @@ impl<R: RingOps> Rgsw<R> {
         ct
     }
 
-    fn rlwe_by_rgsw(
+    pub fn rlwe_by_rgsw(
         &self,
         ct_rlwe: &RlweCiphertextOwned<R::Elem>,
         ct_rgsw: &RgswCiphertextOwned<R::Elem>,
@@ -111,12 +115,15 @@ impl<R: RingOps> Rgsw<R> {
         ct_rlwe
     }
 
-    fn prepare_rgsw(&self, ct: &RgswCiphertextOwned<R::Elem>) -> RgswCiphertextOwned<R::EvalPrep> {
+    pub fn prepare_rgsw(
+        &self,
+        ct: &RgswCiphertextOwned<R::Elem>,
+    ) -> RgswCiphertextOwned<R::EvalPrep> {
         let mut scratch = self.ring().allocate_scratch(0, 1);
         rgsw::prepare_rgsw(self.ring(), ct, scratch.borrow_mut())
     }
 
-    fn rlwe_by_rgsw_prep(
+    pub fn rlwe_by_rgsw_prep(
         &self,
         ct_rlwe: &RlweCiphertextOwned<R::Elem>,
         ct_rgsw: &RgswCiphertextOwned<R::EvalPrep>,
@@ -128,7 +135,7 @@ impl<R: RingOps> Rgsw<R> {
     }
 }
 
-fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RgswParam {
+pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RgswParam {
     RgswParam {
         rlwe: rlwe::test::test_param(ciphertext_modulus),
         decomposition_log_base: 8,

@@ -216,19 +216,20 @@ pub fn automorphism_in_place<'a, 'b, 'c, R: RingOps>(
     mut scratch: Scratch,
 ) {
     let (mut ct, auto_key) = (ct.into(), auto_key.into());
-    let (map, ks_key) = auto_key.auto_map_and_ks_key();
+    let (auto_map, ks_key) = auto_key.auto_map_and_ks_key();
     let mut ct_eval = RlweCiphertext::scratch(ring.ring_size(), ring.eval_size(), &mut scratch);
     decomposed_fma::<_, true>(
         ring,
         ks_key.decomposition_param(),
         &mut ct_eval,
-        map.apply(ct.a(), |v| ring.neg(v)),
+        auto_map.apply(ct.a(), |v| ring.neg(v)),
         ks_key.ct_iter(),
         scratch.reborrow(),
     );
-    map.apply_in_place(ct.b_mut(), |v| ring.neg(v), scratch);
+    let b = scratch.copy_slice(ct.b());
     ring.backward_normalized(ct.a_mut(), ct_eval.a_mut());
-    ring.add_backward_normalized(ct.b_mut(), ct_eval.b_mut());
+    ring.backward_normalized(ct.b_mut(), ct_eval.b_mut());
+    ring.poly_add_auto(ct.b_mut(), b, auto_map);
 }
 
 pub fn prepare_ks_key<'a, 'b, 'c, R>(
@@ -295,19 +296,20 @@ pub fn automorphism_prep_in_place<'a, 'b, 'c, R: RingOps>(
     mut scratch: Scratch,
 ) {
     let (mut ct, auto_key) = (ct.into(), auto_key.into());
-    let (map, ks_key) = auto_key.auto_map_and_ks_key();
+    let (auto_map, ks_key) = auto_key.auto_map_and_ks_key();
     let mut ct_eval = RlweCiphertext::scratch(ring.ring_size(), ring.eval_size(), &mut scratch);
     decomposed_fma_prep::<_, true>(
         ring,
         ks_key.decomposition_param(),
         &mut ct_eval,
-        map.apply(ct.a(), |v| ring.neg(v)),
+        auto_map.apply(ct.a(), |v| ring.neg(v)),
         ks_key.ct_iter(),
         scratch.reborrow(),
     );
-    map.apply_in_place(ct.b_mut(), |v| ring.neg(v), scratch);
+    let b = scratch.copy_slice(ct.b());
     ring.backward(ct.a_mut(), ct_eval.a_mut());
-    ring.add_backward(ct.b_mut(), ct_eval.b_mut());
+    ring.backward(ct.b_mut(), ct_eval.b_mut());
+    ring.poly_add_auto(ct.b_mut(), b, auto_map);
 }
 
 pub(crate) fn decomposed_fma<'a, 'b, R: RingOps, const DIRTY: bool>(

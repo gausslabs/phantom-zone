@@ -17,22 +17,22 @@ use phantom_zone_math::{
 use rand::{thread_rng, RngCore};
 
 #[derive(Clone, Copy, Debug)]
-struct LweParam {
-    message_modulus: u64,
-    ciphertext_modulus: Modulus,
-    dimension: usize,
-    sk_distribution: SecretKeyDistribution,
-    noise_distribution: NoiseDistribution,
-    ks_decomposition_param: DecompositionParam,
+pub struct LweParam {
+    pub message_modulus: u64,
+    pub ciphertext_modulus: Modulus,
+    pub dimension: usize,
+    pub sk_distribution: SecretKeyDistribution,
+    pub noise_distribution: NoiseDistribution,
+    pub ks_decomposition_param: DecompositionParam,
 }
 
 impl LweParam {
-    fn dimension(mut self, dimension: usize) -> Self {
+    pub fn dimension(mut self, dimension: usize) -> Self {
         self.dimension = dimension;
         self
     }
 
-    fn build<R: RingOps>(self) -> Lwe<R> {
+    pub fn build<R: RingOps>(self) -> Lwe<R> {
         let delta = self.ciphertext_modulus.to_f64() / self.message_modulus as f64;
         let ring = RingOps::new(self.ciphertext_modulus, 1);
         Lwe {
@@ -44,36 +44,36 @@ impl LweParam {
 }
 
 #[derive(Clone, Debug)]
-struct Lwe<R: RingOps> {
-    param: LweParam,
-    delta: f64,
-    ring: R,
+pub struct Lwe<R: RingOps> {
+    pub param: LweParam,
+    pub delta: f64,
+    pub ring: R,
 }
 
 impl<R: RingOps> Lwe<R> {
-    fn ring(&self) -> &R {
+    pub fn ring(&self) -> &R {
         &self.ring
     }
 
-    fn dimension(&self) -> usize {
+    pub fn dimension(&self) -> usize {
         self.param.dimension
     }
 
-    fn encode(&self, m: u64) -> LwePlaintext<R::Elem> {
+    pub fn encode(&self, m: u64) -> LwePlaintext<R::Elem> {
         assert!(m < self.param.message_modulus);
         LwePlaintext(self.ring.elem_from((m as f64 * self.delta).round() as u64))
     }
 
-    fn decode(&self, LwePlaintext(pt): LwePlaintext<R::Elem>) -> u64 {
+    pub fn decode(&self, LwePlaintext(pt): LwePlaintext<R::Elem>) -> u64 {
         let pt: u64 = self.ring.elem_to(pt);
         (pt as f64 / self.delta).round() as u64 % self.param.message_modulus
     }
 
-    fn sk_gen(&self, rng: impl RngCore) -> LweSecretKeyOwned<i32> {
+    pub fn sk_gen(&self, rng: impl RngCore) -> LweSecretKeyOwned<i32> {
         LweSecretKey::sample(self.dimension(), self.param.sk_distribution, rng)
     }
 
-    fn sk_encrypt(
+    pub fn sk_encrypt(
         &self,
         sk: &LweSecretKeyOwned<i32>,
         pt: LwePlaintext<R::Elem>,
@@ -91,7 +91,7 @@ impl<R: RingOps> Lwe<R> {
         ct
     }
 
-    fn decrypt(
+    pub fn decrypt(
         &self,
         sk: &LweSecretKeyOwned<i32>,
         ct: &LweCiphertextOwned<R::Elem>,
@@ -99,7 +99,7 @@ impl<R: RingOps> Lwe<R> {
         lwe::decrypt(self.ring(), sk, ct)
     }
 
-    fn ks_key_gen(
+    pub fn ks_key_gen(
         &self,
         sk_from: &LweSecretKeyOwned<i32>,
         sk_to: &LweSecretKeyOwned<i32>,
@@ -122,7 +122,7 @@ impl<R: RingOps> Lwe<R> {
         ks_key
     }
 
-    fn key_switch(
+    pub fn key_switch(
         &self,
         ks_key: &LweKeySwitchKeyOwned<R::Elem>,
         ct_from: &LweCiphertextOwned<R::Elem>,
@@ -131,9 +131,19 @@ impl<R: RingOps> Lwe<R> {
         lwe::key_switch(self.ring(), &mut ct_to, ks_key, ct_from);
         ct_to
     }
+
+    pub fn add(
+        &self,
+        ct_a: &LweCiphertextOwned<R::Elem>,
+        ct_b: &LweCiphertextOwned<R::Elem>,
+    ) -> LweCiphertextOwned<R::Elem> {
+        let mut ct_c = ct_a.clone();
+        self.ring().slice_add_assign(ct_c.as_mut(), ct_b.as_ref());
+        ct_c
+    }
 }
 
-fn test_param(ciphertext_modulus: impl Into<Modulus>) -> LweParam {
+pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> LweParam {
     LweParam {
         message_modulus: 1 << 6,
         ciphertext_modulus: ciphertext_modulus.into(),

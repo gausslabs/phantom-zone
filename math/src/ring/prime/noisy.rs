@@ -1,6 +1,6 @@
 use crate::{
     decomposer::PrimeDecomposer,
-    modulus::{Modulus, Prime},
+    modulus::Modulus,
     poly::ffnt::Ffnt,
     ring::{prime, ElemFrom, RingOps},
 };
@@ -16,10 +16,6 @@ impl RingOps for NoisyPrimeRing {
     fn new(modulus: Modulus, ring_size: usize) -> Self {
         let q = modulus.try_into().unwrap();
         Self::new(q, Ffnt::new(ring_size))
-    }
-
-    fn modulus(&self) -> Modulus {
-        Prime(self.q).into()
     }
 
     fn ring_size(&self) -> usize {
@@ -47,13 +43,11 @@ impl RingOps for NoisyPrimeRing {
     }
 
     fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft
-            .backward(b, a, |a| self.reduce_i128(a.round() as _));
+        self.fft.backward(b, a, |a| self.elem_from(a));
     }
 
     fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft
-            .backward_normalized(b, a, |a| self.reduce_i128(a.round() as _));
+        self.fft.backward_normalized(b, a, |a| self.elem_from(a));
     }
 
     fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {

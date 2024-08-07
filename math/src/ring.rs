@@ -4,6 +4,7 @@ use crate::{
     izip_eq,
     misc::scratch::{Scratch, ScratchOwned},
     modulus::Modulus,
+    poly::automorphism::AutomorphismMapView,
 };
 use core::{borrow::Borrow, fmt::Debug, hash::Hash, mem::size_of};
 use itertools::izip;
@@ -17,9 +18,11 @@ pub use power_of_two::{
 };
 pub use prime::{noisy::NoisyPrimeRing, precise::PrimeRing};
 
-pub trait ArithmeticOps {
+pub trait ModulusOps {
     type Elem: 'static + Copy + Debug + Default + Eq + Ord + Hash;
     type Prep: 'static + Copy + Debug + Default;
+
+    fn modulus(&self) -> Modulus;
 
     fn zero(&self) -> Self::Elem;
 
@@ -59,17 +62,32 @@ pub trait ArithmeticOps {
     fn prepare(&self, a: &Self::Elem) -> Self::Prep;
 
     fn mul_prep(&self, a: &Self::Elem, b: &Self::Prep) -> Self::Elem;
+
+    #[allow(clippy::wrong_self_convention)]
+    fn from_u64(&self, a: u64) -> Self::Elem
+    where
+        Self: ElemFrom<u64>,
+    {
+        self.elem_from(a)
+    }
+
+    fn to_u64(&self, a: Self::Elem) -> u64
+    where
+        Self: ElemTo<u64>,
+    {
+        self.elem_to(a)
+    }
 }
 
-pub trait ElemFrom<T>: ArithmeticOps {
+pub trait ElemFrom<T>: ModulusOps {
     fn elem_from(&self, v: T) -> Self::Elem;
 }
 
-pub trait ElemTo<T>: ArithmeticOps {
+pub trait ElemTo<T>: ModulusOps {
     fn elem_to(&self, v: Self::Elem) -> T;
 }
 
-pub trait SliceOps: ArithmeticOps {
+pub trait SliceOps: ModulusOps {
     fn slice_op_assign<T>(&self, b: &mut [Self::Elem], a: &[T], f: impl Fn(&mut Self::Elem, &T)) {
         izip_eq!(b, a).for_each(|(b, a)| f(b, a))
     }
@@ -267,6 +285,34 @@ pub trait SliceOps: ArithmeticOps {
             *c = self.add(c, &self.mul_elem_from(a, b))
         })
     }
+
+    fn slice_mod_switch<M>(&self, b: &mut [M::Elem], a: &[Self::Elem], mod_to: &M)
+    where
+        Self: ElemTo<u64>,
+        M: ElemFrom<u64>,
+    {
+        let delta = mod_to.modulus().to_f64() / self.modulus().to_f64();
+        let mod_swtich = |a| mod_to.elem_from((self.to_u64(a) as f64 * delta).round() as _);
+        izip_eq!(b, a).for_each(|(b, a)| *b = mod_swtich(*a))
+    }
+
+    fn slice_mod_switch_odd<M>(&self, b: &mut [M::Elem], a: &[Self::Elem], mod_to: &M)
+    where
+        Self: ElemTo<u64>,
+        M: ElemFrom<u64>,
+    {
+        let delta = mod_to.modulus().to_f64() / self.modulus().to_f64();
+        let mod_switch_odd = |a| {
+            let a = self.to_u64(a) as f64 * delta;
+            let t = a.floor() as u64;
+            if t == 0 {
+                mod_to.elem_from(a.round() as _)
+            } else {
+                mod_to.elem_from(t | 1)
+            }
+        };
+        izip_eq!(b, a).for_each(|(b, a)| *b = mod_switch_odd(*a))
+    }
 }
 
 pub trait RingOps:
@@ -276,16 +322,16 @@ pub trait RingOps:
     + ElemFrom<i64>
     + ElemFrom<u32>
     + ElemFrom<i32>
+    + ElemFrom<f64>
     + ElemTo<u64>
     + ElemTo<i64>
+    + ElemTo<f64>
 {
     type Eval: 'static + Copy + Debug + Default;
     type EvalPrep: 'static + Copy + Debug + Default;
     type Decomposer: Decomposer<Self::Elem>;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self;
-
-    fn modulus(&self) -> Modulus;
 
     fn ring_size(&self) -> usize;
 
@@ -444,6 +490,36 @@ pub trait RingOps:
         self.forward_elem_from(b_eval, b);
         self.eval_mul_assign(a_eval, b_eval);
         self.add_backward_normalized(c, a_eval)
+    }
+
+    fn poly_set_monomial(&self, a: &mut [Self::Elem], exp: i64) {
+        a.fill_with(Default::default);
+        let exp = exp.rem_euclid(2 * self.ring_size() as i64) as usize;
+        if exp < self.ring_size() {
+            a[exp] = self.one();
+        } else {
+            a[exp - self.ring_size()] = self.neg_one();
+        }
+    }
+
+    fn poly_mul_monomial(&self, a: &mut [Self::Elem], exp: i64) {
+        let exp = exp.rem_euclid(2 * self.ring_size() as i64) as usize;
+        a.rotate_right(exp & (self.ring_size() - 1));
+        if exp < self.ring_size() {
+            self.slice_neg_assign(&mut a[..exp]);
+        } else {
+            self.slice_neg_assign(&mut a[exp - self.ring_size()..]);
+        }
+    }
+
+    fn poly_add_auto(&self, a: &mut [Self::Elem], b: &[Self::Elem], auto_map: AutomorphismMapView) {
+        izip_eq!(a, auto_map.iter()).for_each(|(a, (sign, idx))| {
+            if sign {
+                *a = self.sub(a, &b[idx]);
+            } else {
+                *a = self.add(a, &b[idx]);
+            }
+        })
     }
 }
 

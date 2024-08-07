@@ -1,7 +1,7 @@
 use crate::{
     distribution::{DistributionSized, Sampler},
     modulus::PowerOfTwo,
-    ring::{ArithmeticOps, ElemFrom, ElemTo, SliceOps},
+    ring::{power_of_two::noisy::f64_mod_u64, ElemFrom, ElemTo, ModulusOps, SliceOps},
 };
 use rand::distributions::{Distribution, Uniform};
 
@@ -48,9 +48,13 @@ impl<T, const NATIVE: bool> PowerOfTwoRing<T, NATIVE> {
     }
 }
 
-impl<T, const NATIVE: bool> ArithmeticOps for PowerOfTwoRing<T, NATIVE> {
+impl<T, const NATIVE: bool> ModulusOps for PowerOfTwoRing<T, NATIVE> {
     type Elem = u64;
     type Prep = u64;
+
+    fn modulus(&self) -> crate::modulus::Modulus {
+        self.modulus.into()
+    }
 
     #[inline(always)]
     fn zero(&self) -> Self::Elem {
@@ -126,6 +130,13 @@ impl<T, const NATIVE: bool> ElemFrom<i32> for PowerOfTwoRing<T, NATIVE> {
     }
 }
 
+impl<T, const NATIVE: bool> ElemFrom<f64> for PowerOfTwoRing<T, NATIVE> {
+    #[inline(always)]
+    fn elem_from(&self, v: f64) -> Self::Elem {
+        self.reduce(f64_mod_u64(v))
+    }
+}
+
 impl<T, const NATIVE: bool> ElemTo<u64> for PowerOfTwoRing<T, NATIVE> {
     #[inline(always)]
     fn elem_to(&self, v: Self::Elem) -> u64 {
@@ -137,6 +148,13 @@ impl<T, const NATIVE: bool> ElemTo<i64> for PowerOfTwoRing<T, NATIVE> {
     #[inline(always)]
     fn elem_to(&self, v: Self::Elem) -> i64 {
         self.to_i64(v)
+    }
+}
+
+impl<T, const NATIVE: bool> ElemTo<f64> for PowerOfTwoRing<T, NATIVE> {
+    #[inline(always)]
+    fn elem_to(&self, v: Self::Elem) -> f64 {
+        self.to_i64(v) as f64
     }
 }
 

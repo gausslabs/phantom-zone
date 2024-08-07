@@ -21,10 +21,6 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
         Self::new(modulus.try_into().unwrap(), Ffnt::new(ring_size))
     }
 
-    fn modulus(&self) -> Modulus {
-        self.modulus.into()
-    }
-
     fn ring_size(&self) -> usize {
         self.fft.ring_size()
     }
@@ -52,12 +48,11 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
     }
 
     fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft.backward(b, a, |a| self.reduce(f64_mod_u64(a)));
+        self.fft.backward(b, a, |a| self.elem_from(a));
     }
 
     fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft
-            .backward_normalized(b, a, |a| self.reduce(f64_mod_u64(a)));
+        self.fft.backward_normalized(b, a, |a| self.elem_from(a));
     }
 
     fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
@@ -101,7 +96,8 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
     }
 }
 
-fn f64_mod_u64(v: f64) -> u64 {
+#[inline(always)]
+pub(crate) fn f64_mod_u64(v: f64) -> u64 {
     let bits = v.to_bits();
     let sign = bits >> 63;
     let exponent = ((bits >> 52) & 0x7ff) as i64;

@@ -1,3 +1,4 @@
+pub mod blind_rotation;
 pub mod distribution;
 pub mod lwe;
 pub mod rgsw;

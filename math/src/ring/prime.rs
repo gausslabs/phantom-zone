@@ -1,7 +1,7 @@
 use crate::{
     distribution::{DistributionSized, Sampler},
-    modulus::Prime,
-    ring::{ArithmeticOps, ElemFrom, ElemTo, SliceOps},
+    modulus::{Modulus, Prime},
+    ring::{ElemFrom, ElemTo, ModulusOps, SliceOps},
 };
 use rand::distributions::{Distribution, Uniform};
 
@@ -84,9 +84,13 @@ impl<T> PrimeRing<T> {
     }
 }
 
-impl<T> ArithmeticOps for PrimeRing<T> {
+impl<T> ModulusOps for PrimeRing<T> {
     type Elem = u64;
     type Prep = Shoup;
+
+    fn modulus(&self) -> Modulus {
+        Prime(self.q).into()
+    }
 
     #[inline(always)]
     fn zero(&self) -> Self::Elem {
@@ -105,7 +109,12 @@ impl<T> ArithmeticOps for PrimeRing<T> {
 
     #[inline(always)]
     fn neg(&self, a: &Self::Elem) -> Self::Elem {
-        self.q - a
+        debug_assert!(*a < self.q);
+        if *a != 0 {
+            self.q - a
+        } else {
+            0
+        }
     }
 
     #[inline(always)]
@@ -175,6 +184,13 @@ impl<T> ElemFrom<i32> for PrimeRing<T> {
     }
 }
 
+impl<T> ElemFrom<f64> for PrimeRing<T> {
+    #[inline(always)]
+    fn elem_from(&self, v: f64) -> Self::Elem {
+        self.reduce_i128(v.round() as i128)
+    }
+}
+
 impl<T> ElemTo<u64> for PrimeRing<T> {
     #[inline(always)]
     fn elem_to(&self, v: Self::Elem) -> u64 {
@@ -186,6 +202,13 @@ impl<T> ElemTo<i64> for PrimeRing<T> {
     #[inline(always)]
     fn elem_to(&self, v: Self::Elem) -> i64 {
         self.to_i64(v)
+    }
+}
+
+impl<T> ElemTo<f64> for PrimeRing<T> {
+    #[inline(always)]
+    fn elem_to(&self, v: Self::Elem) -> f64 {
+        self.to_i64(v) as f64
     }
 }
 

@@ -14,7 +14,7 @@ use phantom_zone_math::{
     izip_eq,
     modulus::{powers_mod, Modulus, PowerOfTwo, Prime},
     ring::{
-        ArithmeticOps, NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
+        ModulusOps, NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
 };

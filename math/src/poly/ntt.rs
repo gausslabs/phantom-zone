@@ -6,6 +6,7 @@ use crate::{
 use itertools::izip;
 
 /// Negacyclic NTT
+#[derive(Clone, Debug)]
 pub struct Ntt {
     q: u64,
     q_twice: u64,

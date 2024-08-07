@@ -1,4 +1,4 @@
-use crate::ring::{ArithmeticOps, ElemFrom, RingOps};
+use crate::ring::{ElemFrom, ModulusOps, RingOps};
 use core::{convert::identity, iter::repeat_with};
 use itertools::{izip, Itertools};
 use num_traits::{FromPrimitive, PrimInt, Signed};
@@ -8,7 +8,7 @@ use rand::{
 };
 use rand_distr::Normal;
 
-pub trait Sampler: ArithmeticOps {
+pub trait Sampler: ModulusOps {
     fn sample<T>(&self, dist: impl Distribution<T>, mut rng: impl RngCore) -> Self::Elem
     where
         Self: ElemFrom<T>,

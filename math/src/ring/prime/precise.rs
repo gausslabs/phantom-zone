@@ -1,9 +1,9 @@
 use crate::{
     decomposer::PrimeDecomposer,
     izip_eq,
-    modulus::{Modulus, Prime},
+    modulus::Modulus,
     poly::ntt::Ntt,
-    ring::{prime::Shoup, ArithmeticOps, ElemFrom, RingOps, SliceOps},
+    ring::{prime::Shoup, ElemFrom, ModulusOps, RingOps, SliceOps},
 };
 
 pub type PrimeRing = crate::ring::prime::PrimeRing<Ntt>;
@@ -16,10 +16,6 @@ impl RingOps for PrimeRing {
     fn new(modulus: Modulus, ring_size: usize) -> Self {
         let q = modulus.try_into().unwrap();
         Self::new(q, Ntt::new(q, ring_size))
-    }
-
-    fn modulus(&self) -> Modulus {
-        Prime(self.q).into()
     }
 
     fn ring_size(&self) -> usize {
