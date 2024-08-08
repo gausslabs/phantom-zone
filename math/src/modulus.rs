@@ -41,12 +41,14 @@ impl Modulus {
                 if po2.0 == 64 {
                     v as _
                 } else {
+                    assert!(v < (1u64 << po2.0));
                     v.wrapping_sub((v >> (po2.0 - 1)) << po2.0) as _
                 }
             }
             Modulus::Prime(prime) => {
+                assert!(v < prime.0);
                 if v > (prime.0 >> 1) {
-                    (prime.0 - v) as _
+                    -((prime.0 - v) as i64)
                 } else {
                     v as _
                 }

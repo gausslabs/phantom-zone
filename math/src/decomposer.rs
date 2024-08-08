@@ -214,7 +214,8 @@ impl Decomposer<u64> for PrimeDecomposer {
     fn round(&self, a: &u64) -> u64 {
         let mut a = *a;
         if a >= self.q_half {
-            a = a.wrapping_sub(self.q)
+            // 2's complement to get -ve in u64
+            a = !(self.q - a) + 1;
         }
         a.wrapping_add(self.ignored_half) >> self.ignored_bits
     }
@@ -226,10 +227,17 @@ impl Decomposer<u64> for PrimeDecomposer {
     #[inline(always)]
     fn decompose_next(&self, a: &mut u64) -> u64 {
         let limb = *a & self.base_mask;
-        *a >>= self.log_base;
-        let carry = ((limb.wrapping_sub(1) | *a) & limb) >> (self.log_base - 1);
-        *a += carry;
-        (carry.wrapping_neg() & self.q).wrapping_add(limb.wrapping_sub(carry << self.log_base))
+        *a = (*a - limb) >> self.log_base;
+
+        let bby2 = 1 << (self.log_base - 1);
+        let carry = (limb > bby2) || (limb == bby2 && (*a & 1u64 == 1u64));
+
+        if carry {
+            *a = *a + 1;
+            self.q + limb - (1u64 << self.log_base)
+        } else {
+            limb
+        }
     }
 
     fn recompose(&self, a: impl IntoIterator<Item = u64>) -> u64 {
@@ -301,7 +309,7 @@ mod test {
 
     #[test]
     fn decompose() {
-        fn run<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
+        fn run_po2<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
             let modulus = modulus.into();
             let param = DecompositionParam {
                 log_base: 8,
@@ -335,6 +343,14 @@ mod test {
                     decomposer.round(&a),
                 );
             }
+        }
+        fn run_common<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
+            let modulus = modulus.into();
+            let param = DecompositionParam {
+                log_base: 8,
+                level: 4,
+            };
+            let decomposer = D::new(modulus, param);
             for a in Uniform::new_inclusive(0, modulus.max())
                 .sample_iter(thread_rng())
                 .take(10000)
@@ -346,9 +362,12 @@ mod test {
             }
         }
 
-        run::<NativeDecomposer>(PowerOfTwo::native());
-        run::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
-        run::<PrimeDecomposer>(Prime::gen(50, 0));
+        run_po2::<NativeDecomposer>(PowerOfTwo::native());
+        run_po2::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
+
+        run_common::<NativeDecomposer>(PowerOfTwo::native());
+        run_common::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
+        run_common::<PrimeDecomposer>(Prime::gen(50, 0));
     }
 
     #[test]
@@ -358,14 +377,14 @@ mod test {
 
             let modulus = modulus.into();
             let param = DecompositionParam {
-                log_base: 8,
-                level: 4,
+                log_base: 10,
+                level: 5,
             };
             let decomposer = D::new(modulus, param);
 
             for a in Uniform::new_inclusive(0, modulus.max())
                 .sample_iter(thread_rng())
-                .take(1000000)
+                .take(10000000)
             {
                 stats.add_many_samples(decomposer.decompose_iter(&a).map(|v| modulus.to_i64(v)));
             }
@@ -383,6 +402,6 @@ mod test {
 
         run::<NativeDecomposer>(PowerOfTwo::native());
         run::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
-        // run::<PrimeDecomposer>(Prime::gen(50, 0));
+        run::<PrimeDecomposer>(Prime::gen(50, 0));
     }
 }
