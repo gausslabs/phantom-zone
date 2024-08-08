@@ -1,8 +1,6 @@
 use crate::{
     distribution::NoiseDistribution,
-    rgsw::structure::{
-        RgswCiphertext, RgswCiphertextMutView, RgswCiphertextOwned, RgswCiphertextView,
-    },
+    rgsw::structure::{RgswCiphertext, RgswCiphertextMutView, RgswCiphertextView},
     rlwe::{
         decomposed_fma, decomposed_fma_prep, sk_encrypt_with_pt_in_b, RlweCiphertext,
         RlweCiphertextMutView, RlwePlaintextView, RlweSecretKeyView,
@@ -73,25 +71,18 @@ pub fn rlwe_by_rgsw_in_place<'a, 'b, R: RingOps>(
 
 pub fn prepare_rgsw<'a, R: RingOps>(
     ring: &R,
+    ct_prep: impl Into<RgswCiphertextMutView<'a, R::EvalPrep>>,
     ct: impl Into<RgswCiphertextView<'a, R::Elem>>,
     mut scratch: Scratch,
-) -> RgswCiphertextOwned<R::EvalPrep> {
-    let ct = ct.into();
+) {
+    let (mut ct_prep, ct) = (ct_prep.into(), ct.into());
     let eval = ring.take_eval(&mut scratch);
-    let mut ct_prep = RgswCiphertext::allocate_eval(
-        ring.ring_size(),
-        ring.eval_size(),
-        ct.decomposition_log_base(),
-        ct.decomposition_level_a(),
-        ct.decomposition_level_b(),
-    );
     izip_eq!(ct_prep.ct_iter_mut(), ct.ct_iter()).for_each(|(mut ct_prep, ct)| {
         ring.forward_normalized(eval, ct.a());
         ring.eval_prepare(ct_prep.a_mut(), eval);
         ring.forward_normalized(eval, ct.b());
         ring.eval_prepare(ct_prep.b_mut(), eval);
     });
-    ct_prep
 }
 
 pub fn rlwe_by_rgsw_prep_in_place<'a, 'b, R: RingOps>(
@@ -120,4 +111,24 @@ pub fn rlwe_by_rgsw_prep_in_place<'a, 'b, R: RingOps>(
     );
     ring.backward(ct_rlwe.a_mut(), ct_eval.a_mut());
     ring.backward(ct_rlwe.b_mut(), ct_eval.b_mut());
+}
+
+pub fn rgsw_by_rgsw_in_place<'a, 'b, R: RingOps>(
+    ring: &R,
+    ct_a: impl Into<RgswCiphertextMutView<'a, R::Elem>>,
+    ct_b: impl Into<RgswCiphertextView<'a, R::Elem>>,
+    mut scratch: Scratch,
+) {
+    let (mut ct_a, ct_b) = (ct_a.into(), ct_b.into());
+    let mut ct_b_prep = RgswCiphertext::scratch(
+        ring.ring_size(),
+        ring.eval_size(),
+        ct_b.decomposition_log_base(),
+        ct_b.decomposition_level_a(),
+        ct_b.decomposition_level_b(),
+        &mut scratch,
+    );
+    prepare_rgsw(ring, &mut ct_b_prep, ct_b, scratch.reborrow());
+    ct_a.ct_iter_mut()
+        .for_each(|ct| rlwe_by_rgsw_prep_in_place(ring, ct, &ct_b_prep, scratch.reborrow()));
 }

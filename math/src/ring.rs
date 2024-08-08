@@ -77,6 +77,15 @@ pub trait ModulusOps {
     {
         self.elem_to(a)
     }
+
+    fn mod_switch<M>(&self, a: &Self::Elem, mod_to: &M) -> M::Elem
+    where
+        Self: ElemTo<u64>,
+        M: ElemFrom<u64>,
+    {
+        let delta = mod_to.modulus().to_f64() / self.modulus().to_f64();
+        mod_to.elem_from((self.to_u64(*a) as f64 * delta).round() as _)
+    }
 }
 
 pub trait ElemFrom<T>: ModulusOps {
@@ -345,10 +354,11 @@ pub trait RingOps:
         vec![Default::default(); self.eval_size()]
     }
 
-    fn allocate_scratch(&self, poly: usize, eval: usize) -> ScratchOwned {
+    fn allocate_scratch(&self, poly: usize, eval: usize, eval_prep: usize) -> ScratchOwned {
         let poly_bytes = size_of::<Self::Elem>() * self.ring_size() * poly;
         let eval_bytes = size_of::<Self::Eval>() * self.eval_size() * eval;
-        ScratchOwned::allocate(poly_bytes + eval_bytes)
+        let eval_prep_bytes = size_of::<Self::EvalPrep>() * self.eval_size() * eval_prep;
+        ScratchOwned::allocate(poly_bytes + eval_bytes + eval_prep_bytes)
     }
 
     fn take_poly<'a>(&self, scratch: &mut Scratch<'a>) -> &'a mut [Self::Elem] {
@@ -555,7 +565,7 @@ mod test {
         b: &[R::Elem],
         assert_fn: impl Fn(&R::Elem, &R::Elem),
     ) {
-        let mut scratch = ring.allocate_scratch(2, 3);
+        let mut scratch = ring.allocate_scratch(2, 3, 0);
         let scratch = &mut scratch.borrow_mut();
 
         let c = ring.take_poly(scratch);

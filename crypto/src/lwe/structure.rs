@@ -199,14 +199,14 @@ impl<S: AsSlice> LweKeySwitchKey<S> {
         self.decomposition_param
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = LweCiphertextListView<S::Elem>> {
+    pub fn cts_iter(&self) -> impl Iterator<Item = LweCiphertextListView<S::Elem>> {
         let chunk_size = self.decomposition_param.level;
         self.cts.chunks(chunk_size)
     }
 }
 
 impl<S: AsMutSlice> LweKeySwitchKey<S> {
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = LweCiphertextListMutView<S::Elem>> {
+    pub fn cts_iter_mut(&mut self) -> impl Iterator<Item = LweCiphertextListMutView<S::Elem>> {
         let chunk_size = self.decomposition_param.level;
         self.cts.chunks_mut(chunk_size)
     }

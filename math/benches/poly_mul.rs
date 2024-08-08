@@ -6,7 +6,7 @@ use phantom_zone_math::{
 
 fn poly_mul(c: &mut Criterion) {
     fn runner<R: RingOps + 'static>(ring: R) -> Box<dyn FnMut()> {
-        let mut scratch = black_box(ring.allocate_scratch(3, 2));
+        let mut scratch = black_box(ring.allocate_scratch(3, 2, 0));
         Box::new(move || {
             let scratch = &mut scratch.borrow_mut();
             let [a, b, c] = ring.take_polys(scratch);

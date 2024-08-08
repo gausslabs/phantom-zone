@@ -11,11 +11,10 @@ use itertools::Itertools;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::{Gaussian, Sampler, Ternary},
-    izip_eq,
     modulus::{powers_mod, Modulus, PowerOfTwo, Prime},
     ring::{
         ModulusOps, NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
-        NonNativePowerOfTwoRing, PrimeRing, RingOps,
+        NonNativePowerOfTwoRing, PrimeRing, RingOps, SliceOps,
     },
 };
 use rand::{thread_rng, RngCore};
@@ -33,7 +32,6 @@ pub struct RlweParam {
 
 impl RlweParam {
     pub fn build<R: RingOps>(self) -> Rlwe<R> {
-        let delta = self.ciphertext_modulus.to_f64() / self.message_modulus as f64;
         let ring = R::new(self.ciphertext_modulus, self.ring_size);
         let message_ring = NonNativePowerOfTwoRing::new(
             PowerOfTwo::new(self.message_modulus.ilog2() as _).into(),
@@ -41,7 +39,6 @@ impl RlweParam {
         );
         Rlwe {
             param: self,
-            delta,
             ring,
             message_ring,
         }
@@ -51,7 +48,6 @@ impl RlweParam {
 #[derive(Clone, Debug)]
 pub struct Rlwe<R: RingOps> {
     param: RlweParam,
-    delta: f64,
     ring: R,
     message_ring: NonNativePowerOfTwoRing,
 }
@@ -70,22 +66,21 @@ impl<R: RingOps> Rlwe<R> {
     }
 
     pub fn encode(&self, m: &[u64]) -> RlwePlaintextOwned<R::Elem> {
-        let encode = |m: &_| self.ring.elem_from((*m as f64 * self.delta).round() as u64);
         let mut pt = RlwePlaintext::allocate(self.ring_size());
-        izip_eq!(pt.as_mut(), m).for_each(|(pt, m)| *pt = encode(m));
+        self.message_ring
+            .slice_mod_switch(pt.as_mut(), m, self.ring());
         pt
     }
 
     pub fn decode(&self, pt: &RlwePlaintextOwned<R::Elem>) -> Vec<u64> {
-        pt.as_ref()
-            .iter()
-            .map(|pt| self.decode_lwe(LwePlaintext(*pt)))
-            .collect()
+        let mut m = vec![0; self.ring_size()];
+        self.ring()
+            .slice_mod_switch(&mut m, pt.as_ref(), &self.message_ring);
+        m
     }
 
     pub fn decode_lwe(&self, pt: LwePlaintext<R::Elem>) -> u64 {
-        let pt: u64 = self.ring.elem_to(pt.0);
-        (pt as f64 / self.delta).round() as u64 % self.param.message_modulus
+        self.ring().mod_switch(&pt.0, &self.message_ring)
     }
 
     pub fn sk_gen(&self, rng: impl RngCore) -> RlweSecretKeyOwned<i32> {
@@ -98,7 +93,7 @@ impl<R: RingOps> Rlwe<R> {
         rng: impl RngCore,
     ) -> RlwePublicKeyOwned<R::Elem> {
         let mut pk = RlwePublicKey::allocate(self.ring_size());
-        let mut scratch = self.ring().allocate_scratch(0, 2);
+        let mut scratch = self.ring().allocate_scratch(0, 2, 0);
         rlwe::pk_gen(
             self.ring(),
             &mut pk,
@@ -117,7 +112,7 @@ impl<R: RingOps> Rlwe<R> {
         rng: impl RngCore,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct = RlweCiphertext::allocate(self.ring_size());
-        let mut scratch = self.ring().allocate_scratch(0, 2);
+        let mut scratch = self.ring().allocate_scratch(0, 2, 0);
         rlwe::sk_encrypt(
             self.ring(),
             &mut ct,
@@ -137,7 +132,7 @@ impl<R: RingOps> Rlwe<R> {
         rng: impl RngCore,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct = RlweCiphertext::allocate(self.ring_size());
-        let mut scratch = self.ring().allocate_scratch(0, 2);
+        let mut scratch = self.ring().allocate_scratch(0, 2, 0);
         rlwe::pk_encrypt(
             self.ring(),
             &mut ct,
@@ -157,7 +152,7 @@ impl<R: RingOps> Rlwe<R> {
         ct: &RlweCiphertextOwned<R::Elem>,
     ) -> RlwePlaintextOwned<R::Elem> {
         let mut pt = RlwePlaintext::allocate(self.ring_size());
-        let mut scratch = self.ring().allocate_scratch(0, 2);
+        let mut scratch = self.ring().allocate_scratch(0, 2, 0);
         rlwe::decrypt(self.ring(), &mut pt, sk, ct, scratch.borrow_mut());
         pt
     }
@@ -188,7 +183,7 @@ impl<R: RingOps> Rlwe<R> {
     ) -> RlweKeySwitchKeyOwned<R::Elem> {
         let mut ks_key =
             RlweKeySwitchKey::allocate(self.ring_size(), self.param.ks_decomposition_param);
-        let mut scratch = self.ring().allocate_scratch(0, 2);
+        let mut scratch = self.ring().allocate_scratch(0, 2, 0);
         rlwe::ks_key_gen(
             self.ring(),
             &mut ks_key,
@@ -207,7 +202,7 @@ impl<R: RingOps> Rlwe<R> {
         ct_from: &RlweCiphertextOwned<R::Elem>,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct = ct_from.clone();
-        let mut scratch = self.ring().allocate_scratch(2, 4);
+        let mut scratch = self.ring().allocate_scratch(2, 4, 0);
         rlwe::key_switch_in_place(self.ring(), &mut ct, ks_key, scratch.borrow_mut());
         ct
     }
@@ -220,7 +215,7 @@ impl<R: RingOps> Rlwe<R> {
     ) -> RlweAutoKeyOwned<R::Elem> {
         let mut auto_key =
             RlweAutoKey::allocate(self.ring_size(), self.param.ks_decomposition_param, k);
-        let mut scratch = self.ring().allocate_scratch(0, 2);
+        let mut scratch = self.ring().allocate_scratch(0, 2, 0);
         rlwe::auto_key_gen(
             self.ring(),
             &mut auto_key,
@@ -238,7 +233,7 @@ impl<R: RingOps> Rlwe<R> {
         ct: &RlweCiphertextOwned<R::Elem>,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct = ct.clone();
-        let mut scratch = self.ring().allocate_scratch(2, 4);
+        let mut scratch = self.ring().allocate_scratch(2, 4, 0);
         rlwe::automorphism_in_place(self.ring(), &mut ct, auto_key, scratch.borrow_mut());
         ct
     }
@@ -247,16 +242,34 @@ impl<R: RingOps> Rlwe<R> {
         &self,
         ks_key: &RlweKeySwitchKeyOwned<R::Elem>,
     ) -> RlweKeySwitchKeyOwned<R::EvalPrep> {
-        let mut scratch = self.ring().allocate_scratch(0, 1);
-        rlwe::prepare_ks_key(self.ring(), ks_key, scratch.borrow_mut())
+        let mut ks_key_prep = RlweKeySwitchKey::allocate_eval(
+            self.ring_size(),
+            self.ring().eval_size(),
+            ks_key.decomposition_param(),
+        );
+        let mut scratch = self.ring().allocate_scratch(0, 1, 0);
+        rlwe::prepare_ks_key(self.ring(), &mut ks_key_prep, ks_key, scratch.borrow_mut());
+        ks_key_prep
     }
 
     pub fn prepare_auto_key(
         &self,
         auto_key: &RlweAutoKeyOwned<R::Elem>,
     ) -> RlweAutoKeyOwned<R::EvalPrep> {
-        let mut scratch = self.ring().allocate_scratch(0, 1);
-        rlwe::prepare_auto_key(self.ring(), auto_key, scratch.borrow_mut())
+        let mut auto_key_prep = RlweAutoKey::allocate_eval(
+            self.ring_size(),
+            self.ring().eval_size(),
+            auto_key.decomposition_param(),
+            auto_key.k() as _,
+        );
+        let mut scratch = self.ring().allocate_scratch(0, 1, 0);
+        rlwe::prepare_auto_key(
+            self.ring(),
+            &mut auto_key_prep,
+            auto_key,
+            scratch.borrow_mut(),
+        );
+        auto_key_prep
     }
 
     pub fn key_switch_prep(
@@ -265,7 +278,7 @@ impl<R: RingOps> Rlwe<R> {
         ct_from: &RlweCiphertextOwned<R::Elem>,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct = ct_from.clone();
-        let mut scratch = self.ring().allocate_scratch(2, 3);
+        let mut scratch = self.ring().allocate_scratch(2, 3, 0);
         rlwe::key_switch_prep_in_place(self.ring(), &mut ct, ks_key_prep, scratch.borrow_mut());
         ct
     }
@@ -276,7 +289,7 @@ impl<R: RingOps> Rlwe<R> {
         ct: &RlweCiphertextOwned<R::Elem>,
     ) -> RlweCiphertextOwned<R::Elem> {
         let mut ct = ct.clone();
-        let mut scratch = self.ring().allocate_scratch(2, 3);
+        let mut scratch = self.ring().allocate_scratch(2, 3, 0);
         rlwe::automorphism_prep_in_place(self.ring(), &mut ct, auto_key_prep, scratch.borrow_mut());
         ct
     }

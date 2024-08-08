@@ -19,7 +19,7 @@ fn automorphism(c: &mut Criterion) {
         let auto_key_prep =
             RlweAutoKey::allocate_eval(ring.ring_size(), ring.eval_size(), decomposition_param, 5);
         let mut ct = RlweCiphertext::allocate(ring.ring_size());
-        let mut scratch = ring.allocate_scratch(2, 3);
+        let mut scratch = ring.allocate_scratch(2, 3, 0);
         Box::new(move || {
             let mut scratch = scratch.borrow_mut();
             rlwe::automorphism_prep_in_place(&ring, &mut ct, &auto_key_prep, scratch.reborrow());
@@ -75,7 +75,7 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
             decomposition_level_b,
         );
         let mut ct_rlwe = RlweCiphertext::allocate(ring.ring_size());
-        let mut scratch = ring.allocate_scratch(2, 3);
+        let mut scratch = ring.allocate_scratch(2, 3, 0);
         Box::new(move || {
             let mut scratch = scratch.borrow_mut();
             rgsw::rlwe_by_rgsw_prep_in_place(
