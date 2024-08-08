@@ -18,9 +18,9 @@ pub struct PowerOfTwoRing<T, const NATIVE: bool> {
 impl<T, const NATIVE: bool> PowerOfTwoRing<T, NATIVE> {
     fn new(modulus: PowerOfTwo, fft: T) -> Self {
         if NATIVE {
-            assert_eq!(modulus.bits(), 64);
+            debug_assert_eq!(modulus.bits(), 64);
         } else {
-            assert!(modulus.bits() < 64);
+            debug_assert!(modulus.bits() < 64);
         }
         Self {
             modulus,

@@ -22,10 +22,8 @@ pub struct PrimeRing<T> {
 impl<T> PrimeRing<T> {
     fn new(Prime(q): Prime, fft: T) -> Self {
         let log_q = q.next_power_of_two().ilog2() as usize;
-
         let barrett_mu = (1u128 << (log_q * 2 + 3)) / (q as u128);
         let barrett_alpha = log_q + 3;
-
         PrimeRing {
             q,
             q_half: q >> 1,

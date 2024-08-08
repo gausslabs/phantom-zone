@@ -6,6 +6,7 @@ use crate::{
 use core::cmp::Reverse;
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
+    izip_eq,
     misc::scratch::Scratch,
     modulus::{powers_mod, PowerOfTwo},
     ring::{ModulusOps, NonNativePowerOfTwoRing, RingOps},
@@ -15,6 +16,7 @@ use phantom_zone_math::{
 pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     ring: &R1,
     ring_ks: &R2,
+    q: usize,
     ct: impl Into<LweCiphertextMutView<'a, R1::Elem>>,
     ks_key: impl Into<LweKeySwitchKeyView<'b, R2::Elem>>,
     f_auto_neg_g: impl Into<RlwePlaintextView<'c, R1::Elem>>,
@@ -22,11 +24,10 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     ak: &[RlweAutoKeyOwned<R1::EvalPrep>],
     mut scratch: Scratch,
 ) {
+    debug_assert_eq!((2 * ring.ring_size()) % q, 0);
+    let embedding_factor = 2 * ring.ring_size() / q;
+    let mod_q = NonNativePowerOfTwoRing::new(PowerOfTwo::new(q.ilog2() as _).into(), 1);
     let (ct, ks_key, f_auto_neg_g) = (ct.into(), ks_key.into(), f_auto_neg_g.into());
-    let n_twice_mod = {
-        let modulus = PowerOfTwo::new((2 * ring.ring_size()).ilog2() as _);
-        NonNativePowerOfTwoRing::new(modulus.into(), 1)
-    };
 
     let mut ct_mod_switch = LweCiphertext::scratch(ks_key.from_dimension(), &mut scratch);
     ring.slice_mod_switch(ct_mod_switch.as_mut(), ct.as_ref(), ring_ks);
@@ -35,15 +36,20 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     lwe::key_switch(ring_ks, &mut ct_ks, ks_key, &ct_mod_switch);
 
     let mut ct_ks_mod_switch = LweCiphertext::scratch(ks_key.to_dimension(), &mut scratch);
-    ring_ks.slice_mod_switch_odd(ct_ks_mod_switch.as_mut(), ct_ks.as_ref(), &n_twice_mod);
+    ring_ks.slice_mod_switch_odd(ct_ks_mod_switch.as_mut(), ct_ks.as_ref(), &mod_q);
 
     let mut acc = RlweCiphertext::scratch(ring.ring_size(), ring.ring_size(), &mut scratch);
-    acc.a_mut().fill_with(Default::default);
-    acc.b_mut().copy_from_slice(f_auto_neg_g.as_ref());
-    let gb = ak[1].k() as i64 * n_twice_mod.to_u64(*ct_ks_mod_switch.b()) as i64;
-    ring.poly_mul_monomial(acc.b_mut(), gb as _);
+    acc.a_mut().fill(ring.zero());
+    if embedding_factor == 1 {
+        acc.b_mut().copy_from_slice(f_auto_neg_g.as_ref());
+    } else {
+        let acc_b = acc.b_mut().iter_mut().step_by(embedding_factor);
+        izip_eq!(acc_b, f_auto_neg_g.as_ref()).for_each(|(b, a)| *b = *a);
+    }
+    let gb = ak[1].k() * mod_q.to_u64(*ct_ks_mod_switch.b()) as usize;
+    ring.poly_mul_monomial(acc.b_mut(), (embedding_factor * gb) as _);
 
-    blind_rotate_core(ring, &mut acc, ct_ks_mod_switch.a(), brk, ak, scratch);
+    blind_rotate_core(ring, q, &mut acc, ct_ks_mod_switch.a(), brk, ak, scratch);
 
     rlwe::sample_extract(ring, ct, &acc, 0);
 }
@@ -51,16 +57,17 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
 // Algorithm 3 in 2022/198.
 pub fn blind_rotate_core<'a, R: RingOps>(
     ring: &R,
+    q: usize,
     acc: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     a: &[u64],
     brk: &[RgswCiphertextOwned<R::EvalPrep>],
     ak: &[RlweAutoKeyOwned<R::EvalPrep>],
     mut scratch: Scratch,
 ) {
-    let [i_m, i_p] = &mut i_m_i_p(ring, ak[1].k(), a, &mut scratch).map(|i| i.iter().peekable());
+    let [i_m, i_p] = &mut i_m_i_p(q, ak[1].k(), a, &mut scratch).map(|i| i.iter().peekable());
     let mut acc = acc.into();
     let mut v = 0;
-    for l in (1..ring.ring_size() / 2).rev() {
+    for l in (1..q / 4).rev() {
         for (_, j) in i_m.take_while_ref(|(log, _)| *log == l) {
             rgsw::rlwe_by_rgsw_prep_in_place(ring, &mut acc, &brk[*j], scratch.reborrow());
         }
@@ -75,7 +82,7 @@ pub fn blind_rotate_core<'a, R: RingOps>(
         rgsw::rlwe_by_rgsw_prep_in_place(ring, &mut acc, &brk[*j], scratch.reborrow());
     }
     rlwe::automorphism_prep_in_place(ring, &mut acc, &ak[0], scratch.reborrow());
-    for l in (1..ring.ring_size() / 2).rev() {
+    for l in (1..q / 4).rev() {
         for (_, j) in i_p.take_while_ref(|(log, _)| *log == l) {
             rgsw::rlwe_by_rgsw_prep_in_place(ring, &mut acc, &brk[*j], scratch.reborrow());
         }
@@ -91,8 +98,8 @@ pub fn blind_rotate_core<'a, R: RingOps>(
     }
 }
 
-fn i_m_i_p<'a, R: RingOps>(
-    ring: &R,
+fn i_m_i_p<'a>(
+    q: usize,
     g: usize,
     a: &[u64],
     scratch: &mut Scratch<'a>,
@@ -100,7 +107,7 @@ fn i_m_i_p<'a, R: RingOps>(
     let [i_m, i_p] = scratch.take_slice_array::<(usize, usize), 2>(a.len());
     let mut i_m_count = 0;
     let mut i_p_count = 0;
-    let log_g_map = log_g_map(ring, g, scratch.reborrow());
+    let log_g_map = log_g_map(q, g, scratch.reborrow());
     izip!(0.., a).for_each(|(j, a_j)| {
         let log = log_g_map[*a_j as usize];
         if *a_j != 0 {
@@ -119,14 +126,13 @@ fn i_m_i_p<'a, R: RingOps>(
     [&i_m[..i_m_count], &i_p[..i_p_count]]
 }
 
-fn log_g_map<'a, R: RingOps>(ring: &R, g: usize, mut scratch: Scratch<'a>) -> &'a mut [usize] {
-    let n_twice = 2 * ring.ring_size();
-    let log_g_map = scratch.take_slice(n_twice as _);
+fn log_g_map(q: usize, g: usize, mut scratch: Scratch) -> &mut [usize] {
+    let log_g_map = scratch.take_slice(q);
     #[cfg(debug_assertions)]
     log_g_map.fill(usize::MAX);
-    izip!(powers_mod(g as _, n_twice as _), 0..ring.ring_size() / 2).for_each(|(v, i)| {
-        log_g_map[v as usize] = i << 1;
-        log_g_map[n_twice - v as usize] = i << 1 | 1;
+    izip!(powers_mod(g, q), 0..q / 4).for_each(|(v, i)| {
+        log_g_map[v] = i << 1;
+        log_g_map[q - v] = i << 1 | 1;
     });
     log_g_map
 }
@@ -135,8 +141,8 @@ fn log_g_map<'a, R: RingOps>(ring: &R, g: usize, mut scratch: Scratch<'a>) -> &'
 mod test {
     use crate::{
         blind_rotation::lmkcdey::bootstrap,
-        lwe::test::LweParam,
-        rgsw::test::RgswParam,
+        lwe::test::{Lwe, LweParam},
+        rgsw::test::{Rgsw, RgswParam},
         rlwe::{test::RlweParam, RlwePlaintext},
     };
     use core::{array::from_fn, iter::repeat, mem::size_of};
@@ -146,6 +152,7 @@ mod test {
         distribution::{Gaussian, Ternary},
         misc::scratch::ScratchOwned,
         modulus::{powers_mod, Modulus, PowerOfTwo, Prime},
+        poly::automorphism::AutomorphismMap,
         ring::{
             NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
             NonNativePowerOfTwoRing, PrimeRing, RingOps,
@@ -153,64 +160,72 @@ mod test {
     };
     use rand::thread_rng;
 
-    fn bootstrapping_param(
-        modulus: impl Into<Modulus>,
-    ) -> (RgswParam, LweParam, LweParam, u64, usize) {
-        let rgsw_param = RgswParam {
-            rlwe: RlweParam {
-                message_modulus: 4,
-                ciphertext_modulus: modulus.into(),
-                ring_size: 512,
+    #[derive(Clone, Copy, Debug)]
+    struct BootstrappingParam {
+        rgsw: RgswParam,
+        lwe_ks: LweParam,
+        q: usize,
+        g: usize,
+        w: usize,
+    }
+
+    impl BootstrappingParam {
+        fn build<R: RingOps>(self) -> (Rgsw<R>, Lwe<R>, Lwe<NonNativePowerOfTwoRing>) {
+            (
+                self.rgsw.build(),
+                self.rgsw.rlwe.to_lwe().build(),
+                self.lwe_ks.build(),
+            )
+        }
+    }
+
+    fn testing_param(big_q: impl Into<Modulus>, embedding_factor: usize) -> BootstrappingParam {
+        let message_modulus = 4;
+        let ring_size = 1024;
+        BootstrappingParam {
+            rgsw: RgswParam {
+                rlwe: RlweParam {
+                    message_modulus,
+                    ciphertext_modulus: big_q.into(),
+                    ring_size,
+                    sk_distribution: Gaussian::new(3.2).into(),
+                    noise_distribution: Gaussian::new(3.2).into(),
+                    u_distribution: Ternary(256).into(),
+                    ks_decomposition_param: DecompositionParam {
+                        log_base: 24,
+                        level: 1,
+                    },
+                },
+                decomposition_log_base: 17,
+                decomposition_level_a: 1,
+                decomposition_level_b: 1,
+            },
+            lwe_ks: LweParam {
+                message_modulus,
+                ciphertext_modulus: PowerOfTwo::new(16).into(),
+                dimension: 100,
                 sk_distribution: Gaussian::new(3.2).into(),
                 noise_distribution: Gaussian::new(3.2).into(),
-                u_distribution: Ternary(256).into(),
                 ks_decomposition_param: DecompositionParam {
-                    log_base: 24,
-                    level: 1,
+                    log_base: 1,
+                    level: 13,
                 },
             },
-            decomposition_log_base: 17,
-            decomposition_level_a: 1,
-            decomposition_level_b: 1,
-        };
-        let lwe_param = LweParam {
-            message_modulus: rgsw_param.message_modulus,
-            ciphertext_modulus: rgsw_param.ciphertext_modulus,
-            dimension: rgsw_param.ring_size,
-            sk_distribution: rgsw_param.sk_distribution,
-            noise_distribution: rgsw_param.noise_distribution,
-            ks_decomposition_param: DecompositionParam {
-                log_base: 0,
-                level: 0,
-            },
-        };
-        let lwe_ks_param = LweParam {
-            message_modulus: rgsw_param.message_modulus,
-            ciphertext_modulus: PowerOfTwo::new(16).into(),
-            dimension: 200,
-            sk_distribution: Gaussian::new(3.2).into(),
-            noise_distribution: Gaussian::new(3.2).into(),
-            ks_decomposition_param: DecompositionParam {
-                log_base: 1,
-                level: 13,
-            },
-        };
-        let g = 5;
-        let w = 10;
-        (rgsw_param, lwe_param, lwe_ks_param, g, w)
+            q: 2 * ring_size / embedding_factor,
+            g: 5,
+            w: 10,
+        }
     }
 
     #[test]
     fn nand() {
-        fn run<R: RingOps>(big_q: impl Copy + Into<Modulus>) {
+        fn run<R: RingOps>(big_q: impl Copy + Into<Modulus>, embedding_factor: usize) {
             let mut rng = thread_rng();
-            let big_q = big_q.into();
-            let (rgsw_param, lwe_param, lwe_ks_param, g, w) = bootstrapping_param(big_q);
-            let rgsw = rgsw_param.build::<R>();
-            let lwe = lwe_param.build::<R>();
-            let lwe_ks = lwe_ks_param.build::<NonNativePowerOfTwoRing>();
+            let param = testing_param(big_q, embedding_factor);
+            let (rgsw, lwe, lwe_ks) = param.build::<R>();
             let rlwe = rgsw.rlwe();
             let ring = rlwe.ring();
+            let ring_ks = lwe_ks.ring();
             let mut scratch = {
                 let elem = 5 * ring.ring_size()
                     + (ring.ring_size() + 1)
@@ -229,28 +244,30 @@ mod test {
                 .as_ref()
                 .iter()
                 .map(|lwe_ks_sk_i| {
+                    let exp = embedding_factor as i32 * lwe_ks_sk_i;
                     let mut pt = RlwePlaintext::allocate(ring.ring_size());
-                    ring.poly_set_monomial(pt.as_mut(), *lwe_ks_sk_i as _);
+                    ring.poly_set_monomial(pt.as_mut(), exp as _);
                     rgsw.prepare_rgsw(&rgsw.sk_encrypt(&rlwe_sk, &pt, &mut rng))
                 })
                 .collect_vec();
-            let ak = {
-                let n_twice = 2 * ring.ring_size() as u64;
-                chain![[n_twice - g], powers_mod(g, n_twice).skip(1)]
-                    .take(w)
-                    .map(|k| rlwe.prepare_auto_key(&rlwe.auto_key_gen(&rlwe_sk, k as _, &mut rng)))
-                    .collect_vec()
-            };
-            let big_q_by_8 = ring.elem_from(big_q.to_f64() / 8f64);
+            let ak = chain![[param.q - param.g], powers_mod(param.g, param.q).skip(1)]
+                .take(param.w + 1)
+                .map(|k| rlwe.prepare_auto_key(&rlwe.auto_key_gen(&rlwe_sk, k as _, &mut rng)))
+                .collect_vec();
+            let big_q_by_8 = ring.elem_from(big_q.into().to_f64() / 8f64);
             let nand_lut_auto_neg_g = {
+                let q_half = param.q / 2;
                 let nand_lut = [true, true, true, false]
                     .into_iter()
                     .map(|v| if v { big_q_by_8 } else { ring.neg(&big_q_by_8) })
-                    .flat_map(|v| repeat(v).take(ring.ring_size() / 4))
+                    .flat_map(|v| repeat(v).take(q_half / 4))
                     .collect_vec();
-                let mut nand_lut_auto_neg_g = RlwePlaintext::allocate(ring.ring_size());
-                ring.poly_add_auto(nand_lut_auto_neg_g.as_mut(), &nand_lut, ak[0].auto_map());
-                nand_lut_auto_neg_g
+                RlwePlaintext::new(
+                    AutomorphismMap::new(q_half, -(param.g as i64))
+                        .apply(&nand_lut, |v| ring.neg(v))
+                        .collect_vec(),
+                    q_half,
+                )
             };
 
             for m in 0..1 << 2 {
@@ -260,7 +277,8 @@ mod test {
                 let mut ct = lwe.add(&ct_a, &ct_b);
                 bootstrap(
                     ring,
-                    lwe_ks.ring(),
+                    ring_ks,
+                    param.q,
                     &mut ct,
                     &ks_key,
                     &nand_lut_auto_neg_g,
@@ -273,11 +291,13 @@ mod test {
             }
         }
 
-        run::<NoisyNativeRing>(Modulus::native());
-        run::<NoisyNonNativePowerOfTwoRing>(PowerOfTwo::new(50));
-        run::<NativeRing>(Modulus::native());
-        run::<NonNativePowerOfTwoRing>(PowerOfTwo::new(50));
-        run::<NoisyPrimeRing>(Prime::gen(50, 10));
-        run::<PrimeRing>(Prime::gen(50, 10));
+        for embedding_factor in [1, 2] {
+            run::<NoisyNativeRing>(Modulus::native(), embedding_factor);
+            run::<NoisyNonNativePowerOfTwoRing>(PowerOfTwo::new(50), embedding_factor);
+            run::<NativeRing>(Modulus::native(), embedding_factor);
+            run::<NonNativePowerOfTwoRing>(PowerOfTwo::new(50), embedding_factor);
+            run::<NoisyPrimeRing>(Prime::gen(50, 12), embedding_factor);
+            run::<PrimeRing>(Prime::gen(50, 12), embedding_factor);
+        }
     }
 }

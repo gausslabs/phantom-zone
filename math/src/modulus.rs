@@ -1,6 +1,6 @@
 use core::iter::successors;
 use num_bigint_dig::{prime::probably_prime, BigUint};
-use num_traits::ToPrimitive;
+use num_traits::{AsPrimitive, PrimInt, ToPrimitive};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Modulus {
@@ -149,34 +149,34 @@ pub(crate) fn is_prime(q: u64) -> bool {
     probably_prime(&(q).into(), 20)
 }
 
-pub fn pow_mod(b: u64, e: u64, q: u64) -> u64 {
-    BigUint::from(b)
-        .modpow(&e.into(), &q.into())
-        .to_u64()
-        .unwrap()
+pub fn pow_mod<T: PrimInt + AsPrimitive<u64>>(b: T, e: T, q: T) -> T {
+    let [b, e, q] = [b, e, q].map(|v| BigUint::from(v.as_()));
+    T::from(b.modpow(&e, &q).to_u64().unwrap()).unwrap()
 }
 
-pub fn inv_mod(a: u64, q: u64) -> Option<u64> {
+pub fn inv_mod<T: PrimInt + AsPrimitive<u64>>(a: T, q: T) -> Option<T> {
+    let [a, q] = [a, q].map(|v| v.as_());
     let inv = pow_mod(a, q - 2, q);
-    (mul_mod(a, inv, q) == 1).then_some(inv)
+    (mul_mod(a, inv, q) == 1).then(|| T::from(inv).unwrap())
 }
 
-pub fn neg_mod(a: u64, q: u64) -> u64 {
-    (a == 0).then_some(0).unwrap_or_else(|| q - (a % q))
+pub fn neg_mod<T: PrimInt + AsPrimitive<u64>>(a: T, q: T) -> T {
+    let [a, q] = [a, q].map(|v| v.as_());
+    (a == 0)
+        .then(T::zero)
+        .unwrap_or_else(|| T::from(q - (a % q)).unwrap())
 }
 
-pub fn add_mod(a: u64, b: u64, q: u64) -> u64 {
-    ((a as u128 + b as u128) % q as u128) as _
+pub fn add_mod<T: PrimInt + AsPrimitive<u128>>(a: T, b: T, q: T) -> T {
+    let [a, b, q] = [a, b, q].map(|v| v.as_());
+    T::from((a + b) % q).unwrap()
 }
 
-pub fn sub_mod(a: u64, b: u64, q: u64) -> u64 {
-    add_mod(a, neg_mod(b, q), q)
+pub fn mul_mod<T: PrimInt + AsPrimitive<u128>>(a: T, b: T, q: T) -> T {
+    let [a, b, q] = [a, b, q].map(|v| v.as_());
+    T::from((a * b) % q).unwrap()
 }
 
-pub fn mul_mod(a: u64, b: u64, q: u64) -> u64 {
-    ((a as u128 * b as u128) % q as u128) as _
-}
-
-pub fn powers_mod(b: u64, q: u64) -> impl Iterator<Item = u64> {
-    successors(Some(1), move |v| mul_mod(*v, b, q).into())
+pub fn powers_mod<T: PrimInt + AsPrimitive<u128>>(b: T, q: T) -> impl Iterator<Item = T> {
+    successors(Some(T::one()), move |v| mul_mod(*v, b, q).into())
 }
