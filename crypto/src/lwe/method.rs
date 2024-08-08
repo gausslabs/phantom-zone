@@ -57,12 +57,16 @@ pub fn ks_key_gen<'a, 'b, 'c, R, T>(
 {
     let (mut ks_key, sk_to) = (ks_key.into(), sk_to.into());
     let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
-    izip_eq!(ks_key.iter_mut(), sk_from.into().as_ref()).for_each(|(mut ks_key_i, sk_from_i)| {
-        izip_eq!(ks_key_i.iter_mut(), decomposer.gadget_iter()).for_each(|(ks_key_i_j, beta_j)| {
-            let pt = LwePlaintext(ring.mul_elem_from(&ring.neg(&beta_j), sk_from_i));
-            sk_encrypt(ring, ks_key_i_j, sk_to, pt, noise_distribution, &mut rng)
-        })
-    });
+    izip_eq!(ks_key.cts_iter_mut(), sk_from.into().as_ref()).for_each(
+        |(mut ks_key_i, sk_from_i)| {
+            izip_eq!(ks_key_i.iter_mut(), decomposer.gadget_iter()).for_each(
+                |(ks_key_i_j, beta_j)| {
+                    let pt = LwePlaintext(ring.mul_elem_from(&ring.neg(&beta_j), sk_from_i));
+                    sk_encrypt(ring, ks_key_i_j, sk_to, pt, noise_distribution, &mut rng)
+                },
+            )
+        },
+    );
 }
 
 pub fn key_switch<'a, 'b, 'c, R: RingOps>(
@@ -73,7 +77,7 @@ pub fn key_switch<'a, 'b, 'c, R: RingOps>(
 ) {
     let (mut ct_to, ks_key, ct_from) = (ct_to.into(), ks_key.into(), ct_from.into());
     let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
-    izip_eq!(ks_key.iter(), ct_from.a())
+    izip_eq!(ks_key.cts_iter(), ct_from.a())
         .enumerate()
         .for_each(|(i, (ks_key_i, a_i))| {
             izip_eq!(ks_key_i.iter(), decomposer.decompose_iter(a_i))

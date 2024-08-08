@@ -233,6 +233,18 @@ impl<T: Default> RlweCiphertextList<Vec<T>> {
     }
 }
 
+impl<'a, T> RlweCiphertextList<&'a mut [T]> {
+    pub fn scratch(
+        ring_size: usize,
+        eval_size: usize,
+        n: usize,
+        scratch: &mut Scratch<'a>,
+    ) -> Self {
+        let ct_size = 2 * eval_size;
+        Self::new(scratch.take_slice(n * ct_size), ring_size, ct_size)
+    }
+}
+
 #[derive(Clone, Copy, Debug, AsSliceWrapper)]
 pub struct RlwePublicKey<S>(#[as_slice(nested)] RlweCiphertext<S>);
 
@@ -291,11 +303,11 @@ impl<S: AsSlice> RlweKeySwitchKey<S> {
     }
 
     pub fn ring_size(&self) -> usize {
-        self.cts.ring_size
+        self.cts.ring_size()
     }
 
     pub fn ct_size(&self) -> usize {
-        self.cts.ct_size
+        self.cts.ct_size()
     }
 
     pub fn decomposition_param(&self) -> DecompositionParam {
@@ -357,6 +369,10 @@ impl<S1: AsSlice, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
         Self { ks_key, auto_map }
     }
 
+    pub fn decomposition_param(&self) -> DecompositionParam {
+        self.ks_key.decomposition_param()
+    }
+
     pub fn as_ks_key(&self) -> RlweKeySwitchKeyView<S1::Elem> {
         self.ks_key.as_view()
     }
@@ -367,6 +383,10 @@ impl<S1: AsSlice, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
 }
 
 impl<S1: AsMutSlice, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
+    pub fn as_ks_key_mut(&mut self) -> RlweKeySwitchKeyMutView<S1::Elem> {
+        self.ks_key.as_mut_view()
+    }
+
     pub fn auto_map_and_ks_key_mut(
         &mut self,
     ) -> (AutomorphismMapView, RlweKeySwitchKeyMutView<S1::Elem>) {

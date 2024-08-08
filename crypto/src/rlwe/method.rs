@@ -2,10 +2,9 @@ use crate::{
     distribution::NoiseDistribution,
     lwe::LweCiphertextMutView,
     rlwe::structure::{
-        RlweAutoKeyMutView, RlweAutoKeyOwned, RlweAutoKeyView, RlweCiphertext,
-        RlweCiphertextMutView, RlweCiphertextView, RlweKeySwitchKey, RlweKeySwitchKeyMutView,
-        RlweKeySwitchKeyOwned, RlweKeySwitchKeyView, RlwePlaintextMutView, RlwePlaintextView,
-        RlwePublicKeyMutView, RlwePublicKeyView, RlweSecretKeyView,
+        RlweAutoKeyMutView, RlweAutoKeyView, RlweCiphertext, RlweCiphertextMutView,
+        RlweCiphertextView, RlweKeySwitchKeyMutView, RlweKeySwitchKeyView, RlwePlaintextMutView,
+        RlwePlaintextView, RlwePublicKeyMutView, RlwePublicKeyView, RlweSecretKeyView,
     },
 };
 use core::{borrow::Borrow, ops::Neg};
@@ -238,41 +237,34 @@ pub fn automorphism_in_place<'a, 'b, 'c, R: RingOps>(
     ring.poly_add_auto(ct.b_mut(), b, auto_map);
 }
 
-pub fn prepare_ks_key<'a, 'b, 'c, R>(
+pub fn prepare_ks_key<'a, 'b, 'c, R: RingOps>(
     ring: &R,
+    ks_key_prep: impl Into<RlweKeySwitchKeyMutView<'a, R::EvalPrep>>,
     ks_key: impl Into<RlweKeySwitchKeyView<'a, R::Elem>>,
     mut scratch: Scratch,
-) -> RlweKeySwitchKeyOwned<R::EvalPrep>
-where
-    R: RingOps,
-{
-    let ks_key = ks_key.into();
+) {
+    let (mut ks_key_prep, ks_key) = (ks_key_prep.into(), ks_key.into());
     let eval = ring.take_eval(&mut scratch);
-    let mut ks_key_prep = RlweKeySwitchKey::allocate_eval(
-        ring.ring_size(),
-        ring.eval_size(),
-        ks_key.decomposition_param(),
-    );
     izip_eq!(ks_key_prep.ct_iter_mut(), ks_key.ct_iter()).for_each(|(mut ct_prep, ct)| {
         ring.forward_normalized(eval, ct.a());
         ring.eval_prepare(ct_prep.a_mut(), eval);
         ring.forward_normalized(eval, ct.b());
         ring.eval_prepare(ct_prep.b_mut(), eval);
     });
-    ks_key_prep
 }
 
-pub fn prepare_auto_key<'a, 'b, 'c, R>(
+pub fn prepare_auto_key<'a, 'b, 'c, R: RingOps>(
     ring: &R,
+    auto_key_prep: impl Into<RlweAutoKeyMutView<'a, R::EvalPrep>>,
     auto_key: impl Into<RlweAutoKeyView<'a, R::Elem>>,
     scratch: Scratch,
-) -> RlweAutoKeyOwned<R::EvalPrep>
-where
-    R: RingOps,
-{
-    let auto_key = auto_key.into();
-    let ks_key_prep = prepare_ks_key(ring, auto_key.as_ks_key(), scratch);
-    RlweAutoKeyOwned::new(ks_key_prep, auto_key.auto_map().cloned())
+) {
+    prepare_ks_key(
+        ring,
+        auto_key_prep.into().as_ks_key_mut(),
+        auto_key.into().as_ks_key(),
+        scratch,
+    );
 }
 
 pub fn key_switch_prep_in_place<'a, 'b, 'c, R: RingOps>(
