@@ -1,0 +1,21 @@
+[package]
+name = "phantom-zone-math"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itertools = { workspace = true }
+num-bigint-dig = { workspace = true, features = ["prime"] }
+num-complex = { workspace = true }
+num-traits = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+rustfft = { workspace = true }
+phantom-zone-derive = { path = "../derive" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "poly_mul"
+harness = false

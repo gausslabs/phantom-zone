@@ -1,64 +1,14 @@
-[package]
-name = "phantom-zone"
-version = "0.1.0"
-edition = "2021"
-readme = "README.md"
-repository = "https://github.com/gausslabs/phantom-zone"
-license = "MIT"
-keywords = ["fhe", "mpc", "cryptography"]
-description = "Library for multi-party computation using fully-homomorphic encryption"
+[workspace]
+members = ["crypto", "derive", "math"]
+resolver = "2"
 
-[dependencies]
-itertools = "0.12.0"
-num-traits = "0.2.18"
+[workspace.dependencies]
+criterion = "0.5.1"
+itertools = "0.13.0"
+num-bigint-dig = "0.8.4"
+num-complex = "0.4.6"
+num-traits = "0.2.19"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 rand_distr = "0.4.3"
-rayon = "1.10.0"
-serde = { version = "1.0.204", features = ["derive"] }
-
-[dev-dependencies]
-criterion = "0.5.1"
-rayon = "1.10.0"
-num-bigint-dig = { version = "0.8.4", features = ["prime"] }
-
-[features]
-interactive_mp = []
-non_interactive_mp = []
-
-[[bench]]
-name = "ntt"
-harness = false
-
-[[bench]]
-name = "modulus"
-harness = false
-
-[[example]]
-name = "interactive_fheuint8"
-path = "./examples/interactive_fheuint8.rs"
-
-[[example]]
-name = "non_interactive_fheuint8"
-path = "./examples/non_interactive_fheuint8.rs"
-required-features = ["non_interactive_mp"]
-
-[[example]]
-name = "meeting_friends"
-path = "./examples/meeting_friends.rs"
-required-features = ["non_interactive_mp"]
-
-[[example]]
-name = "bomberman"
-path = "./examples/bomberman.rs"
-required-features = ["non_interactive_mp"]
-
-[[example]]
-name = "div_by_zero"
-path = "./examples/div_by_zero.rs"
-required-features = ["non_interactive_mp"]
-
-[[example]]
-name = "if_and_else"
-path = "./examples/if_and_else.rs"
-required-features = ["non_interactive_mp"]
+rustfft = "6.2.0"

@@ -1,0 +1,19 @@
+[package]
+name = "phantom-zone-crypto"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itertools = { workspace = true }
+num-bigint-dig = { workspace = true, features = ["prime"] }
+num-traits = { workspace = true }
+rand = { workspace = true }
+phantom-zone-derive = { path = "../derive" }
+phantom-zone-math = { path = "../math" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "rlwe"
+harness = false
