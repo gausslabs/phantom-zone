@@ -75,7 +75,7 @@ mod impl_bool_frontend {
     use crate::MultiPartyDecryptor;
 
     /// Fhe Bool ciphertext
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize, Debug)]
     pub struct FheBool<C> {
         /// LWE bool ciphertext
         pub(crate) data: C,
