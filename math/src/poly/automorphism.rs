@@ -74,7 +74,7 @@ mod test {
         for log_n in 0..10 {
             let n = 1 << log_n;
             let indices = (0..n as i64).collect_vec();
-            for k in powers_mod(5, 2 * n as u64).take(n / 2) {
+            for k in powers_mod(5, 2 * n).take(n / 2) {
                 let auto_map = AutomorphismMap::new(n, k as _);
                 assert_eq!(
                     auto_map.apply(&indices, |i| -i).collect_vec(),

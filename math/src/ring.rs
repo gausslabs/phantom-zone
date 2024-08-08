@@ -503,7 +503,7 @@ pub trait RingOps:
     }
 
     fn poly_set_monomial(&self, a: &mut [Self::Elem], exp: i64) {
-        a.fill_with(Default::default);
+        a.fill(self.zero());
         let exp = exp.rem_euclid(2 * self.ring_size() as i64) as usize;
         if exp < self.ring_size() {
             a[exp] = self.one();

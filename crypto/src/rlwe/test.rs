@@ -1,6 +1,6 @@
 use crate::{
     distribution::{NoiseDistribution, SecretKeyDistribution},
-    lwe::{self, LweCiphertextOwned, LwePlaintext},
+    lwe::{self, test::LweParam, LweCiphertextOwned, LwePlaintext},
     rlwe::{
         self, RlweAutoKey, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextOwned, RlweKeySwitchKey,
         RlweKeySwitchKeyOwned, RlwePlaintext, RlwePlaintextOwned, RlwePublicKey,
@@ -31,6 +31,17 @@ pub struct RlweParam {
 }
 
 impl RlweParam {
+    pub fn to_lwe(self) -> LweParam {
+        LweParam {
+            message_modulus: self.message_modulus,
+            ciphertext_modulus: self.ciphertext_modulus,
+            dimension: self.ring_size,
+            sk_distribution: self.sk_distribution,
+            noise_distribution: self.noise_distribution,
+            ks_decomposition_param: self.ks_decomposition_param,
+        }
+    }
+
     pub fn build<R: RingOps>(self) -> Rlwe<R> {
         let ring = R::new(self.ciphertext_modulus, self.ring_size);
         let message_ring = NonNativePowerOfTwoRing::new(
@@ -393,7 +404,7 @@ fn automorphism() {
         let mut rng = thread_rng();
         let rlwe = param.build::<R>();
         let sk = rlwe.sk_gen(&mut rng);
-        for k in powers_mod(5, 2 * rlwe.ring_size() as u64).take(rlwe.ring_size() / 2) {
+        for k in powers_mod(5, 2 * rlwe.ring_size()).take(rlwe.ring_size() / 2) {
             let auto_key = rlwe.auto_key_gen(&sk, k as _, &mut rng);
             let auto_key_prep = rlwe.prepare_auto_key(&auto_key);
             let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
