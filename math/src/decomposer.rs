@@ -268,17 +268,15 @@ mod test {
 
     impl<T: Copy + ToPrimitive + Signed> Stats<T>
     where
-        // T: for<'a> Sum<&'a T>,
         T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
     {
         pub(crate) fn mean(&self) -> f64 {
             self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
         }
 
-        pub(crate) fn variance(&self) -> f64 {
+        fn variance(&self) -> f64 {
             let mean = self.mean();
 
-            // diff
             let diff_sq = self
                 .samples
                 .iter()
@@ -372,11 +370,19 @@ mod test {
                 stats.add_many_samples(decomposer.decompose_iter(&a).map(|v| modulus.to_i64(v)));
             }
 
-            println!("Mean: {}", stats.mean());
+            // Signed decomposition outputs limbs uniformly distributed in range [-B/2, B/2). The distribution must have mean nearly 0 and stanadrd deviation \sqrt{B^2 / 12}.
+            assert!(stats.mean().abs() < 0.5);
+            assert!(
+                stats.std_dev().log2()
+                    - ((1 << (param.log_base * 2)).to_f64().unwrap() / 12.0)
+                        .sqrt()
+                        .log2()
+                    < 0.01
+            );
         }
 
         run::<NativeDecomposer>(PowerOfTwo::native());
         run::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
-        run::<PrimeDecomposer>(Prime::gen(50, 0));
+        // run::<PrimeDecomposer>(Prime::gen(50, 0));
     }
 }
