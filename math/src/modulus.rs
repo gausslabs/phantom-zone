@@ -33,6 +33,26 @@ impl Modulus {
             Self::Prime(prime) => prime.to_f64(),
         }
     }
+
+    #[inline(always)]
+    pub fn to_i64(&self, v: u64) -> i64 {
+        match self {
+            Self::PowerOfTwo(po2) => {
+                if po2.0 == 64 {
+                    v as _
+                } else {
+                    v.wrapping_sub((v >> (po2.0 - 1)) << po2.0) as _
+                }
+            }
+            Modulus::Prime(prime) => {
+                if v > (prime.0 >> 1) {
+                    (prime.0 - v) as _
+                } else {
+                    v as _
+                }
+            }
+        }
+    }
 }
 
 impl From<Prime> for Modulus {

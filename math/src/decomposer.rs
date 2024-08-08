@@ -249,10 +249,57 @@ mod test {
         },
         modulus::{Modulus, PowerOfTwo, Prime},
     };
+    use num_traits::{Signed, ToPrimitive};
     use rand::{
         distributions::{Distribution, Uniform},
         thread_rng,
     };
+
+    #[derive(Clone)]
+    pub(crate) struct Stats<T> {
+        pub(crate) samples: Vec<T>,
+    }
+
+    impl<T> Default for Stats<T> {
+        fn default() -> Self {
+            Stats { samples: vec![] }
+        }
+    }
+
+    impl<T: Copy + ToPrimitive + Signed> Stats<T>
+    where
+        // T: for<'a> Sum<&'a T>,
+        T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
+    {
+        pub(crate) fn mean(&self) -> f64 {
+            self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
+        }
+
+        pub(crate) fn variance(&self) -> f64 {
+            let mean = self.mean();
+
+            // diff
+            let diff_sq = self
+                .samples
+                .iter()
+                .map(|v| {
+                    let t = v.to_f64().unwrap() - mean;
+                    t * t
+                })
+                .into_iter()
+                .sum::<f64>();
+
+            diff_sq / (self.samples.len() as f64 - 1.0)
+        }
+
+        pub(crate) fn std_dev(&self) -> f64 {
+            self.variance().sqrt()
+        }
+
+        pub(crate) fn add_many_samples(&mut self, values: impl IntoIterator<Item = T>) {
+            self.samples.extend(values);
+        }
+    }
 
     #[test]
     fn decompose() {
@@ -299,6 +346,33 @@ mod test {
                     decomposer.round(&a),
                 );
             }
+        }
+
+        run::<NativeDecomposer>(PowerOfTwo::native());
+        run::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
+        run::<PrimeDecomposer>(Prime::gen(50, 0));
+    }
+
+    #[test]
+    fn decompose_stats() {
+        fn run<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
+            let mut stats = Stats::default();
+
+            let modulus = modulus.into();
+            let param = DecompositionParam {
+                log_base: 8,
+                level: 4,
+            };
+            let decomposer = D::new(modulus, param);
+
+            for a in Uniform::new_inclusive(0, modulus.max())
+                .sample_iter(thread_rng())
+                .take(1000000)
+            {
+                stats.add_many_samples(decomposer.decompose_iter(&a).map(|v| modulus.to_i64(v)));
+            }
+
+            println!("Mean: {}", stats.mean());
         }
 
         run::<NativeDecomposer>(PowerOfTwo::native());
