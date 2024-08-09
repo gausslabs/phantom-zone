@@ -214,7 +214,8 @@ impl Decomposer<u64> for PrimeDecomposer {
     fn round(&self, a: &u64) -> u64 {
         let mut a = *a;
         if a >= self.q_half {
-            a = a.wrapping_sub(self.q)
+            // 2's complement to get -ve in u64
+            a = !(self.q - a) + 1;
         }
         a.wrapping_add(self.ignored_half) >> self.ignored_bits
     }
@@ -226,10 +227,17 @@ impl Decomposer<u64> for PrimeDecomposer {
     #[inline(always)]
     fn decompose_next(&self, a: &mut u64) -> u64 {
         let limb = *a & self.base_mask;
-        *a >>= self.log_base;
-        let carry = ((limb.wrapping_sub(1) | *a) & limb) >> (self.log_base - 1);
-        *a += carry;
-        (carry.wrapping_neg() & self.q).wrapping_add(limb.wrapping_sub(carry << self.log_base))
+        *a = (*a - limb) >> self.log_base;
+
+        let bby2 = 1 << (self.log_base - 1);
+        let carry = (limb > bby2) || (limb == bby2 && (*a & 1u64 == 1u64));
+
+        if carry {
+            *a = *a + 1;
+            self.q + limb - (1u64 << self.log_base)
+        } else {
+            limb
+        }
     }
 
     fn recompose(&self, a: impl IntoIterator<Item = u64>) -> u64 {
@@ -249,14 +257,59 @@ mod test {
         },
         modulus::{Modulus, PowerOfTwo, Prime},
     };
+    use num_traits::{Signed, ToPrimitive};
     use rand::{
         distributions::{Distribution, Uniform},
         thread_rng,
     };
 
+    #[derive(Clone)]
+    pub(crate) struct Stats<T> {
+        pub(crate) samples: Vec<T>,
+    }
+
+    impl<T> Default for Stats<T> {
+        fn default() -> Self {
+            Stats { samples: vec![] }
+        }
+    }
+
+    impl<T: Copy + ToPrimitive + Signed> Stats<T>
+    where
+        T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
+    {
+        pub(crate) fn mean(&self) -> f64 {
+            self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
+        }
+
+        fn variance(&self) -> f64 {
+            let mean = self.mean();
+
+            let diff_sq = self
+                .samples
+                .iter()
+                .map(|v| {
+                    let t = v.to_f64().unwrap() - mean;
+                    t * t
+                })
+                .into_iter()
+                .sum::<f64>();
+
+            diff_sq / (self.samples.len() as f64 - 1.0)
+        }
+
+        pub(crate) fn std_dev(&self) -> f64 {
+            self.variance().sqrt()
+        }
+
+        pub(crate) fn add_many_samples(&mut self, values: impl IntoIterator<Item = T>) {
+            self.samples.extend(values);
+        }
+    }
+
     #[test]
     fn decompose() {
-        fn run<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
+        fn run_po2<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
             let modulus = modulus.into();
             let param = DecompositionParam {
                 log_base: 8,
@@ -290,6 +343,14 @@ mod test {
                     decomposer.round(&a),
                 );
             }
+        }
+        fn run_common<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
+            let modulus = modulus.into();
+            let param = DecompositionParam {
+                log_base: 8,
+                level: 4,
+            };
+            let decomposer = D::new(modulus, param);
             for a in Uniform::new_inclusive(0, modulus.max())
                 .sample_iter(thread_rng())
                 .take(10000)
@@ -299,6 +360,44 @@ mod test {
                     decomposer.round(&a),
                 );
             }
+        }
+
+        run_po2::<NativeDecomposer>(PowerOfTwo::native());
+        run_po2::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
+
+        run_common::<NativeDecomposer>(PowerOfTwo::native());
+        run_common::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
+        run_common::<PrimeDecomposer>(Prime::gen(50, 0));
+    }
+
+    #[test]
+    fn decompose_stats() {
+        fn run<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
+            let mut stats = Stats::default();
+
+            let modulus = modulus.into();
+            let param = DecompositionParam {
+                log_base: 10,
+                level: 5,
+            };
+            let decomposer = D::new(modulus, param);
+
+            for a in Uniform::new_inclusive(0, modulus.max())
+                .sample_iter(thread_rng())
+                .take(10000000)
+            {
+                stats.add_many_samples(decomposer.decompose_iter(&a).map(|v| modulus.to_i64(v)));
+            }
+
+            // Signed decomposition outputs limbs uniformly distributed in range [-B/2, B/2). The distribution must have mean nearly 0 and stanadrd deviation \sqrt{B^2 / 12}.
+            assert!(stats.mean().abs() < 0.5);
+            assert!(
+                stats.std_dev().log2()
+                    - ((1 << (param.log_base * 2)).to_f64().unwrap() / 12.0)
+                        .sqrt()
+                        .log2()
+                    < 0.01
+            );
         }
 
         run::<NativeDecomposer>(PowerOfTwo::native());
