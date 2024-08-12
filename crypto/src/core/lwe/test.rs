@@ -11,10 +11,10 @@ use crate::{
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::Gaussian,
-    modulus::{Modulus, ForeignPowerOfTwo, Prime},
+    modulus::{ForeignPowerOfTwo, Modulus, Prime},
     ring::{
-        NativeRing, NoisyNativeRing, NoisyForeignPowerOfTwoRing, NoisyPrimeRing,
-        ForeignPowerOfTwoRing, PrimeRing, RingOps,
+        ForeignPowerOfTwoRing, NativeRing, NoisyForeignPowerOfTwoRing, NoisyNativeRing,
+        NoisyPrimeRing, PrimeRing, RingOps,
     },
 };
 use rand::{thread_rng, RngCore};

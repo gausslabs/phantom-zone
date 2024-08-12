@@ -101,10 +101,10 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
 mod test {
     use crate::{
         distribution::Sampler,
-        modulus::{Modulus, ForeignPowerOfTwo},
+        modulus::{ForeignPowerOfTwo, Modulus},
         poly::ffnt::test::{poly_mul_prec_loss, round_trip_prec_loss},
         ring::{
-            power_of_two::noisy::{NoisyNativeRing, NoisyForeignPowerOfTwoRing},
+            power_of_two::noisy::{NoisyForeignPowerOfTwoRing, NoisyNativeRing},
             test::{test_poly_mul, test_round_trip},
             RingOps,
         },

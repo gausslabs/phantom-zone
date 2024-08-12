@@ -5,8 +5,8 @@ use phantom_zone_crypto::core::{
 };
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    modulus::{Modulus, ForeignPowerOfTwo, Prime},
-    ring::{NoisyNativeRing, NoisyForeignPowerOfTwoRing, NoisyPrimeRing, PrimeRing, RingOps},
+    modulus::{ForeignPowerOfTwo, Modulus, Prime},
+    ring::{NoisyForeignPowerOfTwoRing, NoisyNativeRing, NoisyPrimeRing, PrimeRing, RingOps},
 };
 
 fn automorphism(c: &mut Criterion) {

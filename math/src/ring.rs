@@ -13,8 +13,8 @@ pub(crate) mod prime;
 
 use itertools::izip;
 pub use power_of_two::{
-    noisy::{NoisyNativeRing, NoisyForeignPowerOfTwoRing},
-    precise::{NativeRing, ForeignPowerOfTwoRing},
+    noisy::{NoisyForeignPowerOfTwoRing, NoisyNativeRing},
+    precise::{ForeignPowerOfTwoRing, NativeRing},
 };
 pub use prime::{noisy::NoisyPrimeRing, precise::PrimeRing};
 

@@ -16,10 +16,10 @@ use itertools::Itertools;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::{Gaussian, Sampler, Ternary},
-    modulus::{Modulus, ModulusOps, ForeignPowerOfTwo, Prime},
+    modulus::{ForeignPowerOfTwo, Modulus, ModulusOps, Prime},
     ring::{
-        NativeRing, NoisyNativeRing, NoisyForeignPowerOfTwoRing, NoisyPrimeRing,
-        ForeignPowerOfTwoRing, PrimeRing, RingOps, SliceOps,
+        ForeignPowerOfTwoRing, NativeRing, NoisyForeignPowerOfTwoRing, NoisyNativeRing,
+        NoisyPrimeRing, PrimeRing, RingOps, SliceOps,
     },
 };
 use rand::{thread_rng, RngCore};

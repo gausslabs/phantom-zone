@@ -243,10 +243,10 @@ impl Decomposer<u64> for PrimeDecomposer {
 mod test {
     use crate::{
         decomposer::{
-            Decomposer, DecompositionParam, NativeDecomposer, ForeignPowerOfTwoDecomposer,
+            Decomposer, DecompositionParam, ForeignPowerOfTwoDecomposer, NativeDecomposer,
             PrimeDecomposer,
         },
-        modulus::{Modulus, Native, ForeignPowerOfTwo, Prime},
+        modulus::{ForeignPowerOfTwo, Modulus, Native, Prime},
     };
     use core::iter::Sum;
     use num_traits::{Signed, ToPrimitive};

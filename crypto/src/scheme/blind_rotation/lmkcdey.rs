@@ -7,7 +7,7 @@ use core::{cmp::Reverse, iter::successors};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
     izip_eq,
-    modulus::{ModulusOps, ForeignPowerOfTwo},
+    modulus::{ForeignPowerOfTwo, ModulusOps},
     ring::{ForeignPowerOfTwoRing, RingOps},
     util::scratch::Scratch,
 };
@@ -158,11 +158,11 @@ mod test {
     use phantom_zone_math::{
         decomposer::DecompositionParam,
         distribution::{Gaussian, Ternary},
-        modulus::{Modulus, ForeignPowerOfTwo, Prime},
+        modulus::{ForeignPowerOfTwo, Modulus, Prime},
         poly::automorphism::AutomorphismMap,
         ring::{
-            NativeRing, NoisyNativeRing, NoisyForeignPowerOfTwoRing, NoisyPrimeRing,
-            ForeignPowerOfTwoRing, PrimeRing, RingOps,
+            ForeignPowerOfTwoRing, NativeRing, NoisyForeignPowerOfTwoRing, NoisyNativeRing,
+            NoisyPrimeRing, PrimeRing, RingOps,
         },
         util::scratch::ScratchOwned,
     };

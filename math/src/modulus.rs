@@ -5,7 +5,7 @@ use rand_distr::Distribution;
 pub(crate) mod power_of_two;
 pub(crate) mod prime;
 
-pub use power_of_two::{Native, ForeignPowerOfTwo};
+pub use power_of_two::{ForeignPowerOfTwo, Native};
 pub use prime::Prime;
 
 #[derive(Clone, Copy, Debug)]

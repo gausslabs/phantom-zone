@@ -14,10 +14,10 @@ use phantom_zone_math::{
     decomposer::Decomposer,
     distribution::Sampler,
     izip_eq,
-    modulus::{ElemFrom, Modulus, ForeignPowerOfTwo, Prime},
+    modulus::{ElemFrom, ForeignPowerOfTwo, Modulus, Prime},
     ring::{
-        NativeRing, NoisyNativeRing, NoisyForeignPowerOfTwoRing, NoisyPrimeRing,
-        ForeignPowerOfTwoRing, PrimeRing, RingOps,
+        ForeignPowerOfTwoRing, NativeRing, NoisyForeignPowerOfTwoRing, NoisyNativeRing,
+        NoisyPrimeRing, PrimeRing, RingOps,
     },
 };
 use rand::RngCore;
