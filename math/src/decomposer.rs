@@ -1,7 +1,7 @@
 use crate::{
     izip_eq,
-    misc::scratch::Scratch,
     modulus::{power_of_two::PowerOfTwo, Modulus, ModulusOps, Prime},
+    util::scratch::Scratch,
 };
 use core::{borrow::Borrow, fmt::Debug};
 

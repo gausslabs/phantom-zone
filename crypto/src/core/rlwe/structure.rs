@@ -1,15 +1,15 @@
-use crate::{distribution::SecretKeyDistribution, lwe::LweSecretKey};
+use crate::{core::lwe::LweSecretKey, util::distribution::SecretKeyDistribution};
 use core::iter::repeat_with;
 use num_traits::{FromPrimitive, Signed};
 use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::DistributionSized,
-    misc::{
+    poly::automorphism::{AutomorphismMap, AutomorphismMapView},
+    util::{
         as_slice::{AsMutSlice, AsSlice},
         scratch::Scratch,
     },
-    poly::automorphism::{AutomorphismMap, AutomorphismMapView},
 };
 use rand::RngCore;
 

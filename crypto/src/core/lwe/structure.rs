@@ -1,11 +1,11 @@
-use crate::distribution::SecretKeyDistribution;
+use crate::util::distribution::SecretKeyDistribution;
 use core::iter::repeat_with;
 use num_traits::{FromPrimitive, Signed};
 use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::DistributionSized,
-    misc::{
+    util::{
         as_slice::{AsMutSlice, AsSlice},
         scratch::Scratch,
     },

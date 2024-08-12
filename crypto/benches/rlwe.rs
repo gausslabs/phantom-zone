@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use phantom_zone_crypto::{
+use phantom_zone_crypto::core::{
     rgsw::{self, RgswCiphertext},
     rlwe::{self, RlweAutoKey, RlweCiphertext},
 };

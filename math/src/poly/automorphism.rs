@@ -1,4 +1,4 @@
-use crate::misc::as_slice::{AsMutSlice, AsSlice};
+use crate::util::as_slice::{AsMutSlice, AsSlice};
 use phantom_zone_derive::AsSliceWrapper;
 
 #[derive(Clone, Debug, AsSliceWrapper)]

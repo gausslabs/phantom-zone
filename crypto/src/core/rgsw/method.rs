@@ -1,13 +1,15 @@
 use crate::{
-    distribution::NoiseDistribution,
-    rgsw::structure::{RgswCiphertext, RgswCiphertextMutView, RgswCiphertextView},
-    rlwe::{
-        decomposed_fma, decomposed_fma_prep, sk_encrypt_with_pt_in_b, RlweCiphertext,
-        RlweCiphertextMutView, RlwePlaintextView, RlweSecretKeyView,
+    core::{
+        rgsw::structure::{RgswCiphertext, RgswCiphertextMutView, RgswCiphertextView},
+        rlwe::{
+            decomposed_fma, decomposed_fma_prep, sk_encrypt_with_pt_in_b, RlweCiphertext,
+            RlweCiphertextMutView, RlwePlaintextView, RlweSecretKeyView,
+        },
     },
+    util::distribution::NoiseDistribution,
 };
 use phantom_zone_math::{
-    decomposer::Decomposer, izip_eq, misc::scratch::Scratch, modulus::ElemFrom, ring::RingOps,
+    decomposer::Decomposer, izip_eq, modulus::ElemFrom, ring::RingOps, util::scratch::Scratch,
 };
 use rand::RngCore;
 

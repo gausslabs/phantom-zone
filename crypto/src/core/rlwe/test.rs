@@ -1,11 +1,13 @@
 use crate::{
-    distribution::{NoiseDistribution, SecretKeyDistribution},
-    lwe::{self, test::LweParam, LweCiphertextOwned, LwePlaintext},
-    rlwe::{
-        self, RlweAutoKey, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextOwned, RlweKeySwitchKey,
-        RlweKeySwitchKeyOwned, RlwePlaintext, RlwePlaintextOwned, RlwePublicKey,
-        RlwePublicKeyOwned, RlweSecretKey, RlweSecretKeyOwned,
+    core::{
+        lwe::{self, test::LweParam, LweCiphertextOwned, LwePlaintext},
+        rlwe::{
+            self, RlweAutoKey, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextOwned,
+            RlweKeySwitchKey, RlweKeySwitchKeyOwned, RlwePlaintext, RlwePlaintextOwned,
+            RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey, RlweSecretKeyOwned,
+        },
     },
+    util::distribution::{NoiseDistribution, SecretKeyDistribution},
 };
 use itertools::Itertools;
 use phantom_zone_math::{

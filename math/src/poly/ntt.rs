@@ -1,6 +1,6 @@
 use crate::{
-    misc::{as_slice::AsMutSlice, bit_reverse},
     modulus::{prime::Shoup, ModulusOps, Prime},
+    util::{as_slice::AsMutSlice, bit_reverse},
 };
 use itertools::izip;
 

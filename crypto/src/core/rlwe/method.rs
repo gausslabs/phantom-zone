@@ -1,19 +1,22 @@
 use crate::{
-    distribution::NoiseDistribution,
-    lwe::LweCiphertextMutView,
-    rlwe::structure::{
-        RlweAutoKeyMutView, RlweAutoKeyView, RlweCiphertext, RlweCiphertextMutView,
-        RlweCiphertextView, RlweKeySwitchKeyMutView, RlweKeySwitchKeyView, RlwePlaintextMutView,
-        RlwePlaintextView, RlwePublicKeyMutView, RlwePublicKeyView, RlweSecretKeyView,
+    core::{
+        lwe::LweCiphertextMutView,
+        rlwe::structure::{
+            RlweAutoKeyMutView, RlweAutoKeyView, RlweCiphertext, RlweCiphertextMutView,
+            RlweCiphertextView, RlweKeySwitchKeyMutView, RlweKeySwitchKeyView,
+            RlwePlaintextMutView, RlwePlaintextView, RlwePublicKeyMutView, RlwePublicKeyView,
+            RlweSecretKeyView,
+        },
     },
+    util::distribution::NoiseDistribution,
 };
 use core::{borrow::Borrow, ops::Neg};
 use phantom_zone_math::{
     decomposer::{Decomposer, DecompositionParam},
     izip_eq,
-    misc::scratch::Scratch,
     modulus::ElemFrom,
     ring::RingOps,
+    util::scratch::Scratch,
 };
 use rand::RngCore;
 

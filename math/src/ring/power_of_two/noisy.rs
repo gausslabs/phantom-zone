@@ -101,7 +101,6 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
 mod test {
     use crate::{
         distribution::Sampler,
-        misc::test::assert_precision,
         modulus::{Modulus, NonNativePowerOfTwo},
         poly::ffnt::test::{poly_mul_prec_loss, round_trip_prec_loss},
         ring::{
@@ -109,6 +108,7 @@ mod test {
             test::{test_poly_mul, test_round_trip},
             RingOps,
         },
+        util::test::assert_precision,
     };
     use rand::{distributions::Uniform, thread_rng};
 

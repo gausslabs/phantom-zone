@@ -1,9 +1,9 @@
 use crate::{
-    distribution::NoiseDistribution,
-    lwe::structure::{
+    core::lwe::structure::{
         LweCiphertextMutView, LweCiphertextView, LweKeySwitchKeyMutView, LweKeySwitchKeyView,
         LwePlaintext, LweSecretKeyView,
     },
+    util::distribution::NoiseDistribution,
 };
 use phantom_zone_math::{decomposer::Decomposer, izip_eq, modulus::ElemFrom, ring::RingOps};
 use rand::RngCore;

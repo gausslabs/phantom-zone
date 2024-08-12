@@ -1,6 +1,6 @@
 use crate::{
     izip_eq,
-    misc::as_slice::{AsMutSlice, AsSlice},
+    util::as_slice::{AsMutSlice, AsSlice},
 };
 use core::{
     f64::consts::PI,

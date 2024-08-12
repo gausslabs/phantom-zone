@@ -2,9 +2,9 @@ use crate::{
     decomposer::Decomposer,
     distribution::Sampler,
     izip_eq,
-    misc::scratch::{Scratch, ScratchOwned},
     modulus::{ElemFrom, ElemTo, Modulus, ModulusOps},
     poly::automorphism::AutomorphismMapView,
+    util::scratch::{Scratch, ScratchOwned},
 };
 use core::{borrow::Borrow, fmt::Debug, mem::size_of};
 

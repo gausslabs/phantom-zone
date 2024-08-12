@@ -1,8 +1,8 @@
-use crate::rlwe::{RlweCiphertextList, RlweCiphertextMutView, RlweCiphertextView};
+use crate::core::rlwe::{RlweCiphertextList, RlweCiphertextMutView, RlweCiphertextView};
 use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    misc::{
+    util::{
         as_slice::{AsMutSlice, AsSlice},
         scratch::Scratch,
     },

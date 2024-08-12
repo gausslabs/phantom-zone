@@ -1,4 +1,4 @@
-use crate::{
+use crate::core::{
     rgsw::{self, RgswCiphertext, RgswCiphertextOwned},
     rlwe::{
         self,

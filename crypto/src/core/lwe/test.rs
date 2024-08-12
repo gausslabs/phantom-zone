@@ -1,9 +1,9 @@
 use crate::{
-    distribution::{NoiseDistribution, SecretKeyDistribution},
-    lwe::{
+    core::lwe::{
         self, LweCiphertext, LweCiphertextOwned, LweKeySwitchKey, LweKeySwitchKeyOwned,
         LwePlaintext, LweSecretKey, LweSecretKeyOwned,
     },
+    util::distribution::{NoiseDistribution, SecretKeyDistribution},
 };
 use phantom_zone_math::{
     decomposer::DecompositionParam,

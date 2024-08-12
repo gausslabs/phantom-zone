@@ -1,4 +1,4 @@
-use crate::{
+use crate::core::{
     lwe::{self, LweCiphertext, LweCiphertextMutView, LweKeySwitchKeyView},
     rgsw::{self, RgswCiphertextOwned},
     rlwe::{self, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextMutView, RlwePlaintextView},
@@ -7,9 +7,9 @@ use core::{cmp::Reverse, iter::successors};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
     izip_eq,
-    misc::scratch::Scratch,
     modulus::{ModulusOps, NonNativePowerOfTwo},
     ring::{NonNativePowerOfTwoRing, RingOps},
+    util::scratch::Scratch,
 };
 
 // Figure 2 + Algorithm 7 in 2022/198.
@@ -145,23 +145,25 @@ fn power_g_mod_q(g: usize, q: usize) -> impl Iterator<Item = usize> {
 #[cfg(test)]
 mod test {
     use crate::{
-        blind_rotation::lmkcdey::{bootstrap, power_g_mod_q},
-        lwe::test::{Lwe, LweParam},
-        rgsw::test::{Rgsw, RgswParam},
-        rlwe::{test::RlweParam, RlwePlaintext},
+        core::{
+            lwe::test::{Lwe, LweParam},
+            rgsw::test::{Rgsw, RgswParam},
+            rlwe::{test::RlweParam, RlwePlaintext},
+        },
+        scheme::blind_rotation::lmkcdey::{bootstrap, power_g_mod_q},
     };
     use core::{array::from_fn, iter::repeat, mem::size_of};
     use itertools::{chain, Itertools};
     use phantom_zone_math::{
         decomposer::DecompositionParam,
         distribution::{Gaussian, Ternary},
-        misc::scratch::ScratchOwned,
         modulus::{Modulus, NonNativePowerOfTwo, Prime},
         poly::automorphism::AutomorphismMap,
         ring::{
             NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
             NonNativePowerOfTwoRing, PrimeRing, RingOps,
         },
+        util::scratch::ScratchOwned,
     };
     use rand::thread_rng;
 
