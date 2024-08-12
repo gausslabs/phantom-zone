@@ -1,18 +1,22 @@
 use crate::{
-    distribution::NoiseDistribution,
-    lwe::LweCiphertextMutView,
-    rlwe::structure::{
-        RlweAutoKeyMutView, RlweAutoKeyView, RlweCiphertext, RlweCiphertextMutView,
-        RlweCiphertextView, RlweKeySwitchKeyMutView, RlweKeySwitchKeyView, RlwePlaintextMutView,
-        RlwePlaintextView, RlwePublicKeyMutView, RlwePublicKeyView, RlweSecretKeyView,
+    core::{
+        lwe::LweCiphertextMutView,
+        rlwe::structure::{
+            RlweAutoKeyMutView, RlweAutoKeyView, RlweCiphertext, RlweCiphertextMutView,
+            RlweCiphertextView, RlweKeySwitchKeyMutView, RlweKeySwitchKeyView,
+            RlwePlaintextMutView, RlwePlaintextView, RlwePublicKeyMutView, RlwePublicKeyView,
+            RlweSecretKeyView,
+        },
     },
+    util::{distribution::NoiseDistribution, rng::LweRng},
 };
 use core::{borrow::Borrow, ops::Neg};
 use phantom_zone_math::{
     decomposer::{Decomposer, DecompositionParam},
     izip_eq,
-    misc::scratch::Scratch,
-    ring::{ElemFrom, RingOps},
+    modulus::ElemFrom,
+    ring::RingOps,
+    util::scratch::Scratch,
 };
 use rand::RngCore;
 
@@ -22,12 +26,12 @@ pub fn pk_gen<'a, 'b, R, T>(
     sk: impl Into<RlweSecretKeyView<'b, T>>,
     noise_distribution: NoiseDistribution,
     scratch: Scratch,
-    rng: impl RngCore,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,
     T: 'b + Copy,
 {
-    sk_encrypt_with_pt_in_b(
+    sk_encrypt_zero(
         ring,
         pk.into().as_ct_mut(),
         sk,
@@ -44,32 +48,33 @@ pub fn sk_encrypt<'a, 'b, 'c, R, T>(
     pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
     noise_distribution: NoiseDistribution,
     scratch: Scratch,
-    rng: impl RngCore,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,
     T: 'b + Copy,
 {
     let mut ct = ct.into();
-    ct.b_mut().copy_from_slice(pt.into().as_ref());
-    sk_encrypt_with_pt_in_b(ring, ct, sk, noise_distribution, scratch, rng);
+    sk_encrypt_zero(ring, &mut ct, sk, noise_distribution, scratch, rng);
+    ring.slice_add_assign(ct.b_mut(), pt.into().as_ref());
 }
 
-pub fn sk_encrypt_with_pt_in_b<'a, 'b, R, T>(
+pub(crate) fn sk_encrypt_zero<'a, 'b, R, T>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     sk: impl Into<RlweSecretKeyView<'b, T>>,
     noise_distribution: NoiseDistribution,
     scratch: Scratch,
-    mut rng: impl RngCore,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,
     T: 'b + Copy,
 {
     let mut ct = ct.into();
     let (a, b) = ct.a_b_mut();
-    ring.sample_uniform_into(a, &mut rng);
-    ring.poly_fma_elem_from(b, a, sk.into().as_ref(), scratch);
-    ring.slice_add_assign_iter(b, ring.sample_iter::<i64>(noise_distribution, &mut rng));
+    ring.sample_uniform_into(a, rng.a());
+    ring.poly_mul_elem_from(b, a, sk.into().as_ref(), scratch);
+    let e = ring.sample_iter::<i64>(noise_distribution, rng.noise());
+    ring.slice_add_assign_iter(b, e);
 }
 
 pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
@@ -80,24 +85,24 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     u_distribution: NoiseDistribution,
     noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
-    mut rng: impl RngCore,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) {
     let (mut ct, pk) = (ct.into(), pk.into());
 
     let t0 = ring.take_eval(&mut scratch);
     let u = ring.take_poly(&mut scratch.reborrow());
-    ring.sample_into::<i64>(u, u_distribution, &mut rng);
+    ring.sample_into::<i64>(u, u_distribution, rng.noise());
     ring.forward(t0, u);
 
     let t1 = ring.take_eval(&mut scratch);
     ring.forward(t1, pk.a());
     ring.eval_mul_assign(t1, t0);
-    ring.sample_into::<i64>(ct.a_mut(), noise_distribution, &mut rng);
+    ring.sample_into::<i64>(ct.a_mut(), noise_distribution, rng.noise());
     ring.add_backward_normalized(ct.a_mut(), t1);
 
     ring.forward(t1, pk.b());
     ring.eval_mul_assign(t1, t0);
-    ring.sample_into::<i64>(ct.b_mut(), noise_distribution, &mut rng);
+    ring.sample_into::<i64>(ct.b_mut(), noise_distribution, rng.noise());
     ring.add_backward_normalized(ct.b_mut(), t1);
     ring.slice_add_assign(ct.b_mut(), pt.into().as_ref());
 }
@@ -140,7 +145,7 @@ pub fn ks_key_gen<'a, 'b, 'c, R, T>(
     sk_to: impl Into<RlweSecretKeyView<'c, T>>,
     noise_distribution: NoiseDistribution,
     scratch: Scratch,
-    rng: impl RngCore,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,
     T: 'b + 'c + Copy,
@@ -159,11 +164,11 @@ pub fn ks_key_gen<'a, 'b, 'c, R, T>(
 fn ks_key_gen_inner<R, T>(
     ring: &R,
     mut ks_key: RlweKeySwitchKeyMutView<R::Elem>,
-    sk_from: impl Clone + IntoIterator<Item: Borrow<T>>,
+    sk_from: &[T],
     sk_to: RlweSecretKeyView<T>,
     noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
-    mut rng: impl RngCore,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,
     T: Copy,
@@ -171,9 +176,8 @@ fn ks_key_gen_inner<R, T>(
     let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
     izip_eq!(ks_key.ct_iter_mut(), decomposer.gadget_iter()).for_each(|(mut ks_key_i, beta_i)| {
         let scratch = scratch.reborrow();
-        ring.slice_elem_from_iter(ks_key_i.b_mut(), sk_from.clone());
-        ring.slice_scalar_mul_assign(ks_key_i.b_mut(), &ring.neg(&beta_i));
-        sk_encrypt_with_pt_in_b(ring, ks_key_i, sk_to, noise_distribution, scratch, &mut rng);
+        sk_encrypt_zero(ring, &mut ks_key_i, sk_to, noise_distribution, scratch, rng);
+        ring.slice_scalar_fma_elem_from(ks_key_i.b_mut(), sk_from, &ring.neg(&beta_i));
     });
 }
 
@@ -202,15 +206,15 @@ pub fn auto_key_gen<'a, 'b, R, T>(
     auto_key: impl Into<RlweAutoKeyMutView<'a, R::Elem>>,
     sk: impl Into<RlweSecretKeyView<'b, T>>,
     noise_distribution: NoiseDistribution,
-    scratch: Scratch,
-    rng: impl RngCore,
+    mut scratch: Scratch<'b>,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,
     T: 'b + Copy + Neg<Output = T>,
 {
     let (mut auto_key, sk) = (auto_key.into(), sk.into());
     let (auto_map, ks_key) = auto_key.auto_map_and_ks_key_mut();
-    let sk_auto = auto_map.apply(sk.as_ref(), |&v| -v);
+    let sk_auto = scratch.copy_iter(auto_map.apply(sk.as_ref(), |&v| -v));
     ks_key_gen_inner(ring, ks_key, sk_auto, sk, noise_distribution, scratch, rng);
 }
 

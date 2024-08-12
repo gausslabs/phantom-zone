@@ -94,7 +94,7 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
 mod test {
     use crate::{
         distribution::Sampler,
-        modulus::{Modulus, PowerOfTwo},
+        modulus::{Modulus, NonNativePowerOfTwo},
         ring::{
             power_of_two::precise::{NativeRing, NonNativePowerOfTwoRing},
             test::{test_poly_mul, test_round_trip},
@@ -109,7 +109,7 @@ mod test {
         for log_ring_size in 0..10 {
             for log_q in 50..56 {
                 let ring: NonNativePowerOfTwoRing =
-                    RingOps::new(PowerOfTwo(log_q).into(), 1 << log_ring_size);
+                    RingOps::new(NonNativePowerOfTwo::new(log_q).into(), 1 << log_ring_size);
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 test_round_trip(&ring, &a, |a, b| assert_eq!(a, b));
             }
@@ -132,7 +132,7 @@ mod test {
         for log_ring_size in 0..10 {
             for log_q in 50..54 {
                 let ring: NonNativePowerOfTwoRing =
-                    RingOps::new(PowerOfTwo(log_q).into(), 1 << log_ring_size);
+                    RingOps::new(NonNativePowerOfTwo::new(log_q).into(), 1 << log_ring_size);
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 let b = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 test_poly_mul(&ring, &a, &b, |a, b| assert_eq!(a, b));

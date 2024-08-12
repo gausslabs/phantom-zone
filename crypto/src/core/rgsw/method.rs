@@ -1,16 +1,15 @@
 use crate::{
-    distribution::NoiseDistribution,
-    rgsw::structure::{RgswCiphertext, RgswCiphertextMutView, RgswCiphertextView},
-    rlwe::{
-        decomposed_fma, decomposed_fma_prep, sk_encrypt_with_pt_in_b, RlweCiphertext,
-        RlweCiphertextMutView, RlwePlaintextView, RlweSecretKeyView,
+    core::{
+        rgsw::structure::{RgswCiphertext, RgswCiphertextMutView, RgswCiphertextView},
+        rlwe::{
+            decomposed_fma, decomposed_fma_prep, sk_encrypt_zero, RlweCiphertext,
+            RlweCiphertextMutView, RlwePlaintextView, RlweSecretKeyView,
+        },
     },
+    util::{distribution::NoiseDistribution, rng::LweRng},
 };
 use phantom_zone_math::{
-    decomposer::Decomposer,
-    izip_eq,
-    misc::scratch::Scratch,
-    ring::{ElemFrom, RingOps},
+    decomposer::Decomposer, izip_eq, modulus::ElemFrom, ring::RingOps, util::scratch::Scratch,
 };
 use rand::RngCore;
 
@@ -21,7 +20,7 @@ pub fn sk_encrypt<'a, 'b, 'c, R, T>(
     pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
     noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
-    mut rng: impl RngCore,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,
     T: 'b + Copy,
@@ -31,13 +30,13 @@ pub fn sk_encrypt<'a, 'b, 'c, R, T>(
     let decomposer_b = R::Decomposer::new(ring.modulus(), ct.decomposition_param_b());
     izip_eq!(ct.a_ct_iter_mut(), decomposer_a.gadget_iter()).for_each(|(mut ct, beta_i)| {
         let scratch = scratch.reborrow();
-        sk_encrypt_with_pt_in_b(ring, &mut ct, sk, noise_distribution, scratch, &mut rng);
-        ring.slice_scalar_fma(ct.a_mut(), pt.as_ref(), &beta_i)
+        sk_encrypt_zero(ring, &mut ct, sk, noise_distribution, scratch, rng);
+        ring.slice_scalar_fma(ct.a_mut(), pt.as_ref(), &beta_i);
     });
     izip_eq!(ct.b_ct_iter_mut(), decomposer_b.gadget_iter()).for_each(|(mut ct, beta_i)| {
         let scratch = scratch.reborrow();
-        sk_encrypt_with_pt_in_b(ring, &mut ct, sk, noise_distribution, scratch, &mut rng);
-        ring.slice_scalar_fma(ct.b_mut(), pt.as_ref(), &beta_i)
+        sk_encrypt_zero(ring, &mut ct, sk, noise_distribution, scratch, rng);
+        ring.slice_scalar_fma(ct.b_mut(), pt.as_ref(), &beta_i);
     });
 }
 

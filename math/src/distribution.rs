@@ -1,4 +1,7 @@
-use crate::ring::{ElemFrom, ModulusOps, RingOps};
+use crate::{
+    modulus::{ElemFrom, ModulusOps},
+    ring::RingOps,
+};
 use core::{convert::identity, iter::repeat_with};
 use itertools::{izip, Itertools};
 use num_traits::{FromPrimitive, PrimInt, Signed};
@@ -51,9 +54,6 @@ pub trait Sampler: ModulusOps {
         self.sample_into(&mut out, dist, rng);
         out
     }
-
-    fn uniform_distribution(&self)
-        -> impl Distribution<Self::Elem> + DistributionSized<Self::Elem>;
 
     fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
         self.uniform_distribution().sample(&mut rng)

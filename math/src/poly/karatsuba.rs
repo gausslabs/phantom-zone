@@ -1,4 +1,4 @@
-use crate::{misc::as_slice::AsSlice, ring::SliceOps};
+use crate::{ring::SliceOps, util::as_slice::AsSlice};
 use core::array::from_fn;
 use itertools::izip;
 

@@ -1,4 +1,3 @@
-use core::fmt::Debug;
 use num_traits::FromPrimitive;
 use phantom_zone_math::distribution::{DistributionSized, Gaussian, Ternary};
 use rand::{distributions::Distribution, Rng};

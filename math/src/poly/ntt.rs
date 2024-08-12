@@ -1,14 +1,13 @@
 use crate::{
-    misc::{as_slice::AsMutSlice, bit_reverse},
-    modulus::{inv_mod, pow_mod, powers_mod, Prime},
-    ring::prime::Shoup,
+    modulus::{prime::Shoup, ModulusOps, Prime},
+    util::{as_slice::AsMutSlice, bit_reverse},
 };
 use itertools::izip;
 
 /// Negacyclic NTT
 #[derive(Clone, Debug)]
 pub struct Ntt {
-    q: u64,
+    q: Prime,
     q_twice: u64,
     q_quart: u64,
     ring_size: usize,
@@ -18,20 +17,19 @@ pub struct Ntt {
 }
 
 impl Ntt {
-    pub fn new(Prime(q): Prime, ring_size: usize) -> Self {
+    pub fn new(q: Prime, ring_size: usize) -> Self {
         assert!(ring_size.is_power_of_two());
 
-        let g = two_adic_generator(q, ring_size.ilog2() as usize + 1);
-        let [twiddle_bo, twiddle_bo_inv] = [g, inv_mod(g, q).unwrap()]
-            .map(|b| powers_mod(b, q).take(ring_size).map(|v| Shoup::new(v, q)))
-            .map(FromIterator::from_iter)
+        let g = q.two_adic_generator(ring_size.ilog2() as usize + 1);
+        let [twiddle_bo, twiddle_bo_inv] = [g, q.inv(&g).unwrap()]
+            .map(|b| Vec::from_iter(q.powers(&b).take(ring_size).map(|v| Shoup::new(v, *q))))
             .map(bit_reverse);
-        let n_inv = Shoup::new(inv_mod(ring_size as _, q).unwrap(), q);
+        let n_inv = Shoup::new(q.inv(&(ring_size as u64)).unwrap(), *q);
 
         Self {
             q,
-            q_twice: q << 1,
-            q_quart: q << 2,
+            q_twice: *q << 1,
+            q_quart: *q << 2,
             ring_size,
             twiddle_bo,
             twiddle_bo_inv,
@@ -80,7 +78,8 @@ impl Ntt {
     }
 
     pub fn normalize(&self, a: &mut [u64]) {
-        a.iter_mut().for_each(|a| *a = self.n_inv.mul(*a, self.q));
+        a.iter_mut()
+            .for_each(|a| *a = self.q.mul_prep(a, self.n_inv()));
     }
 
     #[inline(always)]
@@ -95,7 +94,7 @@ impl Ntt {
         debug_assert!(*a < self.q_quart);
         debug_assert!(*b < self.q_quart);
         self.reduce_twice_assign(a);
-        let bt = t.mul(*b, self.q);
+        let bt = self.q.mul_prep(b, t);
         let c = *a + bt;
         let d = *a + self.q_twice - bt;
         *a = c;
@@ -107,7 +106,7 @@ impl Ntt {
         debug_assert!(*a < self.q_quart);
         debug_assert!(*b < self.q_quart);
         self.reduce_twice_assign(a);
-        let bt = t.mul(*b, self.q);
+        let bt = self.q.mul_prep(b, t);
         let c = a.wrapping_add(bt);
         let d = a.wrapping_sub(bt);
         *a = (c).min(c.wrapping_sub(self.q_twice));
@@ -120,20 +119,8 @@ impl Ntt {
         debug_assert!(*b < self.q_twice);
         let mut c = *a + *b;
         self.reduce_twice_assign(&mut c);
-        let d = t.mul(*a + self.q_twice - *b, self.q);
+        let d = self.q.mul_prep(&(*a + self.q_twice - *b), t);
         *a = c;
         *b = d;
     }
-}
-
-pub fn two_adic_generator(q: u64, two_adicity: usize) -> u64 {
-    assert_eq!((q - 1) % (1 << two_adicity) as u64, 0);
-    pow_mod(multiplicative_generator(q), (q - 1) >> two_adicity, q)
-}
-
-pub fn multiplicative_generator(q: u64) -> u64 {
-    let order = q - 1;
-    (1..order)
-        .find(|g| pow_mod(*g, order >> 1, q) == order)
-        .unwrap()
 }

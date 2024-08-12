@@ -1,15 +1,15 @@
-use crate::{
+use crate::core::{
     lwe::{self, LweCiphertext, LweCiphertextMutView, LweKeySwitchKeyView},
     rgsw::{self, RgswCiphertextOwned},
     rlwe::{self, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextMutView, RlwePlaintextView},
 };
-use core::cmp::Reverse;
+use core::{cmp::Reverse, iter::successors};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
     izip_eq,
-    misc::scratch::Scratch,
-    modulus::{powers_mod, PowerOfTwo},
-    ring::{ModulusOps, NonNativePowerOfTwoRing, RingOps},
+    modulus::{ModulusOps, NonNativePowerOfTwo},
+    ring::{NonNativePowerOfTwoRing, RingOps},
+    util::scratch::Scratch,
 };
 
 // Figure 2 + Algorithm 7 in 2022/198.
@@ -26,7 +26,7 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
 ) {
     debug_assert_eq!((2 * ring.ring_size()) % q, 0);
     let embedding_factor = 2 * ring.ring_size() / q;
-    let mod_q = NonNativePowerOfTwoRing::new(PowerOfTwo::new(q.ilog2() as _).into(), 1);
+    let mod_q = NonNativePowerOfTwoRing::new(NonNativePowerOfTwo::new(q.ilog2() as _).into(), 1);
     let (ct, ks_key, f_auto_neg_g) = (ct.into(), ks_key.into(), f_auto_neg_g.into());
 
     let mut ct_mod_switch = LweCiphertext::scratch(ks_key.from_dimension(), &mut scratch);
@@ -130,35 +130,42 @@ fn log_g_map(q: usize, g: usize, mut scratch: Scratch) -> &mut [usize] {
     let log_g_map = scratch.take_slice(q);
     #[cfg(debug_assertions)]
     log_g_map.fill(usize::MAX);
-    izip!(powers_mod(g, q), 0..q / 4).for_each(|(v, i)| {
+    izip!(power_g_mod_q(g, q), 0..q / 4).for_each(|(v, i)| {
         log_g_map[v] = i << 1;
         log_g_map[q - v] = i << 1 | 1;
     });
     log_g_map
 }
 
+fn power_g_mod_q(g: usize, q: usize) -> impl Iterator<Item = usize> {
+    let mask = q - 1;
+    successors(Some(1), move |v| ((v * g) & mask).into())
+}
+
 #[cfg(test)]
 mod test {
     use crate::{
-        blind_rotation::lmkcdey::bootstrap,
-        lwe::test::{Lwe, LweParam},
-        rgsw::test::{Rgsw, RgswParam},
-        rlwe::{test::RlweParam, RlwePlaintext},
+        core::{
+            lwe::test::{Lwe, LweParam},
+            rgsw::test::{Rgsw, RgswParam},
+            rlwe::{test::RlweParam, RlwePlaintext},
+        },
+        scheme::blind_rotation::lmkcdey::{bootstrap, power_g_mod_q},
+        util::rng::test::StdLweRng,
     };
     use core::{array::from_fn, iter::repeat, mem::size_of};
     use itertools::{chain, Itertools};
     use phantom_zone_math::{
         decomposer::DecompositionParam,
         distribution::{Gaussian, Ternary},
-        misc::scratch::ScratchOwned,
-        modulus::{powers_mod, Modulus, PowerOfTwo, Prime},
+        modulus::{Modulus, NonNativePowerOfTwo, Prime},
         poly::automorphism::AutomorphismMap,
         ring::{
             NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
             NonNativePowerOfTwoRing, PrimeRing, RingOps,
         },
+        util::scratch::ScratchOwned,
     };
-    use rand::thread_rng;
 
     #[derive(Clone, Copy, Debug)]
     struct BootstrappingParam {
@@ -202,7 +209,7 @@ mod test {
             },
             lwe_ks: LweParam {
                 message_modulus,
-                ciphertext_modulus: PowerOfTwo::new(16).into(),
+                ciphertext_modulus: NonNativePowerOfTwo::new(16).into(),
                 dimension: 100,
                 sk_distribution: Gaussian::new(3.2).into(),
                 noise_distribution: Gaussian::new(3.2).into(),
@@ -219,8 +226,8 @@ mod test {
 
     #[test]
     fn nand() {
-        fn run<R: RingOps>(big_q: impl Copy + Into<Modulus>, embedding_factor: usize) {
-            let mut rng = thread_rng();
+        fn run<R: RingOps>(big_q: impl Into<Modulus>, embedding_factor: usize) {
+            let mut rng = StdLweRng::from_entropy();
             let param = testing_param(big_q, embedding_factor);
             let (rgsw, lwe, lwe_ks) = param.build::<R>();
             let rlwe = rgsw.rlwe();
@@ -236,9 +243,9 @@ mod test {
             };
             let mut scratch = scratch.borrow_mut();
 
-            let rlwe_sk = rlwe.sk_gen(&mut rng);
+            let rlwe_sk = rlwe.sk_gen();
             let lwe_sk = rlwe_sk.clone().into();
-            let lwe_ks_sk = lwe_ks.sk_gen(&mut rng);
+            let lwe_ks_sk = lwe_ks.sk_gen();
             let ks_key = lwe_ks.ks_key_gen(&lwe_sk, &lwe_ks_sk, &mut rng);
             let brk = lwe_ks_sk
                 .as_ref()
@@ -250,11 +257,11 @@ mod test {
                     rgsw.prepare_rgsw(&rgsw.sk_encrypt(&rlwe_sk, &pt, &mut rng))
                 })
                 .collect_vec();
-            let ak = chain![[param.q - param.g], powers_mod(param.g, param.q).skip(1)]
+            let ak = chain![[param.q - param.g], power_g_mod_q(param.g, param.q).skip(1)]
                 .take(param.w + 1)
                 .map(|k| rlwe.prepare_auto_key(&rlwe.auto_key_gen(&rlwe_sk, k as _, &mut rng)))
                 .collect_vec();
-            let big_q_by_8 = ring.elem_from(big_q.into().to_f64() / 8f64);
+            let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
             let nand_lut_auto_neg_g = {
                 let q_half = param.q / 2;
                 let nand_lut = [true, true, true, false]
@@ -293,9 +300,9 @@ mod test {
 
         for embedding_factor in [1, 2] {
             run::<NoisyNativeRing>(Modulus::native(), embedding_factor);
-            run::<NoisyNonNativePowerOfTwoRing>(PowerOfTwo::new(50), embedding_factor);
+            run::<NoisyNonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(50), embedding_factor);
             run::<NativeRing>(Modulus::native(), embedding_factor);
-            run::<NonNativePowerOfTwoRing>(PowerOfTwo::new(50), embedding_factor);
+            run::<NonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(50), embedding_factor);
             run::<NoisyPrimeRing>(Prime::gen(50, 12), embedding_factor);
             run::<PrimeRing>(Prime::gen(50, 12), embedding_factor);
         }

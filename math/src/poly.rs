@@ -4,7 +4,7 @@ pub mod karatsuba;
 pub mod ntt;
 
 #[cfg(test)]
-pub mod test {
+pub(crate) mod test {
     use crate::ring::SliceOps;
     use itertools::izip;
 
