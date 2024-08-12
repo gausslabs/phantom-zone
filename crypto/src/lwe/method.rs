@@ -5,11 +5,7 @@ use crate::{
         LwePlaintext, LweSecretKeyView,
     },
 };
-use phantom_zone_math::{
-    decomposer::Decomposer,
-    izip_eq,
-    ring::{ElemFrom, RingOps},
-};
+use phantom_zone_math::{decomposer::Decomposer, izip_eq, modulus::ElemFrom, ring::RingOps};
 use rand::RngCore;
 
 pub fn sk_encrypt<'a, 'b, R, T>(

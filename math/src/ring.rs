@@ -3,98 +3,20 @@ use crate::{
     distribution::Sampler,
     izip_eq,
     misc::scratch::{Scratch, ScratchOwned},
-    modulus::Modulus,
+    modulus::{ElemFrom, ElemTo, Modulus, ModulusOps},
     poly::automorphism::AutomorphismMapView,
 };
-use core::{borrow::Borrow, fmt::Debug, hash::Hash, mem::size_of};
-use itertools::izip;
+use core::{borrow::Borrow, fmt::Debug, mem::size_of};
 
 pub(crate) mod power_of_two;
 pub(crate) mod prime;
 
+use itertools::izip;
 pub use power_of_two::{
     noisy::{NoisyNativeRing, NoisyNonNativePowerOfTwoRing},
     precise::{NativeRing, NonNativePowerOfTwoRing},
 };
 pub use prime::{noisy::NoisyPrimeRing, precise::PrimeRing};
-
-pub trait ModulusOps {
-    type Elem: 'static + Copy + Debug + Default + Eq + Ord + Hash;
-    type Prep: 'static + Copy + Debug + Default;
-
-    fn modulus(&self) -> Modulus;
-
-    fn zero(&self) -> Self::Elem;
-
-    fn one(&self) -> Self::Elem;
-
-    fn neg_one(&self) -> Self::Elem;
-
-    fn neg(&self, a: &Self::Elem) -> Self::Elem;
-
-    fn add(&self, a: &Self::Elem, b: &Self::Elem) -> Self::Elem;
-
-    fn sub(&self, a: &Self::Elem, b: &Self::Elem) -> Self::Elem;
-
-    fn mul(&self, a: &Self::Elem, b: &Self::Elem) -> Self::Elem;
-
-    fn add_elem_from<T: Copy>(&self, a: &Self::Elem, b: &T) -> Self::Elem
-    where
-        Self: ElemFrom<T>,
-    {
-        self.add(a, &self.elem_from(*b))
-    }
-
-    fn sub_elem_from<T: Copy>(&self, a: &Self::Elem, b: &T) -> Self::Elem
-    where
-        Self: ElemFrom<T>,
-    {
-        self.sub(a, &self.elem_from(*b))
-    }
-
-    fn mul_elem_from<T: Copy>(&self, a: &Self::Elem, b: &T) -> Self::Elem
-    where
-        Self: ElemFrom<T>,
-    {
-        self.mul(a, &self.elem_from(*b))
-    }
-
-    fn prepare(&self, a: &Self::Elem) -> Self::Prep;
-
-    fn mul_prep(&self, a: &Self::Elem, b: &Self::Prep) -> Self::Elem;
-
-    #[allow(clippy::wrong_self_convention)]
-    fn from_u64(&self, a: u64) -> Self::Elem
-    where
-        Self: ElemFrom<u64>,
-    {
-        self.elem_from(a)
-    }
-
-    fn to_u64(&self, a: Self::Elem) -> u64
-    where
-        Self: ElemTo<u64>,
-    {
-        self.elem_to(a)
-    }
-
-    fn mod_switch<M>(&self, a: &Self::Elem, mod_to: &M) -> M::Elem
-    where
-        Self: ElemTo<u64>,
-        M: ElemFrom<u64>,
-    {
-        let delta = mod_to.modulus().to_f64() / self.modulus().to_f64();
-        mod_to.elem_from((self.to_u64(*a) as f64 * delta).round() as _)
-    }
-}
-
-pub trait ElemFrom<T>: ModulusOps {
-    fn elem_from(&self, v: T) -> Self::Elem;
-}
-
-pub trait ElemTo<T>: ModulusOps {
-    fn elem_to(&self, v: Self::Elem) -> T;
-}
 
 pub trait SliceOps: ModulusOps {
     fn slice_op_assign<T>(&self, b: &mut [Self::Elem], a: &[T], f: impl Fn(&mut Self::Elem, &T)) {
@@ -300,7 +222,7 @@ pub trait SliceOps: ModulusOps {
         Self: ElemTo<u64>,
         M: ElemFrom<u64>,
     {
-        let delta = mod_to.modulus().to_f64() / self.modulus().to_f64();
+        let delta = mod_to.modulus().as_f64() / self.modulus().as_f64();
         let mod_swtich = |a| mod_to.elem_from((self.to_u64(a) as f64 * delta).round() as _);
         izip_eq!(b, a).for_each(|(b, a)| *b = mod_swtich(*a))
     }
@@ -310,7 +232,7 @@ pub trait SliceOps: ModulusOps {
         Self: ElemTo<u64>,
         M: ElemFrom<u64>,
     {
-        let delta = mod_to.modulus().to_f64() / self.modulus().to_f64();
+        let delta = mod_to.modulus().as_f64() / self.modulus().as_f64();
         let mod_switch_odd = |a| {
             let a = self.to_u64(a) as f64 * delta;
             let t = a.floor() as u64;

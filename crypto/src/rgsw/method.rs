@@ -7,10 +7,7 @@ use crate::{
     },
 };
 use phantom_zone_math::{
-    decomposer::Decomposer,
-    izip_eq,
-    misc::scratch::Scratch,
-    ring::{ElemFrom, RingOps},
+    decomposer::Decomposer, izip_eq, misc::scratch::Scratch, modulus::ElemFrom, ring::RingOps,
 };
 use rand::RngCore;
 

@@ -12,7 +12,8 @@ use phantom_zone_math::{
     decomposer::{Decomposer, DecompositionParam},
     izip_eq,
     misc::scratch::Scratch,
-    ring::{ElemFrom, RingOps},
+    modulus::ElemFrom,
+    ring::RingOps,
 };
 use rand::RngCore;
 

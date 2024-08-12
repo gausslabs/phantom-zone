@@ -8,7 +8,7 @@ use crate::{
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::Gaussian,
-    modulus::{Modulus, PowerOfTwo, Prime},
+    modulus::{Modulus, NonNativePowerOfTwo, Prime},
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
@@ -33,7 +33,7 @@ impl LweParam {
     }
 
     pub fn build<R: RingOps>(self) -> Lwe<R> {
-        let delta = self.ciphertext_modulus.to_f64() / self.message_modulus as f64;
+        let delta = self.ciphertext_modulus.as_f64() / self.message_modulus as f64;
         let ring = RingOps::new(self.ciphertext_modulus, 1);
         Lwe {
             param: self,
@@ -172,9 +172,9 @@ fn encrypt_decrypt() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 0)));
     run::<PrimeRing>(test_param(Prime::gen(50, 0)));
 }
@@ -197,9 +197,9 @@ fn key_switch() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 0)));
     run::<PrimeRing>(test_param(Prime::gen(50, 0)));
 }

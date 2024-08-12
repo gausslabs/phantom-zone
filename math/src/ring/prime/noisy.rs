@@ -27,7 +27,7 @@ impl RingOps for NoisyPrimeRing {
     }
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
-        self.fft.forward(b, a, |a| self.to_i64(*a) as _);
+        self.fft.forward(b, a, |a| self.q.center(*a) as _);
     }
 
     fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T])
@@ -35,11 +35,12 @@ impl RingOps for NoisyPrimeRing {
         Self: ElemFrom<T>,
     {
         self.fft
-            .forward(b, a, |a| self.to_i64(self.elem_from(*a)) as _);
+            .forward(b, a, |a| self.q.center(self.elem_from(*a)) as _);
     }
 
     fn forward_normalized(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
-        self.fft.forward_normalized(b, a, |a| self.to_i64(*a) as _);
+        self.fft
+            .forward_normalized(b, a, |a| self.q.center(*a) as _);
     }
 
     fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
@@ -52,13 +53,13 @@ impl RingOps for NoisyPrimeRing {
 
     fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
         self.fft.add_backward(b, a, |b, a| {
-            *b = self.reduce_i128(*b as i128 + a.round() as i128)
+            *b = self.q.reduce_i128(*b as i128 + a.round() as i128)
         });
     }
 
     fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
         self.fft.add_backward_normalized(b, a, |b, a| {
-            *b = self.reduce_i128(*b as i128 + a.round() as i128)
+            *b = self.q.reduce_i128(*b as i128 + a.round() as i128)
         });
     }
 

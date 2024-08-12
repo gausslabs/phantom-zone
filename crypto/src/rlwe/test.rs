@@ -11,9 +11,9 @@ use itertools::Itertools;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::{Gaussian, Sampler, Ternary},
-    modulus::{powers_mod, Modulus, PowerOfTwo, Prime},
+    modulus::{Modulus, ModulusOps, NonNativePowerOfTwo, Prime},
     ring::{
-        ModulusOps, NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
+        NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps, SliceOps,
     },
 };
@@ -45,7 +45,7 @@ impl RlweParam {
     pub fn build<R: RingOps>(self) -> Rlwe<R> {
         let ring = R::new(self.ciphertext_modulus, self.ring_size);
         let message_ring = NonNativePowerOfTwoRing::new(
-            PowerOfTwo::new(self.message_modulus.ilog2() as _).into(),
+            NonNativePowerOfTwo::new(self.message_modulus.ilog2() as _).into(),
             self.ring_size,
         );
         Rlwe {
@@ -340,9 +340,9 @@ fn encrypt_decrypt() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }
@@ -363,9 +363,9 @@ fn sample_extract() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }
@@ -391,9 +391,9 @@ fn key_switch() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }
@@ -404,7 +404,7 @@ fn automorphism() {
         let mut rng = thread_rng();
         let rlwe = param.build::<R>();
         let sk = rlwe.sk_gen(&mut rng);
-        for k in powers_mod(5, 2 * rlwe.ring_size()).take(rlwe.ring_size() / 2) {
+        for k in (1..rlwe.ring_size()).step_by(2) {
             let auto_key = rlwe.auto_key_gen(&sk, k as _, &mut rng);
             let auto_key_prep = rlwe.prepare_auto_key(&auto_key);
             let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
@@ -421,9 +421,9 @@ fn automorphism() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }

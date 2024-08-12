@@ -1,7 +1,7 @@
 use crate::{
     izip_eq,
     misc::scratch::Scratch,
-    modulus::{add_mod, mul_mod, Modulus, PowerOfTwo, Prime},
+    modulus::{power_of_two::PowerOfTwo, Modulus, ModulusOps, Prime},
 };
 use core::{borrow::Borrow, fmt::Debug};
 
@@ -80,8 +80,7 @@ pub type NonNativePowerOfTwoDecomposer = PowerOfTwoDecomposer<false>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct PowerOfTwoDecomposer<const NATIVE: bool> {
-    modulus: PowerOfTwo,
-    modulus_mask: u64,
+    q: PowerOfTwo<NATIVE>,
     log_base: usize,
     base_mask: u64,
     level: usize,
@@ -90,14 +89,13 @@ pub struct PowerOfTwoDecomposer<const NATIVE: bool> {
 }
 
 impl<const NATIVE: bool> PowerOfTwoDecomposer<NATIVE> {
-    pub fn new(modulus: PowerOfTwo, param: DecompositionParam) -> Self {
+    pub fn new(q: PowerOfTwo<NATIVE>, param: DecompositionParam) -> Self {
         let log_base = param.log_base;
         let level = param.level;
         let base_mask = (1 << log_base) - 1;
-        let ignored_bits = modulus.bits().saturating_sub(log_base * level);
+        let ignored_bits = q.bits().saturating_sub(log_base * level);
         Self {
-            modulus,
-            modulus_mask: modulus.mask(),
+            q,
             log_base,
             base_mask,
             level,
@@ -113,7 +111,7 @@ impl<const NATIVE: bool> Decomposer<u64> for PowerOfTwoDecomposer<NATIVE> {
     }
 
     fn modulus(&self) -> Modulus {
-        self.modulus.into()
+        self.q.into()
     }
 
     fn log_base(&self) -> usize {
@@ -143,26 +141,22 @@ impl<const NATIVE: bool> Decomposer<u64> for PowerOfTwoDecomposer<NATIVE> {
         *a >>= self.log_base;
         let carry = ((limb.wrapping_sub(1) | *a) & limb) >> (self.log_base - 1);
         *a += carry;
-        if NATIVE {
-            limb.wrapping_sub(carry << self.log_base)
-        } else {
-            limb.wrapping_sub(carry << self.log_base) & self.modulus_mask
-        }
+        self.q.reduce(limb.wrapping_sub(carry << self.log_base))
     }
 
     fn recompose(&self, a: impl IntoIterator<Item = u64>) -> u64 {
-        izip_eq!(a, self.log_gadget_iter())
-            .map(|(a, bits)| a << bits)
-            .reduce(|a, b| a.wrapping_add(b))
-            .unwrap_or_default()
-            & self.modulus_mask
+        self.q.reduce(
+            izip_eq!(a, self.log_gadget_iter())
+                .map(|(a, bits)| a << bits)
+                .reduce(|a, b| a.wrapping_add(b))
+                .unwrap_or_default(),
+        )
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct PrimeDecomposer {
-    q: u64,
-    q_half: u64,
+    q: Prime,
     log_base: usize,
     base_mask: u64,
     level: usize,
@@ -176,11 +170,8 @@ impl PrimeDecomposer {
         let level = param.level;
         let base_mask = (1 << log_base) - 1;
         let ignored_bits = q.bits().saturating_sub(log_base * level);
-        let q = u64::from(q);
-        let q_half = q >> 1;
         Self {
             q,
-            q_half,
             log_base,
             base_mask,
             level,
@@ -196,7 +187,7 @@ impl Decomposer<u64> for PrimeDecomposer {
     }
 
     fn modulus(&self) -> Modulus {
-        Prime(self.q).into()
+        self.q.into()
     }
 
     fn log_base(&self) -> usize {
@@ -213,9 +204,9 @@ impl Decomposer<u64> for PrimeDecomposer {
 
     fn round(&self, a: &u64) -> u64 {
         let mut a = *a;
-        if a >= self.q_half {
+        if a >= self.q.half() {
             // 2's complement to get -ve in u64
-            a = !(self.q - a) + 1;
+            a = !(*self.q - a) + 1;
         }
         a.wrapping_add(self.ignored_half) >> self.ignored_bits
     }
@@ -233,8 +224,8 @@ impl Decomposer<u64> for PrimeDecomposer {
         let carry = (limb > bby2) || (limb == bby2 && (*a & 1u64 == 1u64));
 
         if carry {
-            *a = *a + 1;
-            self.q + limb - (1u64 << self.log_base)
+            *a += 1;
+            *self.q + limb - (1u64 << self.log_base)
         } else {
             limb
         }
@@ -242,8 +233,8 @@ impl Decomposer<u64> for PrimeDecomposer {
 
     fn recompose(&self, a: impl IntoIterator<Item = u64>) -> u64 {
         izip_eq!(a, self.gadget_iter())
-            .map(|(a, b)| mul_mod(a, b, self.q))
-            .reduce(|a, b| add_mod(a, b, self.q))
+            .map(|(a, b)| self.q.mul(&a, &b))
+            .reduce(|a, b| self.q.add(&a, &b))
             .unwrap_or_default()
     }
 }
@@ -255,8 +246,9 @@ mod test {
             Decomposer, DecompositionParam, NativeDecomposer, NonNativePowerOfTwoDecomposer,
             PrimeDecomposer,
         },
-        modulus::{Modulus, PowerOfTwo, Prime},
+        modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
     };
+    use core::iter::Sum;
     use num_traits::{Signed, ToPrimitive};
     use rand::{
         distributions::{Distribution, Uniform},
@@ -264,8 +256,8 @@ mod test {
     };
 
     #[derive(Clone)]
-    pub(crate) struct Stats<T> {
-        pub(crate) samples: Vec<T>,
+    struct Stats<T> {
+        samples: Vec<T>,
     }
 
     impl<T> Default for Stats<T> {
@@ -274,11 +266,11 @@ mod test {
         }
     }
 
-    impl<T: Copy + ToPrimitive + Signed> Stats<T>
+    impl<T: Copy + ToPrimitive + Signed + Sum<T>> Stats<T>
     where
-        T: for<'a> std::iter::Sum<&'a T> + std::iter::Sum<T>,
+        T: for<'a> Sum<&'a T>,
     {
-        pub(crate) fn mean(&self) -> f64 {
+        fn mean(&self) -> f64 {
             self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
         }
 
@@ -292,17 +284,16 @@ mod test {
                     let t = v.to_f64().unwrap() - mean;
                     t * t
                 })
-                .into_iter()
                 .sum::<f64>();
 
             diff_sq / (self.samples.len() as f64 - 1.0)
         }
 
-        pub(crate) fn std_dev(&self) -> f64 {
+        fn std_dev(&self) -> f64 {
             self.variance().sqrt()
         }
 
-        pub(crate) fn add_many_samples(&mut self, values: impl IntoIterator<Item = T>) {
+        fn add_many_samples(&mut self, values: impl IntoIterator<Item = T>) {
             self.samples.extend(values);
         }
     }
@@ -362,11 +353,11 @@ mod test {
             }
         }
 
-        run_po2::<NativeDecomposer>(PowerOfTwo::native());
-        run_po2::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
+        run_po2::<NativeDecomposer>(Native::native());
+        run_po2::<NonNativePowerOfTwoDecomposer>(NonNativePowerOfTwo::new(50));
 
-        run_common::<NativeDecomposer>(PowerOfTwo::native());
-        run_common::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
+        run_common::<NativeDecomposer>(Native::native());
+        run_common::<NonNativePowerOfTwoDecomposer>(NonNativePowerOfTwo::new(50));
         run_common::<PrimeDecomposer>(Prime::gen(50, 0));
     }
 
@@ -400,8 +391,8 @@ mod test {
             );
         }
 
-        run::<NativeDecomposer>(PowerOfTwo::native());
-        run::<NonNativePowerOfTwoDecomposer>(PowerOfTwo::new(50));
+        run::<NativeDecomposer>(Native::native());
+        run::<NonNativePowerOfTwoDecomposer>(NonNativePowerOfTwo::new(50));
         run::<PrimeDecomposer>(Prime::gen(50, 0));
     }
 }

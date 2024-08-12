@@ -11,9 +11,9 @@ use phantom_zone_math::{
     decomposer::Decomposer,
     distribution::Sampler,
     izip_eq,
-    modulus::{Modulus, PowerOfTwo, Prime},
+    modulus::{ElemFrom, Modulus, NonNativePowerOfTwo, Prime},
     ring::{
-        ElemFrom, NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
+        NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
 };
@@ -210,9 +210,9 @@ fn rlwe_by_rgsw() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }
@@ -236,9 +236,9 @@ fn rgsw_by_rgsw() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(PowerOfTwo::new(50)));
+    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }

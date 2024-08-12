@@ -1,9 +1,10 @@
 use crate::{
     decomposer::PrimeDecomposer,
     izip_eq,
+    modulus::prime::Shoup,
     modulus::Modulus,
     poly::ntt::Ntt,
-    ring::{prime::Shoup, ElemFrom, ModulusOps, RingOps, SliceOps},
+    ring::{ElemFrom, ModulusOps, RingOps, SliceOps},
 };
 
 pub type PrimeRing = crate::ring::prime::PrimeRing<Ntt>;
@@ -47,7 +48,7 @@ impl RingOps for PrimeRing {
     fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
         b.copy_from_slice(a);
         self.fft.backward(b);
-        b.iter_mut().for_each(|b| self.reduce_once_assign(b));
+        b.iter_mut().for_each(|b| self.q.reduce_once_assign(b));
     }
 
     fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
@@ -59,14 +60,14 @@ impl RingOps for PrimeRing {
     fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
         self.fft.backward(a);
         izip_eq!(b, a).for_each(|(b, a)| {
-            self.reduce_once_assign(a);
+            self.q.reduce_once_assign(a);
             *b = self.add(a, b);
         })
     }
 
     fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
         self.fft.backward(a);
-        izip_eq!(b, a).for_each(|(b, a)| *b = self.add(&self.fft.n_inv().mul(*a, self.q), b))
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.add(&self.q.mul_prep(a, self.fft.n_inv()), b))
     }
 
     fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]) {
@@ -96,7 +97,7 @@ impl RingOps for PrimeRing {
     fn eval_fma_prep(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::EvalPrep]) {
         self.slice_op(c, a, b, |c, a, b| {
             *c = c.wrapping_add(self.mul_prep(a, b));
-            self.reduce_once_assign(c)
+            self.q.reduce_once_assign(c)
         })
     }
 }
