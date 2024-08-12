@@ -1,3 +1,4 @@
+use crate::izip_eq;
 use core::{any::type_name, array::from_fn, mem::size_of, slice};
 
 #[derive(Clone, Debug, Default)]
@@ -68,6 +69,12 @@ impl<'a> Scratch<'a> {
     pub fn copy_slice<T: Copy>(&mut self, src: &[T]) -> &'a mut [T] {
         let dst = self.take_slice(src.len());
         dst.copy_from_slice(src);
+        dst
+    }
+
+    pub fn copy_iter<T: Copy>(&mut self, src: impl Iterator<Item = T>) -> &'a mut [T] {
+        let dst = self.take_slice(src.size_hint().1.unwrap());
+        izip_eq!(&mut *dst, src).for_each(|(b, a)| *b = a);
         dst
     }
 }

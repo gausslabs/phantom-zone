@@ -76,6 +76,18 @@ pub trait ModulusOps {
 
     fn mul(&self, a: &Self::Elem, b: &Self::Elem) -> Self::Elem;
 
+    fn add_assign(&self, a: &mut Self::Elem, b: &Self::Elem) {
+        *a = self.add(a, b);
+    }
+
+    fn sub_assign(&self, a: &mut Self::Elem, b: &Self::Elem) {
+        *a = self.sub(a, b);
+    }
+
+    fn mul_assign(&self, a: &mut Self::Elem, b: &Self::Elem) {
+        *a = self.mul(a, b);
+    }
+
     fn powers(&self, a: &Self::Elem) -> impl Iterator<Item = Self::Elem> {
         let a = self.prepare(a);
         successors(Some(self.one()), move |v| self.mul_prep(v, &a).into())

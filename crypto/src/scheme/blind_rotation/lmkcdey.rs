@@ -151,6 +151,7 @@ mod test {
             rlwe::{test::RlweParam, RlwePlaintext},
         },
         scheme::blind_rotation::lmkcdey::{bootstrap, power_g_mod_q},
+        util::rng::test::StdLweRng,
     };
     use core::{array::from_fn, iter::repeat, mem::size_of};
     use itertools::{chain, Itertools};
@@ -165,7 +166,6 @@ mod test {
         },
         util::scratch::ScratchOwned,
     };
-    use rand::thread_rng;
 
     #[derive(Clone, Copy, Debug)]
     struct BootstrappingParam {
@@ -227,7 +227,7 @@ mod test {
     #[test]
     fn nand() {
         fn run<R: RingOps>(big_q: impl Into<Modulus>, embedding_factor: usize) {
-            let mut rng = thread_rng();
+            let mut rng = StdLweRng::from_entropy();
             let param = testing_param(big_q, embedding_factor);
             let (rgsw, lwe, lwe_ks) = param.build::<R>();
             let rlwe = rgsw.rlwe();
@@ -243,9 +243,9 @@ mod test {
             };
             let mut scratch = scratch.borrow_mut();
 
-            let rlwe_sk = rlwe.sk_gen(&mut rng);
+            let rlwe_sk = rlwe.sk_gen();
             let lwe_sk = rlwe_sk.clone().into();
-            let lwe_ks_sk = lwe_ks.sk_gen(&mut rng);
+            let lwe_ks_sk = lwe_ks.sk_gen();
             let ks_key = lwe_ks.ks_key_gen(&lwe_sk, &lwe_ks_sk, &mut rng);
             let brk = lwe_ks_sk
                 .as_ref()

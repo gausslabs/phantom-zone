@@ -1,10 +1,13 @@
-use crate::core::{
-    rgsw::{self, RgswCiphertext, RgswCiphertextOwned},
-    rlwe::{
-        self,
-        test::{Rlwe, RlweParam},
-        RlweCiphertextOwned, RlwePlaintext, RlwePlaintextOwned, RlweSecretKeyOwned,
+use crate::{
+    core::{
+        rgsw::{self, RgswCiphertext, RgswCiphertextOwned},
+        rlwe::{
+            self,
+            test::{Rlwe, RlweParam},
+            RlweCiphertextOwned, RlwePlaintext, RlwePlaintextOwned, RlweSecretKeyOwned,
+        },
     },
+    util::rng::{test::StdLweRng, LweRng},
 };
 use core::ops::Deref;
 use phantom_zone_math::{
@@ -17,7 +20,7 @@ use phantom_zone_math::{
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
 };
-use rand::{thread_rng, RngCore};
+use rand::RngCore;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RgswParam {
@@ -90,7 +93,7 @@ impl<R: RingOps> Rgsw<R> {
         &self,
         sk: &RlweSecretKeyOwned<i32>,
         pt: &RlwePlaintextOwned<R::Elem>,
-        rng: impl RngCore,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> RgswCiphertextOwned<R::Elem> {
         let mut ct = RgswCiphertext::allocate(
             self.ring_size(),
@@ -191,13 +194,13 @@ pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RgswParam {
 #[test]
 fn rlwe_by_rgsw() {
     fn run<R: RingOps>(param: RgswParam) {
-        let mut rng = thread_rng();
+        let mut rng = StdLweRng::from_entropy();
         let rgsw = param.build::<R>();
         let rlwe = &rgsw.rlwe;
-        let sk = rlwe.sk_gen(&mut rng);
+        let sk = rlwe.sk_gen();
         for _ in 0..100 {
-            let m_rlwe = rgsw.message_ring().sample_uniform_poly(&mut rng);
-            let m_rgsw = rgsw.message_ring().sample_uniform_poly(&mut rng);
+            let m_rlwe = rgsw.message_ring().sample_uniform_poly(rng.noise());
+            let m_rgsw = rgsw.message_ring().sample_uniform_poly(rng.noise());
             let m = rgsw.message_poly_mul(&m_rlwe, &m_rgsw);
             let ct_rlwe = rlwe.sk_encrypt(&sk, &rlwe.encode(&m_rlwe), &mut rng);
             let ct_rgsw = rgsw.sk_encrypt(&sk, &rgsw.encode(&m_rgsw), &mut rng);
@@ -220,13 +223,13 @@ fn rlwe_by_rgsw() {
 #[test]
 fn rgsw_by_rgsw() {
     fn run<R: RingOps>(param: RgswParam) {
-        let mut rng = thread_rng();
+        let mut rng = StdLweRng::from_entropy();
         let rgsw = param.build::<R>();
         let rlwe = &rgsw.rlwe;
-        let sk = rlwe.sk_gen(&mut rng);
+        let sk = rlwe.sk_gen();
         for _ in 0..100 {
-            let m_a = rgsw.message_ring().sample_uniform_poly(&mut rng);
-            let m_b = rgsw.message_ring().sample_uniform_poly(&mut rng);
+            let m_a = rgsw.message_ring().sample_uniform_poly(rng.noise());
+            let m_b = rgsw.message_ring().sample_uniform_poly(rng.noise());
             let m_c = rgsw.message_poly_mul(&m_a, &m_b);
             let ct_a = rgsw.sk_encrypt(&sk, &rgsw.encode(&m_a), &mut rng);
             let ct_b = rgsw.sk_encrypt(&sk, &rgsw.encode(&m_b), &mut rng);

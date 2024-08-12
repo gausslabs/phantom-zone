@@ -3,7 +3,10 @@ use crate::{
         self, LweCiphertext, LweCiphertextOwned, LweKeySwitchKey, LweKeySwitchKeyOwned,
         LwePlaintext, LweSecretKey, LweSecretKeyOwned,
     },
-    util::distribution::{NoiseDistribution, SecretKeyDistribution},
+    util::{
+        distribution::{NoiseDistribution, SecretKeyDistribution},
+        rng::{test::StdLweRng, LweRng},
+    },
 };
 use phantom_zone_math::{
     decomposer::DecompositionParam,
@@ -69,15 +72,15 @@ impl<R: RingOps> Lwe<R> {
         (pt as f64 / self.delta).round() as u64 % self.param.message_modulus
     }
 
-    pub fn sk_gen(&self, rng: impl RngCore) -> LweSecretKeyOwned<i32> {
-        LweSecretKey::sample(self.dimension(), self.param.sk_distribution, rng)
+    pub fn sk_gen(&self) -> LweSecretKeyOwned<i32> {
+        LweSecretKey::sample(self.dimension(), self.param.sk_distribution, thread_rng())
     }
 
     pub fn sk_encrypt(
         &self,
         sk: &LweSecretKeyOwned<i32>,
         pt: LwePlaintext<R::Elem>,
-        rng: impl RngCore,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> LweCiphertextOwned<R::Elem> {
         let mut ct = LweCiphertext::allocate(self.dimension());
         lwe::sk_encrypt(
@@ -103,7 +106,7 @@ impl<R: RingOps> Lwe<R> {
         &self,
         sk_from: &LweSecretKeyOwned<i32>,
         sk_to: &LweSecretKeyOwned<i32>,
-        rng: impl RngCore,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> LweKeySwitchKeyOwned<R::Elem> {
         assert_eq!(self.dimension(), sk_to.dimension());
         let mut ks_key = LweKeySwitchKey::allocate(
@@ -160,9 +163,9 @@ pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> LweParam {
 #[test]
 fn encrypt_decrypt() {
     fn run<R: RingOps>(param: LweParam) {
-        let mut rng = thread_rng();
+        let mut rng = StdLweRng::from_entropy();
         let lwe = param.build::<R>();
-        let sk = lwe.sk_gen(&mut rng);
+        let sk = lwe.sk_gen();
         for m in 0..param.message_modulus {
             let pt = lwe.encode(m);
             let ct = lwe.sk_encrypt(&sk, pt, &mut rng);
@@ -182,11 +185,11 @@ fn encrypt_decrypt() {
 #[test]
 fn key_switch() {
     fn run<R: RingOps>(param: LweParam) {
-        let mut rng = thread_rng();
+        let mut rng = StdLweRng::from_entropy();
         let lwe_from = param.build::<R>();
         let lwe_to = param.dimension(2 * param.dimension).build::<R>();
-        let sk_from = lwe_from.sk_gen(&mut rng);
-        let sk_to = lwe_to.sk_gen(&mut rng);
+        let sk_from = lwe_from.sk_gen();
+        let sk_to = lwe_to.sk_gen();
         let ks_key = lwe_to.ks_key_gen(&sk_from, &sk_to, &mut rng);
         for m in 0..param.message_modulus {
             let pt = lwe_from.encode(m);

@@ -176,7 +176,7 @@ impl Debug for Ffnt {
 }
 
 #[cfg(test)]
-pub mod test {
+pub(crate) mod test {
     pub fn round_trip_prec_loss(log_ring_size: usize, log_q: usize) -> usize {
         (log_ring_size + log_q).saturating_sub((f64::MANTISSA_DIGITS - 1) as usize)
     }

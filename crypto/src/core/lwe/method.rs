@@ -3,7 +3,7 @@ use crate::{
         LweCiphertextMutView, LweCiphertextView, LweKeySwitchKeyMutView, LweKeySwitchKeyView,
         LwePlaintext, LweSecretKeyView,
     },
-    util::distribution::NoiseDistribution,
+    util::{distribution::NoiseDistribution, rng::LweRng},
 };
 use phantom_zone_math::{decomposer::Decomposer, izip_eq, modulus::ElemFrom, ring::RingOps};
 use rand::RngCore;
@@ -14,16 +14,31 @@ pub fn sk_encrypt<'a, 'b, R, T>(
     sk: impl Into<LweSecretKeyView<'b, T>>,
     pt: LwePlaintext<R::Elem>,
     noise_distribution: NoiseDistribution,
-    mut rng: impl RngCore,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,
     T: 'b + Copy,
 {
     let mut ct = ct.into();
-    ring.sample_uniform_into(ct.a_mut(), &mut rng);
+    sk_encrypt_zero(ring, &mut ct, sk, noise_distribution, rng);
+    ring.add_assign(ct.b_mut(), &pt.0);
+}
+
+fn sk_encrypt_zero<'a, 'b, R, T>(
+    ring: &R,
+    ct: impl Into<LweCiphertextMutView<'a, R::Elem>>,
+    sk: impl Into<LweSecretKeyView<'b, T>>,
+    noise_distribution: NoiseDistribution,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) where
+    R: RingOps + ElemFrom<T>,
+    T: 'b + Copy,
+{
+    let mut ct = ct.into();
+    ring.sample_uniform_into(ct.a_mut(), rng.a());
     let a_sk = ring.slice_dot_elem_from(ct.a(), sk.into().as_ref());
-    let e = ring.sample::<i64>(&noise_distribution, &mut rng);
-    *ct.b_mut() = ring.add(&ring.add(&a_sk, &e), &pt.0);
+    let e = ring.sample::<i64>(&noise_distribution, rng.noise());
+    *ct.b_mut() = ring.add(&a_sk, &e);
 }
 
 pub fn decrypt<'a, 'b, R, T>(
@@ -46,7 +61,7 @@ pub fn ks_key_gen<'a, 'b, 'c, R, T>(
     sk_from: impl Into<LweSecretKeyView<'b, T>>,
     sk_to: impl Into<LweSecretKeyView<'c, T>>,
     noise_distribution: NoiseDistribution,
-    mut rng: impl RngCore,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,
     T: 'b + 'c + Copy,
@@ -56,9 +71,9 @@ pub fn ks_key_gen<'a, 'b, 'c, R, T>(
     izip_eq!(ks_key.cts_iter_mut(), sk_from.into().as_ref()).for_each(
         |(mut ks_key_i, sk_from_i)| {
             izip_eq!(ks_key_i.iter_mut(), decomposer.gadget_iter()).for_each(
-                |(ks_key_i_j, beta_j)| {
-                    let pt = LwePlaintext(ring.mul_elem_from(&ring.neg(&beta_j), sk_from_i));
-                    sk_encrypt(ring, ks_key_i_j, sk_to, pt, noise_distribution, &mut rng)
+                |(mut ks_key_i_j, beta_j)| {
+                    sk_encrypt_zero(ring, &mut ks_key_i_j, sk_to, noise_distribution, rng);
+                    ring.sub_assign(ks_key_i_j.b_mut(), &ring.mul_elem_from(&beta_j, sk_from_i));
                 },
             )
         },
