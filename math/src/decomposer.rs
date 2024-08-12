@@ -76,7 +76,7 @@ pub trait Decomposer<T: 'static + Copy + Debug> {
 
 pub type NativeDecomposer = PowerOfTwoDecomposer<true>;
 
-pub type NonNativePowerOfTwoDecomposer = PowerOfTwoDecomposer<false>;
+pub type ForeignPowerOfTwoDecomposer = PowerOfTwoDecomposer<false>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct PowerOfTwoDecomposer<const NATIVE: bool> {
@@ -243,10 +243,10 @@ impl Decomposer<u64> for PrimeDecomposer {
 mod test {
     use crate::{
         decomposer::{
-            Decomposer, DecompositionParam, NativeDecomposer, NonNativePowerOfTwoDecomposer,
+            Decomposer, DecompositionParam, NativeDecomposer, ForeignPowerOfTwoDecomposer,
             PrimeDecomposer,
         },
-        modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
+        modulus::{Modulus, Native, ForeignPowerOfTwo, Prime},
     };
     use core::iter::Sum;
     use num_traits::{Signed, ToPrimitive};
@@ -354,10 +354,10 @@ mod test {
         }
 
         run_po2::<NativeDecomposer>(Native::native());
-        run_po2::<NonNativePowerOfTwoDecomposer>(NonNativePowerOfTwo::new(50));
+        run_po2::<ForeignPowerOfTwoDecomposer>(ForeignPowerOfTwo::new(50));
 
         run_common::<NativeDecomposer>(Native::native());
-        run_common::<NonNativePowerOfTwoDecomposer>(NonNativePowerOfTwo::new(50));
+        run_common::<ForeignPowerOfTwoDecomposer>(ForeignPowerOfTwo::new(50));
         run_common::<PrimeDecomposer>(Prime::gen(50, 0));
     }
 
@@ -392,7 +392,7 @@ mod test {
         }
 
         run::<NativeDecomposer>(Native::native());
-        run::<NonNativePowerOfTwoDecomposer>(NonNativePowerOfTwo::new(50));
+        run::<ForeignPowerOfTwoDecomposer>(ForeignPowerOfTwo::new(50));
         run::<PrimeDecomposer>(Prime::gen(50, 0));
     }
 }

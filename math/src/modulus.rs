@@ -5,13 +5,13 @@ use rand_distr::Distribution;
 pub(crate) mod power_of_two;
 pub(crate) mod prime;
 
-pub use power_of_two::{Native, NonNativePowerOfTwo};
+pub use power_of_two::{Native, ForeignPowerOfTwo};
 pub use prime::Prime;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Modulus {
     Native(Native),
-    NonNativePowerOfTwo(NonNativePowerOfTwo),
+    ForeignPowerOfTwo(ForeignPowerOfTwo),
     Prime(Prime),
 }
 
@@ -23,7 +23,7 @@ impl Modulus {
     pub fn bits(&self) -> usize {
         match self {
             Self::Native(inner) => inner.bits(),
-            Self::NonNativePowerOfTwo(inner) => inner.bits(),
+            Self::ForeignPowerOfTwo(inner) => inner.bits(),
             Self::Prime(inner) => inner.bits(),
         }
     }
@@ -31,7 +31,7 @@ impl Modulus {
     pub fn max(&self) -> u64 {
         match self {
             Self::Native(inner) => inner.max(),
-            Self::NonNativePowerOfTwo(inner) => inner.max(),
+            Self::ForeignPowerOfTwo(inner) => inner.max(),
             Self::Prime(inner) => inner.max(),
         }
     }
@@ -39,7 +39,7 @@ impl Modulus {
     pub fn as_f64(&self) -> f64 {
         match self {
             Self::Native(inner) => inner.as_f64(),
-            Self::NonNativePowerOfTwo(inner) => inner.as_f64(),
+            Self::ForeignPowerOfTwo(inner) => inner.as_f64(),
             Self::Prime(inner) => inner.as_f64(),
         }
     }
@@ -47,7 +47,7 @@ impl Modulus {
     pub fn to_i64(&self, v: u64) -> i64 {
         match self {
             Self::Native(inner) => inner.to_i64(v),
-            Self::NonNativePowerOfTwo(inner) => inner.to_i64(v),
+            Self::ForeignPowerOfTwo(inner) => inner.to_i64(v),
             Self::Prime(inner) => inner.to_i64(v),
         }
     }

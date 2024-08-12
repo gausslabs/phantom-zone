@@ -16,10 +16,10 @@ use itertools::Itertools;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::{Gaussian, Sampler, Ternary},
-    modulus::{Modulus, ModulusOps, NonNativePowerOfTwo, Prime},
+    modulus::{Modulus, ModulusOps, ForeignPowerOfTwo, Prime},
     ring::{
-        NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
-        NonNativePowerOfTwoRing, PrimeRing, RingOps, SliceOps,
+        NativeRing, NoisyNativeRing, NoisyForeignPowerOfTwoRing, NoisyPrimeRing,
+        ForeignPowerOfTwoRing, PrimeRing, RingOps, SliceOps,
     },
 };
 use rand::{thread_rng, RngCore};
@@ -49,8 +49,8 @@ impl RlweParam {
 
     pub fn build<R: RingOps>(self) -> Rlwe<R> {
         let ring = R::new(self.ciphertext_modulus, self.ring_size);
-        let message_ring = NonNativePowerOfTwoRing::new(
-            NonNativePowerOfTwo::new(self.message_modulus.ilog2() as _).into(),
+        let message_ring = ForeignPowerOfTwoRing::new(
+            ForeignPowerOfTwo::new(self.message_modulus.ilog2() as _).into(),
             self.ring_size,
         );
         Rlwe {
@@ -65,7 +65,7 @@ impl RlweParam {
 pub struct Rlwe<R: RingOps> {
     param: RlweParam,
     ring: R,
-    message_ring: NonNativePowerOfTwoRing,
+    message_ring: ForeignPowerOfTwoRing,
 }
 
 impl<R: RingOps> Rlwe<R> {
@@ -77,7 +77,7 @@ impl<R: RingOps> Rlwe<R> {
         self.ring().ring_size()
     }
 
-    pub fn message_ring(&self) -> &NonNativePowerOfTwoRing {
+    pub fn message_ring(&self) -> &ForeignPowerOfTwoRing {
         &self.message_ring
     }
 
@@ -345,9 +345,9 @@ fn encrypt_decrypt() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
+    run::<NoisyForeignPowerOfTwoRing>(test_param(ForeignPowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
+    run::<ForeignPowerOfTwoRing>(test_param(ForeignPowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }
@@ -368,9 +368,9 @@ fn sample_extract() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
+    run::<NoisyForeignPowerOfTwoRing>(test_param(ForeignPowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
+    run::<ForeignPowerOfTwoRing>(test_param(ForeignPowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }
@@ -396,9 +396,9 @@ fn key_switch() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
+    run::<NoisyForeignPowerOfTwoRing>(test_param(ForeignPowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
+    run::<ForeignPowerOfTwoRing>(test_param(ForeignPowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }
@@ -426,9 +426,9 @@ fn automorphism() {
     }
 
     run::<NoisyNativeRing>(test_param(Modulus::native()));
-    run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
+    run::<NoisyForeignPowerOfTwoRing>(test_param(ForeignPowerOfTwo::new(50)));
     run::<NativeRing>(test_param(Modulus::native()));
-    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
+    run::<ForeignPowerOfTwoRing>(test_param(ForeignPowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }

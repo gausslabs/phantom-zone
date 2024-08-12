@@ -5,8 +5,8 @@ use phantom_zone_crypto::core::{
 };
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    modulus::{Modulus, NonNativePowerOfTwo, Prime},
-    ring::{NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing, PrimeRing, RingOps},
+    modulus::{Modulus, ForeignPowerOfTwo, Prime},
+    ring::{NoisyNativeRing, NoisyForeignPowerOfTwoRing, NoisyPrimeRing, PrimeRing, RingOps},
 };
 
 fn automorphism(c: &mut Criterion) {
@@ -38,9 +38,9 @@ fn automorphism(c: &mut Criterion) {
                 let modulus = Modulus::native();
                 runner::<NoisyNativeRing>(modulus, ring_size, decomposition_param)
             }),
-            ("noisy_non_native_power_of_two", {
-                let modulus = NonNativePowerOfTwo::new(54).into();
-                runner::<NoisyNonNativePowerOfTwoRing>(modulus, ring_size, decomposition_param)
+            ("noisy_foreign_power_of_two", {
+                let modulus = ForeignPowerOfTwo::new(54).into();
+                runner::<NoisyForeignPowerOfTwoRing>(modulus, ring_size, decomposition_param)
             }),
             ("noisy_prime", {
                 let modulus = Prime::gen(54, log_ring_size + 1).into();
@@ -96,9 +96,9 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
                 let modulus = Modulus::native();
                 runner::<NoisyNativeRing>(modulus, ring_size, decomposition_param)
             }),
-            ("noisy_non_native_power_of_two", {
-                let modulus = NonNativePowerOfTwo::new(54).into();
-                runner::<NoisyNonNativePowerOfTwoRing>(modulus, ring_size, decomposition_param)
+            ("noisy_foreign_power_of_two", {
+                let modulus = ForeignPowerOfTwo::new(54).into();
+                runner::<NoisyForeignPowerOfTwoRing>(modulus, ring_size, decomposition_param)
             }),
             ("noisy_prime", {
                 let modulus = Prime::gen(54, log_ring_size + 1).into();

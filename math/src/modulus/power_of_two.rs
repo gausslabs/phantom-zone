@@ -5,7 +5,7 @@ use crate::{
 use rand::distributions::{Distribution, Uniform};
 
 pub type Native = PowerOfTwo<true>;
-pub type NonNativePowerOfTwo = PowerOfTwo<false>;
+pub type ForeignPowerOfTwo = PowerOfTwo<false>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct PowerOfTwo<const NATIVE: bool> {
@@ -201,7 +201,7 @@ impl<const NATIVE: bool> From<PowerOfTwo<NATIVE>> for Modulus {
                 mask: value.mask,
             })
         } else {
-            Self::NonNativePowerOfTwo(PowerOfTwo {
+            Self::ForeignPowerOfTwo(PowerOfTwo {
                 bits: value.bits,
                 mask: value.mask,
             })
@@ -218,7 +218,7 @@ impl<const NATIVE: bool> TryFrom<Modulus> for PowerOfTwo<NATIVE> {
                 bits: value.bits,
                 mask: value.mask,
             }),
-            Modulus::NonNativePowerOfTwo(value) if !NATIVE => Ok(PowerOfTwo {
+            Modulus::ForeignPowerOfTwo(value) if !NATIVE => Ok(PowerOfTwo {
                 bits: value.bits,
                 mask: value.mask,
             }),

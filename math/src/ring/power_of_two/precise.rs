@@ -11,7 +11,7 @@ pub type PowerOfTwoRing<const NATIVE: bool> = power_of_two::PowerOfTwoRing<usize
 
 pub type NativeRing = PowerOfTwoRing<true>;
 
-pub type NonNativePowerOfTwoRing = PowerOfTwoRing<false>;
+pub type ForeignPowerOfTwoRing = PowerOfTwoRing<false>;
 
 impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
     type Eval = Self::Elem;
@@ -94,9 +94,9 @@ impl<const NATIVE: bool> RingOps for PowerOfTwoRing<NATIVE> {
 mod test {
     use crate::{
         distribution::Sampler,
-        modulus::{Modulus, NonNativePowerOfTwo},
+        modulus::{ForeignPowerOfTwo, Modulus},
         ring::{
-            power_of_two::precise::{NativeRing, NonNativePowerOfTwoRing},
+            power_of_two::precise::{ForeignPowerOfTwoRing, NativeRing},
             test::{test_poly_mul, test_round_trip},
             RingOps,
         },
@@ -104,12 +104,12 @@ mod test {
     use rand::thread_rng;
 
     #[test]
-    fn non_native_round_trip() {
+    fn foreign_round_trip() {
         let mut rng = thread_rng();
         for log_ring_size in 0..10 {
             for log_q in 50..56 {
-                let ring: NonNativePowerOfTwoRing =
-                    RingOps::new(NonNativePowerOfTwo::new(log_q).into(), 1 << log_ring_size);
+                let ring: ForeignPowerOfTwoRing =
+                    RingOps::new(ForeignPowerOfTwo::new(log_q).into(), 1 << log_ring_size);
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 test_round_trip(&ring, &a, |a, b| assert_eq!(a, b));
             }
@@ -127,12 +127,12 @@ mod test {
     }
 
     #[test]
-    fn non_native_poly_mul() {
+    fn foreign_poly_mul() {
         let mut rng = thread_rng();
         for log_ring_size in 0..10 {
             for log_q in 50..54 {
-                let ring: NonNativePowerOfTwoRing =
-                    RingOps::new(NonNativePowerOfTwo::new(log_q).into(), 1 << log_ring_size);
+                let ring: ForeignPowerOfTwoRing =
+                    RingOps::new(ForeignPowerOfTwo::new(log_q).into(), 1 << log_ring_size);
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 let b = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 test_poly_mul(&ring, &a, &b, |a, b| assert_eq!(a, b));

@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use phantom_zone_math::{
-    modulus::{Modulus, NonNativePowerOfTwo, Prime},
-    ring::{NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing, PrimeRing, RingOps},
+    modulus::{Modulus, ForeignPowerOfTwo, Prime},
+    ring::{NoisyNativeRing, NoisyForeignPowerOfTwoRing, NoisyPrimeRing, PrimeRing, RingOps},
 };
 
 fn poly_mul(c: &mut Criterion) {
@@ -22,9 +22,9 @@ fn poly_mul(c: &mut Criterion) {
                 let modulus = Modulus::native();
                 runner(NoisyNativeRing::new(modulus, ring_size))
             }),
-            ("noisy_non_native_power_of_two", {
-                let modulus = NonNativePowerOfTwo::new(50).into();
-                runner(NoisyNonNativePowerOfTwoRing::new(modulus, ring_size))
+            ("noisy_foreign_power_of_two", {
+                let modulus = ForeignPowerOfTwo::new(50).into();
+                runner(NoisyForeignPowerOfTwoRing::new(modulus, ring_size))
             }),
             ("noisy_prime", {
                 let modulus = Prime::gen(50, log_ring_size + 1).into();

@@ -10,7 +10,7 @@ pub type NoisyPowerOfTwoRing<const NATIVE: bool> = power_of_two::PowerOfTwoRing<
 
 pub type NoisyNativeRing = NoisyPowerOfTwoRing<true>;
 
-pub type NoisyNonNativePowerOfTwoRing = NoisyPowerOfTwoRing<false>;
+pub type NoisyForeignPowerOfTwoRing = NoisyPowerOfTwoRing<false>;
 
 impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
     type Eval = Complex64;
@@ -101,10 +101,10 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
 mod test {
     use crate::{
         distribution::Sampler,
-        modulus::{Modulus, NonNativePowerOfTwo},
+        modulus::{Modulus, ForeignPowerOfTwo},
         poly::ffnt::test::{poly_mul_prec_loss, round_trip_prec_loss},
         ring::{
-            power_of_two::noisy::{NoisyNativeRing, NoisyNonNativePowerOfTwoRing},
+            power_of_two::noisy::{NoisyNativeRing, NoisyForeignPowerOfTwoRing},
             test::{test_poly_mul, test_round_trip},
             RingOps,
         },
@@ -113,13 +113,13 @@ mod test {
     use rand::{distributions::Uniform, thread_rng};
 
     #[test]
-    fn non_native_round_trip() {
+    fn foreign_round_trip() {
         let mut rng = thread_rng();
         for log_ring_size in 0..10 {
             for log_q in 50..56 {
                 let prec_loss = round_trip_prec_loss(log_ring_size, log_q);
-                let ring: NoisyNonNativePowerOfTwoRing =
-                    RingOps::new(NonNativePowerOfTwo::new(log_q).into(), 1 << log_ring_size);
+                let ring: NoisyForeignPowerOfTwoRing =
+                    RingOps::new(ForeignPowerOfTwo::new(log_q).into(), 1 << log_ring_size);
                 for _ in 0..100 {
                     let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                     test_round_trip(&ring, &a, |a, b| assert_precision!(a, b, prec_loss));
@@ -142,12 +142,12 @@ mod test {
     }
 
     #[test]
-    fn non_native_poly_mul() {
+    fn foreign_poly_mul() {
         let mut rng = thread_rng();
         for log_ring_size in 0..10 {
             for log_q in 50..54 {
-                let ring: NoisyNonNativePowerOfTwoRing =
-                    RingOps::new(NonNativePowerOfTwo::new(log_q).into(), 1 << log_ring_size);
+                let ring: NoisyForeignPowerOfTwoRing =
+                    RingOps::new(ForeignPowerOfTwo::new(log_q).into(), 1 << log_ring_size);
                 for log_b in 12..16 {
                     let prec_loss = poly_mul_prec_loss(log_ring_size, log_q, log_b);
                     let uniform_b = Uniform::new(0, 1u64 << log_b);

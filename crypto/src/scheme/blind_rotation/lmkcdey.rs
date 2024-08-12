@@ -7,8 +7,8 @@ use core::{cmp::Reverse, iter::successors};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
     izip_eq,
-    modulus::{ModulusOps, NonNativePowerOfTwo},
-    ring::{NonNativePowerOfTwoRing, RingOps},
+    modulus::{ModulusOps, ForeignPowerOfTwo},
+    ring::{ForeignPowerOfTwoRing, RingOps},
     util::scratch::Scratch,
 };
 
@@ -26,7 +26,7 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
 ) {
     debug_assert_eq!((2 * ring.ring_size()) % q, 0);
     let embedding_factor = 2 * ring.ring_size() / q;
-    let mod_q = NonNativePowerOfTwoRing::new(NonNativePowerOfTwo::new(q.ilog2() as _).into(), 1);
+    let mod_q = ForeignPowerOfTwoRing::new(ForeignPowerOfTwo::new(q.ilog2() as _).into(), 1);
     let (ct, ks_key, f_auto_neg_g) = (ct.into(), ks_key.into(), f_auto_neg_g.into());
 
     let mut ct_mod_switch = LweCiphertext::scratch(ks_key.from_dimension(), &mut scratch);
@@ -158,11 +158,11 @@ mod test {
     use phantom_zone_math::{
         decomposer::DecompositionParam,
         distribution::{Gaussian, Ternary},
-        modulus::{Modulus, NonNativePowerOfTwo, Prime},
+        modulus::{Modulus, ForeignPowerOfTwo, Prime},
         poly::automorphism::AutomorphismMap,
         ring::{
-            NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
-            NonNativePowerOfTwoRing, PrimeRing, RingOps,
+            NativeRing, NoisyNativeRing, NoisyForeignPowerOfTwoRing, NoisyPrimeRing,
+            ForeignPowerOfTwoRing, PrimeRing, RingOps,
         },
         util::scratch::ScratchOwned,
     };
@@ -177,7 +177,7 @@ mod test {
     }
 
     impl BootstrappingParam {
-        fn build<R: RingOps>(self) -> (Rgsw<R>, Lwe<R>, Lwe<NonNativePowerOfTwoRing>) {
+        fn build<R: RingOps>(self) -> (Rgsw<R>, Lwe<R>, Lwe<ForeignPowerOfTwoRing>) {
             (
                 self.rgsw.build(),
                 self.rgsw.rlwe.to_lwe().build(),
@@ -209,7 +209,7 @@ mod test {
             },
             lwe_ks: LweParam {
                 message_modulus,
-                ciphertext_modulus: NonNativePowerOfTwo::new(16).into(),
+                ciphertext_modulus: ForeignPowerOfTwo::new(16).into(),
                 dimension: 100,
                 sk_distribution: Gaussian::new(3.2).into(),
                 noise_distribution: Gaussian::new(3.2).into(),
@@ -300,9 +300,9 @@ mod test {
 
         for embedding_factor in [1, 2] {
             run::<NoisyNativeRing>(Modulus::native(), embedding_factor);
-            run::<NoisyNonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(50), embedding_factor);
+            run::<NoisyForeignPowerOfTwoRing>(ForeignPowerOfTwo::new(50), embedding_factor);
             run::<NativeRing>(Modulus::native(), embedding_factor);
-            run::<NonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(50), embedding_factor);
+            run::<ForeignPowerOfTwoRing>(ForeignPowerOfTwo::new(50), embedding_factor);
             run::<NoisyPrimeRing>(Prime::gen(50, 12), embedding_factor);
             run::<PrimeRing>(Prime::gen(50, 12), embedding_factor);
         }
