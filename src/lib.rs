@@ -20,11 +20,14 @@ pub use backend::{
 pub use bool::*;
 pub use ntt::{Ntt, NttBackendU64, NttInit};
 #[cfg(any(feature = "interactive_mp", feature = "non_interactive_mp"))]
-pub use shortint::{div_zero_error_flag, reset_error_flags, FheUint8};
-pub use shortint::SeededBatchedFheUint8;
-
+pub use shortint::{
+    div_zero_error_flag, reset_error_flags, EncFheUint8, FheUint8, SeededBatchedFheUint8,
+};
 
 pub use decomposer::{Decomposer, DecomposerIter, DefaultDecomposer};
+
+type RowIterator<'a, T> = Box<dyn Iterator<Item = &'a T> + 'a>;
+type RowIteratorMut<'a, T> = Box<dyn Iterator<Item = &'a mut T> + 'a>;
 
 pub trait Matrix: AsRef<[Self::R]> {
     type MatElement;
@@ -33,16 +36,16 @@ pub trait Matrix: AsRef<[Self::R]> {
     /// (Rows, Cols)
     fn dimension(&self) -> (usize, usize);
 
-    fn get_row(&self, row_idx: usize) -> impl Iterator<Item = &Self::MatElement> {
-        self.as_ref()[row_idx].as_ref().iter().map(move |r| r)
+    fn get_row(&self, row_idx: usize) -> RowIterator<'_, Self::MatElement> {
+        Box::new(self.as_ref()[row_idx].as_ref().iter().map(move |r| r))
     }
 
     fn get_row_slice(&self, row_idx: usize) -> &[Self::MatElement] {
         self.as_ref()[row_idx].as_ref()
     }
 
-    fn iter_rows(&self) -> impl Iterator<Item = &Self::R> {
-        self.as_ref().iter().map(move |r| r)
+    fn iter_rows(&self) -> RowIterator<'_, Self::R> {
+        Box::new(self.as_ref().iter().map(move |r| r))
     }
 
     fn get(&self, row_idx: usize, column_idx: usize) -> &Self::MatElement {
@@ -65,8 +68,8 @@ where
         self.as_mut()[row_index].as_mut()
     }
 
-    fn iter_rows_mut(&mut self) -> impl Iterator<Item = &mut Self::R> {
-        self.as_mut().iter_mut().map(move |r| r)
+    fn iter_rows_mut(&mut self) -> RowIteratorMut<'_, Self::R> {
+        Box::new(self.as_mut().iter_mut().map(move |r| r))
     }
 
     fn set(&mut self, row_idx: usize, column_idx: usize, val: <Self as Matrix>::MatElement) {

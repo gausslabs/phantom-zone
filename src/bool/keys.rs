@@ -314,6 +314,7 @@ mod impl_seeded_pk {
 }
 
 /// CRS seeded collective public key share
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CommonReferenceSeededCollectivePublicKeyShare<Ro, S, P> {
     /// Public key share polynomial
     share: Ro,
@@ -333,6 +334,8 @@ impl<Ro, S, P> CommonReferenceSeededCollectivePublicKeyShare<Ro, S, P> {
 }
 
 /// Common reference seed seeded interactive multi-party server key share
+#[derive(Clone, Serialize, Deserialize)]
+
 pub struct CommonReferenceSeededInteractiveMultiPartyServerKeyShare<M: Matrix, P, S> {
     /// Public key encrypted RGSW(m = X^{s[i]}) ciphertexts for LWE secret
     /// indices for which `Self` is the leader. Note that when `Self` is

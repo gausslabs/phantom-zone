@@ -7,6 +7,7 @@ use crate::{
     utils::{Global, WithLocal},
     ModularOpsU64, NttBackendU64,
 };
+use serde::{Deserialize, Serialize};
 
 use super::{
     evaluator::NonInteractiveMultiPartyCrs,
@@ -189,6 +190,7 @@ impl Global for RuntimeServerKey {
 }
 
 /// `Self::data` stores collection of seeded RLWE ciphertexts encrypted unser user j's RLWE secret `u_j`.
+#[derive(Serialize, Deserialize)]
 pub struct NonInteractiveSeededFheBools<C, S> {
     data: Vec<C>,
     seed: S,
@@ -203,6 +205,7 @@ pub struct NonInteractiveSeededFheBools<C, S> {
 /// `self.key_switch(user_id)` where `user_id` is user j's id. Key switch
 /// returns `BatchedFheBools` which stores vector of key switched RLWE
 /// ciphertext.
+#[derive(Serialize, Deserialize)]
 pub struct NonInteractiveBatchedFheBools<C> {
     data: Vec<C>,
     count: usize,

@@ -34,6 +34,7 @@ impl<C> FheUint8<C> {
 /// protocol
 ///
 /// To extract Fhe Uint8 ciphertext at `index` call `self.extract(index)`
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BatchedFheUint8<C> {
     /// Vector of RLWE ciphertexts `C`
     data: Vec<C>,

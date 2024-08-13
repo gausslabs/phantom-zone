@@ -23,6 +23,7 @@ rayon = "1.10.0"
 num-bigint-dig = { version = "0.8.4", features = ["prime"] }
 
 [features]
+default = ["non_interactive_mp"]
 interactive_mp = []
 non_interactive_mp = []
 
