@@ -126,17 +126,16 @@ fn client_encrypt_job_criteria(jc: JobCriteria, ck: ClientKeys) -> ClientEncrypt
 }
 
 fn server_extract_job_criteria(id: usize, data: ClientEncryptedData) -> FheJobCriteria {
-    let mut tmp = data
+    let tmp = data
         .bool_enc
         .unseed::<Vec<Vec<u64>>>()
         .key_switch(id)
         .extract_all();
-
-    let (in_market, position) = (tmp.swap_remove(0), tmp.swap_remove(0));
+    let (in_market, position) = { (tmp[0].clone(), tmp[1].clone()) };
 
     let mut criteria: [FheBool; NUM_CRITERIA] = Default::default();
     for i in 0..NUM_CRITERIA {
-        criteria[i] = tmp.swap_remove(0);
+        criteria[i] = tmp[i + 2].clone();
     }
 
     let salary = data
@@ -166,7 +165,7 @@ fn client_full_decrypt(ck: ClientKeys, result: FheBool, shares: [u64; 2]) -> boo
 }
 
 fn main() {
-    set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
+    set_parameter_set(ParameterSelector::NonInteractiveLTE2Party80Bit);
 
     /*
      * Phase 1: KEY SETUP
@@ -272,7 +271,7 @@ mod tests {
     // cargo test --release --package phantom-zone --example non_interactive_hiring -- --nocapture
     #[test]
     fn test_hiring_match() {
-        set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
+        set_parameter_set(ParameterSelector::NonInteractiveLTE2Party80Bit);
 
         println!("Noninteractive MP-FHE Key Setup");
 
