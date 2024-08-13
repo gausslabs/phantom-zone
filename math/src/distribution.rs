@@ -107,7 +107,7 @@ impl Gaussian {
 
 impl<T: FromPrimitive> Distribution<T> for Gaussian {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
-        FromPrimitive::from_f64(self.0.sample(rng)).unwrap()
+        FromPrimitive::from_f64(self.0.sample(rng).round()).unwrap()
     }
 }
 

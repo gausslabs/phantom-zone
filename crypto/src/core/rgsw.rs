@@ -10,4 +10,5 @@ pub use method::{
 };
 pub use structure::{
     RgswCiphertext, RgswCiphertextMutView, RgswCiphertextOwned, RgswCiphertextView,
+    RgswDecompositionParam,
 };

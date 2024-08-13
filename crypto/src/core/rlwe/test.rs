@@ -30,7 +30,7 @@ pub struct RlweParam {
     pub ciphertext_modulus: Modulus,
     pub ring_size: usize,
     pub sk_distribution: SecretKeyDistribution,
-    pub u_distribution: NoiseDistribution,
+    pub u_distribution: SecretKeyDistribution,
     pub noise_distribution: NoiseDistribution,
     pub ks_decomposition_param: DecompositionParam,
 }
@@ -312,12 +312,13 @@ impl<R: RingOps> Rlwe<R> {
 }
 
 pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RlweParam {
+    let ring_size = 256;
     RlweParam {
         message_modulus: 1 << 6,
         ciphertext_modulus: ciphertext_modulus.into(),
-        ring_size: 256,
+        ring_size,
         sk_distribution: Gaussian::new(3.2).into(),
-        u_distribution: Ternary(128).into(),
+        u_distribution: Ternary(ring_size / 2).into(),
         noise_distribution: Gaussian::new(3.2).into(),
         ks_decomposition_param: DecompositionParam {
             log_base: 8,

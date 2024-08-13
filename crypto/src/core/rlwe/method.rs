@@ -8,7 +8,10 @@ use crate::{
             RlweSecretKeyView,
         },
     },
-    util::{distribution::NoiseDistribution, rng::LweRng},
+    util::{
+        distribution::{NoiseDistribution, SecretKeyDistribution},
+        rng::LweRng,
+    },
 };
 use core::{borrow::Borrow, ops::Neg};
 use phantom_zone_math::{
@@ -82,7 +85,7 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
     pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
-    u_distribution: NoiseDistribution,
+    u_distribution: SecretKeyDistribution,
     noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,

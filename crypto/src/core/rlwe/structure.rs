@@ -353,24 +353,26 @@ pub struct RlweAutoKey<S1, S2: AsSlice<Elem = usize>> {
     auto_map: AutomorphismMap<S2>,
 }
 
-impl<S1, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
-    pub fn auto_map(&self) -> AutomorphismMapView {
-        self.auto_map.as_view()
-    }
-
-    pub fn k(&self) -> usize {
-        self.auto_map.k()
-    }
-}
-
 impl<S1: AsSlice, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
     pub fn new(ks_key: RlweKeySwitchKey<S1>, auto_map: AutomorphismMap<S2>) -> Self {
         debug_assert_eq!(ks_key.ring_size(), auto_map.ring_size());
         Self { ks_key, auto_map }
     }
 
+    pub fn ring_size(&self) -> usize {
+        self.ks_key.ring_size()
+    }
+
     pub fn decomposition_param(&self) -> DecompositionParam {
         self.ks_key.decomposition_param()
+    }
+
+    pub fn auto_map(&self) -> AutomorphismMapView {
+        self.auto_map.as_view()
+    }
+
+    pub fn k(&self) -> usize {
+        self.auto_map.k()
     }
 
     pub fn as_ks_key(&self) -> RlweKeySwitchKeyView<S1::Elem> {
