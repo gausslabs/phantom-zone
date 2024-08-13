@@ -16,12 +16,12 @@ use phantom_zone_math::{
 pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     ring: &R1,
     ring_ks: &R2,
-    q: usize,
     ct: impl Into<LweCiphertextMutView<'a, R1::Elem>>,
+    q: usize,
     ks_key: impl Into<LweKeySwitchKeyView<'b, R2::Elem>>,
-    f_auto_neg_g: impl Into<RlwePlaintextView<'c, R1::Elem>>,
     brk: &[RgswCiphertextOwned<R1::EvalPrep>],
     ak: &[RlweAutoKeyOwned<R1::EvalPrep>],
+    f_auto_neg_g: impl Into<RlwePlaintextView<'c, R1::Elem>>,
     mut scratch: Scratch,
 ) {
     debug_assert_eq!((2 * ring.ring_size()) % q, 0);
@@ -49,7 +49,7 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     let gb = ak[1].k() * mod_q.to_u64(*ct_ks_mod_switch.b()) as usize;
     ring.poly_mul_monomial(acc.b_mut(), (embedding_factor * gb) as _);
 
-    blind_rotate_core(ring, q, &mut acc, ct_ks_mod_switch.a(), brk, ak, scratch);
+    blind_rotate_core(ring, &mut acc, q, brk, ak, ct_ks_mod_switch.a(), scratch);
 
     rlwe::sample_extract(ring, ct, &acc, 0);
 }
@@ -57,11 +57,11 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
 // Algorithm 3 in 2022/198.
 pub fn blind_rotate_core<'a, R: RingOps>(
     ring: &R,
-    q: usize,
     acc: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
-    a: &[u64],
+    q: usize,
     brk: &[RgswCiphertextOwned<R::EvalPrep>],
     ak: &[RlweAutoKeyOwned<R::EvalPrep>],
+    a: &[u64],
     mut scratch: Scratch,
 ) {
     let [i_m, i_p] = &mut i_m_i_p(q, ak[1].k(), a, &mut scratch).map(|i| i.iter().peekable());
@@ -147,7 +147,10 @@ mod test {
     use crate::{
         core::{
             lwe::test::{Lwe, LweParam},
-            rgsw::test::{Rgsw, RgswParam},
+            rgsw::{
+                test::{Rgsw, RgswParam},
+                RgswDecompositionParam,
+            },
             rlwe::{test::RlweParam, RlwePlaintext},
         },
         scheme::blind_rotation::lmkcdey::{bootstrap, power_g_mod_q},
@@ -203,9 +206,11 @@ mod test {
                         level: 1,
                     },
                 },
-                decomposition_log_base: 17,
-                decomposition_level_a: 1,
-                decomposition_level_b: 1,
+                decomposition_param: RgswDecompositionParam {
+                    log_base: 17,
+                    level_a: 1,
+                    level_b: 1,
+                },
             },
             lwe_ks: LweParam {
                 message_modulus,
@@ -285,12 +290,12 @@ mod test {
                 bootstrap(
                     ring,
                     ring_ks,
-                    param.q,
                     &mut ct,
+                    param.q,
                     &ks_key,
-                    &nand_lut_auto_neg_g,
                     &brk,
                     &ak,
+                    &nand_lut_auto_neg_g,
                     scratch.reborrow(),
                 );
                 *ct.b_mut() = ring.add(ct.b(), &big_q_by_8);

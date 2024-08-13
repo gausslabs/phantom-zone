@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use phantom_zone_crypto::core::{
-    rgsw::{self, RgswCiphertext},
+    rgsw::{self, RgswCiphertext, RgswDecompositionParam},
     rlwe::{self, RlweAutoKey, RlweCiphertext},
 };
 use phantom_zone_math::{
@@ -62,18 +62,11 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
     fn runner<R: RingOps + 'static>(
         modulus: Modulus,
         ring_size: usize,
-        decomposition_param: (usize, usize, usize),
+        decomposition_param: RgswDecompositionParam,
     ) -> Box<dyn FnMut()> {
-        let (decomposition_log_base, decomposition_level_a, decomposition_level_b) =
-            decomposition_param;
         let ring = R::new(modulus, ring_size);
-        let ct_rgsw_prep = RgswCiphertext::allocate_eval(
-            ring.ring_size(),
-            ring.eval_size(),
-            decomposition_log_base,
-            decomposition_level_a,
-            decomposition_level_b,
-        );
+        let ct_rgsw_prep =
+            RgswCiphertext::allocate_eval(ring.ring_size(), ring.eval_size(), decomposition_param);
         let mut ct_rlwe = RlweCiphertext::allocate(ring.ring_size());
         let mut scratch = ring.allocate_scratch(2, 3, 0);
         Box::new(move || {
@@ -88,7 +81,11 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
     }
 
     let mut b = c.benchmark_group("rlwe_by_rgsw");
-    let decomposition_param = (17, 1, 1);
+    let decomposition_param = RgswDecompositionParam {
+        log_base: 17,
+        level_a: 1,
+        level_b: 1,
+    };
     for log_ring_size in 11..13 {
         let ring_size = 1 << log_ring_size;
         let runners = [
