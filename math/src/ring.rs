@@ -154,10 +154,6 @@ pub trait SliceOps: ModulusOps {
         self.slice_op_assign(c, a, |c, a| *c = self.mul(a, b))
     }
 
-    fn slice_scalar_mul_prep(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Prep) {
-        self.slice_op_assign(c, a, |c, a| *c = self.mul_prep(a, b))
-    }
-
     fn slice_add_elem_from<T: Copy>(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[T])
     where
         Self: ElemFrom<T>,
@@ -198,10 +194,6 @@ pub trait SliceOps: ModulusOps {
 
     fn slice_fma(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Elem]) {
         self.slice_op(c, a, b, |c, a, b| *c = self.add(c, &self.mul(a, b)))
-    }
-
-    fn slice_fma_prep(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &[Self::Prep]) {
-        self.slice_op(c, a, b, |c, a, b| *c = self.add(c, &self.mul_prep(a, b)))
     }
 
     fn slice_scalar_fma(&self, c: &mut [Self::Elem], a: &[Self::Elem], b: &Self::Elem) {

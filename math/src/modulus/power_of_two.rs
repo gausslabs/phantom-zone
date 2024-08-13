@@ -227,17 +227,24 @@ impl<const NATIVE: bool> TryFrom<Modulus> for PowerOfTwo<NATIVE> {
     }
 }
 
+// Round f64 to u64 modulo 2^64.
 #[inline(always)]
 pub(crate) fn f64_mod_u64(v: f64) -> u64 {
     let bits = v.to_bits();
     let sign = bits >> 63;
-    let exponent = ((bits >> 52) & 0x7ff) as i64;
+    let exponent = (bits >> 52) & 0x7ff;
+    // Shift 52-bits mantissa to the top and add back the 1.0 part.
     let mantissa = (bits << 11) | 0x8000000000000000;
-    let value = match 1086 - exponent {
+    // Now the actual shift is (52 + 11) + (1023 - exponent) = 1086 - exponent.
+    let value = match 1086 - exponent as i64 {
+        // If exponent is larger than 63, shift left and overflowing bits are discarded as in modulus 2^64.
         shift @ -63..=0 => mantissa << -shift,
+        // If exponent is less than 63, rounding-shift right.
         shift @ 1..=64 => ((mantissa >> (shift - 1)).wrapping_add(1)) >> 1,
+        // If exponent is too large or too small, the value is modulo or round to 0.
         _ => 0,
     };
+    // Negate if sign bit is set.
     if sign == 0 {
         value
     } else {

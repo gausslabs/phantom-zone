@@ -1,6 +1,6 @@
 use crate::{
     core::{
-        rgsw::{self, RgswCiphertext, RgswCiphertextOwned},
+        rgsw::{self, RgswCiphertext, RgswCiphertextOwned, RgswDecompositionParam},
         rlwe::{
             self,
             test::{Rlwe, RlweParam},
@@ -25,9 +25,7 @@ use rand::RngCore;
 #[derive(Clone, Copy, Debug)]
 pub struct RgswParam {
     pub rlwe: RlweParam,
-    pub decomposition_log_base: usize,
-    pub decomposition_level_a: usize,
-    pub decomposition_level_b: usize,
+    pub decomposition_param: RgswDecompositionParam,
 }
 
 impl Deref for RgswParam {
@@ -95,12 +93,7 @@ impl<R: RingOps> Rgsw<R> {
         pt: &RlwePlaintextOwned<R::Elem>,
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> RgswCiphertextOwned<R::Elem> {
-        let mut ct = RgswCiphertext::allocate(
-            self.ring_size(),
-            self.param.decomposition_log_base,
-            self.param.decomposition_level_a,
-            self.param.decomposition_level_b,
-        );
+        let mut ct = RgswCiphertext::allocate(self.ring_size(), self.param.decomposition_param);
         let mut scratch = self.ring().allocate_scratch(0, 2, 0);
         rgsw::sk_encrypt(
             self.ring(),
@@ -148,9 +141,7 @@ impl<R: RingOps> Rgsw<R> {
         let mut ct_b_prep = RgswCiphertext::allocate_eval(
             self.ring().ring_size(),
             self.ring().eval_size(),
-            ct.decomposition_log_base(),
-            ct.decomposition_level_a(),
-            ct.decomposition_level_b(),
+            ct.decomposition_param(),
         );
         let mut scratch = self.ring().allocate_scratch(0, 1, 0);
         rgsw::prepare_rgsw(self.ring(), &mut ct_b_prep, ct, scratch.borrow_mut());
@@ -185,9 +176,11 @@ impl<R: RingOps> Rgsw<R> {
 pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RgswParam {
     RgswParam {
         rlwe: rlwe::test::test_param(ciphertext_modulus),
-        decomposition_log_base: 20,
-        decomposition_level_a: 2,
-        decomposition_level_b: 2,
+        decomposition_param: RgswDecompositionParam {
+            log_base: 20,
+            level_a: 2,
+            level_b: 2,
+        },
     }
 }
 

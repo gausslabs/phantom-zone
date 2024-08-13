@@ -122,9 +122,7 @@ pub fn rgsw_by_rgsw_in_place<'a, 'b, R: RingOps>(
     let mut ct_b_prep = RgswCiphertext::scratch(
         ring.ring_size(),
         ring.eval_size(),
-        ct_b.decomposition_log_base(),
-        ct_b.decomposition_level_a(),
-        ct_b.decomposition_level_b(),
+        ct_b.decomposition_param(),
         &mut scratch,
     );
     prepare_rgsw(ring, &mut ct_b_prep, ct_b, scratch.reborrow());
