@@ -197,7 +197,7 @@ mod test {
                     ring_size,
                     sk_distribution: Gaussian::new(3.2).into(),
                     noise_distribution: Gaussian::new(3.2).into(),
-                    u_distribution: Ternary(256).into(),
+                    u_distribution: Ternary(ring_size / 2).into(),
                     ks_decomposition_param: DecompositionParam {
                         log_base: 24,
                         level: 1,
