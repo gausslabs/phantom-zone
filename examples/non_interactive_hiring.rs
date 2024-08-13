@@ -107,19 +107,16 @@ fn server_setup(server_key_shares: Vec<ServerKeyShare>) {
 
 #[derive(Serialize, Deserialize)]
 struct ClientEncryptedData {
-    bool_enc: NonInteractiveBatchedFheBools<Vec<Vec<u64>>>,
+    bool_enc: NonInteractiveSeededFheBools<Vec<u64>, [u8; 32]>,
     salary_enc: EncFheUint8,
 }
 
 fn client_encrypt_job_criteria(jc: JobCriteria, ck: ClientKeys) -> ClientEncryptedData {
-    let bool_enc: NonInteractiveBatchedFheBools<_> = ck.client_key.encrypt(
-        [jc.in_market, jc.position]
-            .iter()
-            .copied()
-            .chain(jc.criteria.iter().copied())
-            .collect::<Vec<_>>()
-            .as_slice(),
-    );
+    let bool_vec = ([jc.in_market, jc.position].iter().copied())
+        .chain(jc.criteria.iter().copied())
+        .collect::<Vec<_>>();
+
+    let bool_enc = ck.client_key.encrypt(bool_vec.as_slice());
     let salary_enc = ck.client_key.encrypt(vec![jc.salary].as_slice());
 
     ClientEncryptedData {
@@ -129,18 +126,17 @@ fn client_encrypt_job_criteria(jc: JobCriteria, ck: ClientKeys) -> ClientEncrypt
 }
 
 fn server_extract_job_criteria(id: usize, data: ClientEncryptedData) -> FheJobCriteria {
-    let bool_enc_ks = data.bool_enc.key_switch(id);
-    let in_market = FheBool {
-        data: bool_enc_ks.extract(0),
-    };
-    let position = FheBool {
-        data: bool_enc_ks.extract(1),
-    };
+    let mut tmp = data
+        .bool_enc
+        .unseed::<Vec<Vec<u64>>>()
+        .key_switch(id)
+        .extract_all();
+
+    let (in_market, position) = (tmp.swap_remove(0), tmp.swap_remove(0));
+
     let mut criteria: [FheBool; NUM_CRITERIA] = Default::default();
     for i in 0..NUM_CRITERIA {
-        criteria[i] = FheBool {
-            data: bool_enc_ks.extract(i + 2),
-        };
+        criteria[i] = tmp.swap_remove(0);
     }
 
     let salary = data
