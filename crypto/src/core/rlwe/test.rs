@@ -30,7 +30,7 @@ pub struct RlweParam {
     pub ciphertext_modulus: Modulus,
     pub ring_size: usize,
     pub sk_distribution: SecretKeyDistribution,
-    pub u_distribution: NoiseDistribution,
+    pub u_distribution: SecretKeyDistribution,
     pub noise_distribution: NoiseDistribution,
     pub ks_decomposition_param: DecompositionParam,
 }
