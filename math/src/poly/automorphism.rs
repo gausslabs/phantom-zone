@@ -1,6 +1,28 @@
 use crate::util::as_slice::{AsMutSlice, AsSlice};
 use phantom_zone_derive::AsSliceWrapper;
 
+/// Map for `f(X) -> f(X^k)`. The `map` slice contains `sign` bit and
+/// pre-image `index` encoded as `index << 1 | sign`.
+///
+/// # Examples
+///
+/// ```
+/// use phantom_zone_math::poly::automorphism::AutomorphismMap;
+///
+/// let ring_size = 8;
+/// let k = 5;
+/// let auto_map = AutomorphismMap::new(ring_size, k);
+/// let mut iter = auto_map.iter();
+/// assert_eq!(iter.next(), Some((false, 0))); // X^0 =  X^(0*5)
+/// assert_eq!(iter.next(), Some((true, 5)));  // X^1 = -X^(5*5)
+/// assert_eq!(iter.next(), Some((true, 2)));  // X^2 = -X^(2*5)
+/// assert_eq!(iter.next(), Some((false, 7))); // X^3 =  X^(7*5)
+/// assert_eq!(iter.next(), Some((false, 4))); // X^4 =  X^(4*5)
+/// assert_eq!(iter.next(), Some((false, 1))); // X^5 =  X^(1*5)
+/// assert_eq!(iter.next(), Some((true, 6)));  // X^6 = -X^(6*5)
+/// assert_eq!(iter.next(), Some((true, 3)));  // X^7 = -X^(3*5)
+/// assert_eq!(iter.next(), None);
+/// ```
 #[derive(Clone, Debug, AsSliceWrapper)]
 pub struct AutomorphismMap<S: AsSlice<Elem = usize>> {
     #[as_slice]

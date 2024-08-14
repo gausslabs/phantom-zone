@@ -12,7 +12,10 @@ use phantom_zone_math::{
     util::scratch::Scratch,
 };
 
-// Figure 2 + Algorithm 7 in 2022/198.
+/// Implementation of Figure 2 + Algorithm 7 in 2022/198.
+///
+/// Because we don't need `ak_{g^0}`, `ak_{-g}` is assumed to be stored in
+/// `ak[0]` from argument.
 pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     ring: &R1,
     ring_ks: &R2,
@@ -54,7 +57,10 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     rlwe::sample_extract(ring, ct, &acc, 0);
 }
 
-// Algorithm 3 in 2022/198.
+/// Implementation of Algorithm 3 in 2022/198.
+///
+/// Because we don't need `ak_{g^0}`, `ak_{-g}` is assumed to be stored in
+/// `ak[0]` from argument.
 pub fn blind_rotate_core<'a, R: RingOps>(
     ring: &R,
     acc: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
@@ -64,21 +70,21 @@ pub fn blind_rotate_core<'a, R: RingOps>(
     a: &[u64],
     mut scratch: Scratch,
 ) {
-    let [i_m, i_p] = &mut i_m_i_p(q, ak[1].k(), a, &mut scratch).map(|i| i.iter().peekable());
+    let [i_n, i_p] = &mut i_n_i_p(q, ak[1].k(), a, &mut scratch).map(|i| i.iter().peekable());
     let mut acc = acc.into();
     let mut v = 0;
     for l in (1..q / 4).rev() {
-        for (_, j) in i_m.take_while_ref(|(log, _)| *log == l) {
+        for (_, j) in i_n.take_while_ref(|(log, _)| *log == l) {
             rgsw::rlwe_by_rgsw_prep_in_place(ring, &mut acc, &brk[*j], scratch.reborrow());
         }
         v += 1;
-        let has_adj = i_m.peek().filter(|(log, _)| (*log == l - 1)).is_some();
+        let has_adj = i_n.peek().filter(|(log, _)| (*log == l - 1)).is_some();
         if has_adj || v == ak.len() - 1 || l == 1 {
             rlwe::automorphism_prep_in_place(ring, &mut acc, &ak[v], scratch.reborrow());
             v = 0
         }
     }
-    for (_, j) in i_m {
+    for (_, j) in i_n {
         rgsw::rlwe_by_rgsw_prep_in_place(ring, &mut acc, &brk[*j], scratch.reborrow());
     }
     rlwe::automorphism_prep_in_place(ring, &mut acc, &ak[0], scratch.reborrow());
@@ -98,41 +104,45 @@ pub fn blind_rotate_core<'a, R: RingOps>(
     }
 }
 
-fn i_m_i_p<'a>(
+/// Returns negative and positive sets of indices `j` (of `a_j`) where
+/// `a_j = -g^log` and `a_j = g^log`, and sets are sorted by `log` descendingly.
+fn i_n_i_p<'a>(
     q: usize,
     g: usize,
     a: &[u64],
     scratch: &mut Scratch<'a>,
 ) -> [&'a [(usize, usize)]; 2] {
-    let [i_m, i_p] = scratch.take_slice_array::<(usize, usize), 2>(a.len());
-    let mut i_m_count = 0;
+    let [i_n, i_p] = scratch.take_slice_array::<(usize, usize), 2>(a.len());
+    let mut i_n_count = 0;
     let mut i_p_count = 0;
     let log_g_map = log_g_map(q, g, scratch.reborrow());
     izip!(0.., a).for_each(|(j, a_j)| {
-        let log = log_g_map[*a_j as usize];
         if *a_j != 0 {
+            let log = log_g_map[*a_j as usize];
             debug_assert_ne!(log, usize::MAX);
             if log & 1 == 1 {
-                i_m[i_m_count] = (log >> 1, j);
-                i_m_count += 1
+                i_n[i_n_count] = (log >> 1, j);
+                i_n_count += 1
             } else {
                 i_p[i_p_count] = (log >> 1, j);
                 i_p_count += 1
             }
         }
     });
-    i_m[..i_m_count].sort_by_key(|(l, _)| Reverse(*l));
-    i_p[..i_p_count].sort_by_key(|(l, _)| Reverse(*l));
-    [&i_m[..i_m_count], &i_p[..i_p_count]]
+    i_n[..i_n_count].sort_by_key(|(log, _)| Reverse(*log));
+    i_p[..i_p_count].sort_by_key(|(log, _)| Reverse(*log));
+    [&i_n[..i_n_count], &i_p[..i_p_count]]
 }
 
+/// Returns map for both `v` to `log_g(v) % q` and `-v` to `log_g(v)`. The slice
+/// contains `sign` bit and `log` encoded as `log << 1 | sign`.
 fn log_g_map(q: usize, g: usize, mut scratch: Scratch) -> &mut [usize] {
     let log_g_map = scratch.take_slice(q);
     #[cfg(debug_assertions)]
     log_g_map.fill(usize::MAX);
-    izip!(power_g_mod_q(g, q), 0..q / 4).for_each(|(v, i)| {
-        log_g_map[v] = i << 1;
-        log_g_map[q - v] = i << 1 | 1;
+    izip!(power_g_mod_q(g, q), 0..q / 4).for_each(|(v, log)| {
+        log_g_map[v] = log << 1;
+        log_g_map[q - v] = log << 1 | 1;
     });
     log_g_map
 }
