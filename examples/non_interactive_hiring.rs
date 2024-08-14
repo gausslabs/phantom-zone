@@ -165,7 +165,7 @@ fn client_full_decrypt(ck: ClientKeys, result: FheBool, shares: [u64; 2]) -> boo
 }
 
 fn main() {
-    set_parameter_set(ParameterSelector::NonInteractiveLTE2Party80Bit);
+    set_parameter_set(ParameterSelector::NonInteractiveLTE2Party60Bit);
 
     /*
      * Phase 1: KEY SETUP
