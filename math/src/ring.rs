@@ -77,6 +77,10 @@ pub trait SliceOps: ModulusOps {
         a.iter_mut().for_each(|a| *a = self.neg(a))
     }
 
+    fn slice_double_assign(&self, a: &mut [Self::Elem]) {
+        a.iter_mut().for_each(|a| *a = self.add(a, a))
+    }
+
     fn slice_add_assign(&self, b: &mut [Self::Elem], a: &[Self::Elem]) {
         self.slice_op_assign(b, a, |b, a| *b = self.add(b, a))
     }

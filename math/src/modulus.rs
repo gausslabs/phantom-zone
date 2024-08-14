@@ -53,7 +53,7 @@ impl Modulus {
     }
 }
 
-pub trait ModulusOps {
+pub trait ModulusOps: Clone + Debug {
     type Elem: 'static + Copy + Debug + Default + Eq + Ord + Hash;
     type Prep: 'static + Copy + Debug + Default;
 

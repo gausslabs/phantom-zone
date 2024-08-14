@@ -131,7 +131,6 @@ impl<'a, T> RgswCiphertext<&'a mut [T]> {
         ring_size: usize,
         eval_size: usize,
         decomposition_param: RgswDecompositionParam,
-
         scratch: &mut Scratch<'a>,
     ) -> Self {
         Self::new(

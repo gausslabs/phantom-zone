@@ -8,7 +8,7 @@ use itertools::{izip, Itertools};
 use phantom_zone_math::{
     izip_eq,
     modulus::{ModulusOps, NonNativePowerOfTwo},
-    ring::{NonNativePowerOfTwoRing, RingOps},
+    ring::RingOps,
     util::scratch::Scratch,
 };
 
@@ -29,7 +29,7 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
 ) {
     debug_assert_eq!((2 * ring.ring_size()) % q, 0);
     let embedding_factor = 2 * ring.ring_size() / q;
-    let mod_q = NonNativePowerOfTwoRing::new(NonNativePowerOfTwo::new(q.ilog2() as _).into(), 1);
+    let mod_q = NonNativePowerOfTwo::new(q.ilog2() as _);
     let (ct, ks_key, f_auto_neg_g) = (ct.into(), ks_key.into(), f_auto_neg_g.into());
 
     let mut ct_mod_switch = LweCiphertext::scratch(ks_key.from_dimension(), &mut scratch);
@@ -147,7 +147,8 @@ fn log_g_map(q: usize, g: usize, mut scratch: Scratch) -> &mut [usize] {
     log_g_map
 }
 
-fn power_g_mod_q(g: usize, q: usize) -> impl Iterator<Item = usize> {
+pub fn power_g_mod_q(g: usize, q: usize) -> impl Iterator<Item = usize> {
+    debug_assert!(q.is_power_of_two());
     let mask = q - 1;
     successors(Some(1), move |v| ((v * g) & mask).into())
 }
@@ -164,7 +165,7 @@ mod test {
             rlwe::{test::RlweParam, RlwePlaintext},
         },
         scheme::blind_rotation::lmkcdey::{bootstrap, power_g_mod_q},
-        util::rng::test::StdLweRng,
+        util::rng::StdLweRng,
     };
     use core::{array::from_fn, iter::repeat, mem::size_of};
     use itertools::{chain, Itertools};
@@ -208,8 +209,8 @@ mod test {
                     message_modulus,
                     ciphertext_modulus: big_q.into(),
                     ring_size,
-                    sk_distribution: Gaussian::new(3.2).into(),
-                    noise_distribution: Gaussian::new(3.2).into(),
+                    sk_distribution: Gaussian(3.2).into(),
+                    noise_distribution: Gaussian(3.2).into(),
                     u_distribution: Ternary(ring_size / 2).into(),
                     ks_decomposition_param: DecompositionParam {
                         log_base: 24,
@@ -226,8 +227,8 @@ mod test {
                 message_modulus,
                 ciphertext_modulus: NonNativePowerOfTwo::new(16).into(),
                 dimension: 100,
-                sk_distribution: Gaussian::new(3.2).into(),
-                noise_distribution: Gaussian::new(3.2).into(),
+                sk_distribution: Gaussian(3.2).into(),
+                noise_distribution: Gaussian(3.2).into(),
                 ks_decomposition_param: DecompositionParam {
                     log_base: 1,
                     level: 13,
@@ -258,24 +259,25 @@ mod test {
             };
             let mut scratch = scratch.borrow_mut();
 
-            let rlwe_sk = rlwe.sk_gen();
-            let lwe_sk = rlwe_sk.clone().into();
-            let lwe_ks_sk = lwe_ks.sk_gen();
-            let ks_key = lwe_ks.ks_key_gen(&lwe_sk, &lwe_ks_sk, &mut rng);
-            let brk = lwe_ks_sk
+            let sk = rlwe.sk_gen();
+            let sk_ks = lwe_ks.sk_gen();
+            let brk = sk_ks
                 .as_ref()
                 .iter()
                 .map(|lwe_ks_sk_i| {
                     let exp = embedding_factor as i32 * lwe_ks_sk_i;
                     let mut pt = RlwePlaintext::allocate(ring.ring_size());
                     ring.poly_set_monomial(pt.as_mut(), exp as _);
-                    rgsw.prepare_rgsw(&rgsw.sk_encrypt(&rlwe_sk, &pt, &mut rng))
+                    rgsw.prepare_rgsw(&rgsw.sk_encrypt(&sk, &pt, &mut rng))
                 })
                 .collect_vec();
             let ak = chain![[param.q - param.g], power_g_mod_q(param.g, param.q).skip(1)]
                 .take(param.w + 1)
-                .map(|k| rlwe.prepare_auto_key(&rlwe.auto_key_gen(&rlwe_sk, k as _, &mut rng)))
+                .map(|k| rlwe.prepare_auto_key(&rlwe.auto_key_gen(&sk, k as _, &mut rng)))
                 .collect_vec();
+            let sk = sk.into();
+            let ks_key = lwe_ks.ks_key_gen(&sk, &sk_ks, &mut rng);
+
             let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
             let nand_lut_auto_neg_g = {
                 let q_half = param.q / 2;
@@ -294,8 +296,8 @@ mod test {
 
             for m in 0..1 << 2 {
                 let [a, b] = from_fn(|i| (m >> i) & 1 == 1);
-                let ct_a = lwe.sk_encrypt(&lwe_sk, lwe.encode(a as _), &mut rng);
-                let ct_b = lwe.sk_encrypt(&lwe_sk, lwe.encode(b as _), &mut rng);
+                let ct_a = lwe.sk_encrypt(&sk, lwe.encode(a as _), &mut rng);
+                let ct_b = lwe.sk_encrypt(&sk, lwe.encode(b as _), &mut rng);
                 let mut ct = lwe.add(&ct_a, &ct_b);
                 bootstrap(
                     ring,
@@ -309,7 +311,7 @@ mod test {
                     scratch.reborrow(),
                 );
                 *ct.b_mut() = ring.add(ct.b(), &big_q_by_8);
-                assert_eq!(!(a & b) as u64, lwe.decode(lwe.decrypt(&lwe_sk, &ct)));
+                assert_eq!(!(a & b) as u64, lwe.decode(lwe.decrypt(&sk, &ct)));
             }
         }
 

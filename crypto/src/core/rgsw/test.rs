@@ -7,7 +7,7 @@ use crate::{
             RlweCiphertextOwned, RlwePlaintext, RlwePlaintextOwned, RlweSecretKeyOwned,
         },
     },
-    util::rng::{test::StdLweRng, LweRng},
+    util::rng::{LweRng, StdLweRng},
 };
 use core::ops::Deref;
 use phantom_zone_math::{
