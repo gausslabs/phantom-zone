@@ -15,7 +15,7 @@ use super::{
         NonInteractiveServerKeyEvaluationDomain, SeededNonInteractiveMultiPartyServerKey,
         ShoupNonInteractiveServerKeyEvaluationDomain,
     },
-    parameters::{BoolParameters, CiphertextModulus, NI_2P, NI_2P_80, NI_40P, NI_4P_HB_FR, NI_8P},
+    parameters::{BoolParameters, CiphertextModulus, NI_2P, NI_2P_60, NI_40P, NI_4P_HB_FR, NI_8P},
     ClientKey,
 };
 
@@ -60,7 +60,7 @@ pub fn set_parameter_set(select: ParameterSelector) {
             BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_40P)))
         }
         ParameterSelector::NonInteractiveLTE2Party80Bit => {
-            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_2P_80)))
+            BOOL_EVALUATOR.with_borrow_mut(|v| *v = Some(BoolEvaluator::new(NI_2P_60)))
         }
     }
     ACTIVE_PARAMETER_SET.with_borrow_mut(|v| *v = Some(select));

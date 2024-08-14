@@ -731,14 +731,14 @@ pub(crate) const NI_40P: BoolParameters<u64> = BoolParameters::<u64> {
     variant: ParameterVariant::NonInteractiveMultiParty,
 };
 
-pub(crate) const NI_2P_80: BoolParameters<u64> = BoolParameters::<u64> {
+pub(crate) const NI_2P_60: BoolParameters<u64> = BoolParameters::<u64> {
     rlwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
     lwe_secret_key_dist: SecretKeyDistribution::TernaryDistribution,
     rlwe_q: CiphertextModulus::new_non_native(1152921504606830593),
     lwe_q: CiphertextModulus::new_non_native(1 << 16),
-    br_q: 1 << 12,
-    rlwe_n: PolynomialSize(1 << 11),
-    lwe_n: LweDimension(370),
+    br_q: 1 << 10,
+    rlwe_n: PolynomialSize(1 << 10),
+    lwe_n: LweDimension(220),
     lwe_decomposer_params: (DecompostionLogBase(1), DecompositionCount(13)),
     rlrg_decomposer_params: (
         DecompostionLogBase(15),
