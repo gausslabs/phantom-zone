@@ -6,7 +6,7 @@ use phantom_zone_math::{
 };
 use std::iter::repeat_with;
 
-use crate::core::rgsw::RgswDecompositionParam;
+use crate::core::{lwe::LweKeySwitchKey, rgsw::RgswDecompositionParam};
 
 trait Parameters {
     fn lwe_n(&self) -> usize;
@@ -92,56 +92,102 @@ impl<T: Default> RlwePublicKeyShare<Vec<T>> {
 }
 
 #[derive(Clone, Copy, Debug, AsSliceWrapper)]
-pub struct InteractiveServerKeyShare<S> {
+pub struct RgswCiphertextList<S> {
     #[as_slice]
-    lwe_ksk: S,
-    auto_keys: S,
-    self_rgsw_cts: S,
-    not_self_rgsw_cts: S,
+    data: S,
 }
 
-impl<S: AsSlice> InteractiveServerKeyShare<S> {
-    pub fn new(lwe_ksk: S, auto_keys: S, self_rgsw_cts: S, not_self_rgsw_cts: S) -> Self {
-        Self {
-            lwe_ksk,
-            auto_keys,
-            self_rgsw_cts,
-            not_self_rgsw_cts,
-        }
+impl<S: AsSlice> RgswCiphertextList<S> {
+    fn new(data: S) -> Self {
+        Self { data }
     }
 }
 
-impl<T: Default> InteractiveServerKeyShare<Vec<T>> {
-    fn allocate(parameters: InteractiveMpcParameters, user_id: usize, total_users: usize) -> Self {
-        let (self_count, not_self_count) =
-            split_lwe_dimension_for_rgsws(parameters.lwe_n(), user_id, total_users);
+impl<T: Default> RgswCiphertextList<Vec<T>> {
+    fn allocate(
+        count: usize,
+        ring_size: usize,
+        decomposition_param: RgswDecompositionParam,
+    ) -> Self {
         Self::new(
             repeat_with(T::default)
-                .take(parameters.rlwe_n() * parameters.lwe_ksk_decomposer().level)
-                .collect(),
-            repeat_with(T::default)
                 .take(
-                    (parameters.w() + 1) * parameters.auto_decomposer().level * parameters.rlwe_n(),
-                )
-                .collect(),
-            repeat_with(T::default)
-                .take(
-                    self_count.len()
-                        * ((parameters.rlwe_x_rgsw_decomposer().level_a
-                            + parameters.rlwe_x_rgsw_decomposer().level_b)
-                            * 2
-                            * parameters.rlwe_n()),
-                )
-                .collect(),
-            repeat_with(T::default)
-                .take(
-                    not_self_count.len()
-                        * ((parameters.rgsw_x_rgsw_decomposer().level_a
-                            + parameters.rgsw_x_rgsw_decomposer().level_b)
-                            * 2
-                            * parameters.rlwe_n()),
+                    count
+                        * ((2 * ring_size * decomposition_param.level_a)
+                            + (2 * ring_size * decomposition_param.level_b)),
                 )
                 .collect(),
         )
     }
 }
+
+#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+pub struct SeededRlweKeyCiphertext<S> {
+    data: S,
+}
+
+#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+pub struct SeededLweKeySwitchKey<S> {
+    data: S,
+}
+
+impl<S: AsSlice> SeededLweKeySwitchKey<S> {
+    fn new(data: S) -> Self {
+        Self { data }
+    }
+}
+
+#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+pub struct InteractiveServerKeyShare<S0, S1, S2, S3> {
+    #[as_slice]
+    lwe_ksk: S0,
+    #[as_slice]
+    auto_keys: S1,
+    #[as_slice]
+    self_rgsw_cts: S2,
+    #[as_slice]
+    not_self_rgsw_cts: S3,
+}
+
+// impl<S: AsSlice> InteractiveServerKeyShare<S> {
+//     pub fn new(
+//         lwe_ksk: LweKeySwitchKey<S>,
+//         auto_keys: S,
+//         self_rgsw_cts: RgswCiphertextList<S>,
+//         not_self_rgsw_cts: RgswCiphertextList<S>,
+//     ) -> Self {
+//         Self {
+//             lwe_ksk,
+//             auto_keys,
+//             self_rgsw_cts,
+//             not_self_rgsw_cts,
+//         }
+//     }
+// }
+
+// impl<T: Default> InteractiveServerKeyShare<Vec<T>> {
+//     fn allocate(parameters: InteractiveMpcParameters, user_id: usize, total_users: usize) -> Self {
+//         let (self_count, not_self_count) =
+//             split_lwe_dimension_for_rgsws(parameters.lwe_n(), user_id, total_users);
+//         Self::new(
+//             repeat_with(T::default)
+//                 .take(parameters.rlwe_n() * parameters.lwe_ksk_decomposer().level)
+//                 .collect(),
+//             repeat_with(T::default)
+//                 .take(
+//                     (parameters.w() + 1) * parameters.auto_decomposer().level * parameters.rlwe_n(),
+//                 )
+//                 .collect(),
+//             RgswCiphertextList::allocate(
+//                 self_count.len(),
+//                 parameters.rlwe_n(),
+//                 parameters.rlwe_x_rgsw_decomposer(),
+//             ),
+//             RgswCiphertextList::allocate(
+//                 not_self_count.len(),
+//                 parameters.rlwe_n(),
+//                 parameters.rgsw_x_rgsw_decomposer(),
+//             ),
+//         )
+//     }
+// }
