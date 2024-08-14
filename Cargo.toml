@@ -12,3 +12,7 @@ rand = "0.8.5"
 rand_chacha = "0.3.1"
 rand_distr = "0.4.3"
 rustfft = "6.2.0"
+
+[profile.ci]
+inherits = "release"
+debug-assertions = true
