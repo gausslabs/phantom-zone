@@ -19,6 +19,32 @@ pub type ClientKey = keys::ClientKey<[u8; 32], u64>;
 #[cfg(any(feature = "interactive_mp", feature = "non_interactive_mp"))]
 pub type FheBool = impl_bool_frontend::FheBool<Vec<u64>>;
 
+#[cfg(feature = "interactive_mp")]
+pub type CollectiveKeyShare = keys::CommonReferenceSeededCollectivePublicKeyShare<
+    Vec<u64>,
+    [u8; 32],
+    parameters::BoolParameters<u64>,
+>;
+#[cfg(feature = "interactive_mp")]
+pub type CollectivePublicKey = keys::PublicKey<
+    Vec<Vec<u64>>,
+    crate::random::DefaultSecureRng,
+    crate::ModularOpsU64<parameters::CiphertextModulus<u64>>,
+>;
+#[cfg(feature = "interactive_mp")]
+pub type ServerKeyShare = keys::CommonReferenceSeededInteractiveMultiPartyServerKeyShare<
+    Vec<Vec<u64>>,
+    parameters::BoolParameters<u64>,
+    evaluator::InteractiveMultiPartyCrs<[u8; 32]>,
+>;
+
+#[cfg(feature = "non_interactive_mp")]
+pub type ServerKeyShare = keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
+    Vec<Vec<u64>>,
+    parameters::BoolParameters<u64>,
+    evaluator::NonInteractiveMultiPartyCrs<[u8; 32]>,
+>;
+
 pub(crate) trait BooleanGates {
     type Ciphertext: RowEntity;
     type Key;
@@ -72,10 +98,12 @@ pub(crate) trait BooleanGates {
 
 #[cfg(any(feature = "interactive_mp", feature = "non_interactive_mp"))]
 mod impl_bool_frontend {
+    use serde::{Deserialize, Serialize};
+
     use crate::MultiPartyDecryptor;
 
     /// Fhe Bool ciphertext
-    #[derive(Clone)]
+    #[derive(Default, Clone, Serialize, Deserialize)]
     pub struct FheBool<C> {
         /// LWE bool ciphertext
         pub(crate) data: C,

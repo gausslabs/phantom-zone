@@ -4,7 +4,7 @@ use rand::{thread_rng, RngCore};
 use phantom_zone::*;
 
 fn main() {
-    set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
+    set_parameter_set(ParameterSelector::NonInteractiveLTE2Party80Bit);
 
     let mut seed = [0u8; 32];
     thread_rng().fill_bytes(&mut seed);
@@ -26,7 +26,7 @@ fn main() {
     let m00 = true;
     let m01 = false;
     let m10 = true;
-    let m11 = false;
+    let m11 = true;
 
     let c0 = cks[0].encrypt(vec![m00, m01].as_slice());
     let c1 = cks[1].encrypt(vec![m10, m11].as_slice());
@@ -41,8 +41,8 @@ fn main() {
         (tmp.swap_remove(0), tmp.swap_remove(0))
     };
 
-    let enc_out = &(&enc_m00 & &enc_m10) | &(&enc_m01 ^ &enc_m11);
-    let out = (m00 & m10) | (m10 ^ m11);
+    let enc_out = &(&enc_m00 ^ &enc_m10) | &(&enc_m01 & &enc_m11);
+    let out = (m00 ^ m10) | (m01 & m11);
 
     let dec_shares = cks
         .iter()
