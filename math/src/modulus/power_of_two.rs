@@ -227,7 +227,7 @@ impl<const NATIVE: bool> TryFrom<Modulus> for PowerOfTwo<NATIVE> {
     }
 }
 
-// Round f64 to u64 modulo 2^64.
+/// Round f64 to u64 modulo 2^64.
 #[inline(always)]
 pub(crate) fn f64_mod_u64(v: f64) -> u64 {
     let bits = v.to_bits();

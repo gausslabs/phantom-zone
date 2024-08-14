@@ -11,6 +11,7 @@ use num_complex::Complex64;
 use rustfft::{Fft, FftPlanner};
 use std::sync::Arc;
 
+/// Implementation of 2021/480.
 #[derive(Clone)]
 pub struct Ffnt {
     ring_size: usize,
