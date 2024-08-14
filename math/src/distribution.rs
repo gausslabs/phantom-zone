@@ -137,6 +137,7 @@ impl<T: Signed> DistributionSized<T> for Ternary {
             }
             set.into_iter().flat_map(into_bits).positions(identity)
         };
+        out.fill_with(|| f(T::zero()));
         izip!(indices, repeat_with(|| rng.next_u64()).flat_map(into_bits))
             .for_each(|(idx, bit)| out[idx] = f(if bit { T::one() } else { -T::one() }));
     }

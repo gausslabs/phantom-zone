@@ -87,6 +87,28 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
     u_distribution: SecretKeyDistribution,
     noise_distribution: NoiseDistribution,
+    scratch: Scratch,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) {
+    let mut ct = ct.into();
+    pk_encrypt_zero(
+        ring,
+        &mut ct,
+        pk,
+        u_distribution,
+        noise_distribution,
+        scratch,
+        rng,
+    );
+    ring.slice_add_assign(ct.b_mut(), pt.into().as_ref());
+}
+
+pub fn pk_encrypt_zero<'a, 'b, 'c, R: RingOps>(
+    ring: &R,
+    ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
+    pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
+    u_distribution: SecretKeyDistribution,
+    noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) {
@@ -107,7 +129,6 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     ring.eval_mul_assign(t1, t0);
     ring.sample_into::<i64>(ct.b_mut(), noise_distribution, rng.noise());
     ring.add_backward_normalized(ct.b_mut(), t1);
-    ring.slice_add_assign(ct.b_mut(), pt.into().as_ref());
 }
 
 pub fn decrypt<'a, 'b, 'c, R, T>(

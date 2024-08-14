@@ -2,11 +2,14 @@ use crate::{
     core::{
         rgsw::structure::{RgswCiphertext, RgswCiphertextMutView, RgswCiphertextView},
         rlwe::{
-            decomposed_fma, decomposed_fma_prep, sk_encrypt_zero, RlweCiphertext,
-            RlweCiphertextMutView, RlwePlaintextView, RlweSecretKeyView,
+            decomposed_fma, decomposed_fma_prep, pk_encrypt_zero, sk_encrypt_zero, RlweCiphertext,
+            RlweCiphertextMutView, RlwePlaintextView, RlwePublicKeyView, RlweSecretKeyView,
         },
     },
-    util::{distribution::NoiseDistribution, rng::LweRng},
+    util::{
+        distribution::{NoiseDistribution, SecretKeyDistribution},
+        rng::LweRng,
+    },
 };
 use phantom_zone_math::{
     decomposer::Decomposer, izip_eq, modulus::ElemFrom, ring::RingOps, util::scratch::Scratch,
@@ -36,6 +39,47 @@ pub fn sk_encrypt<'a, 'b, 'c, R, T>(
     izip_eq!(ct.b_ct_iter_mut(), decomposer_b.gadget_iter()).for_each(|(mut ct, beta_i)| {
         let scratch = scratch.reborrow();
         sk_encrypt_zero(ring, &mut ct, sk, noise_distribution, scratch, rng);
+        ring.slice_scalar_fma(ct.b_mut(), pt.as_ref(), &beta_i);
+    });
+}
+
+pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
+    ring: &R,
+    ct: impl Into<RgswCiphertextMutView<'a, R::Elem>>,
+    pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
+    pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
+    u_distribution: SecretKeyDistribution,
+    noise_distribution: NoiseDistribution,
+    mut scratch: Scratch,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) {
+    let (mut ct, pk, pt) = (ct.into(), pk.into(), pt.into());
+    let decomposer_a = R::Decomposer::new(ring.modulus(), ct.decomposition_param_a());
+    let decomposer_b = R::Decomposer::new(ring.modulus(), ct.decomposition_param_b());
+    izip_eq!(ct.a_ct_iter_mut(), decomposer_a.gadget_iter()).for_each(|(mut ct, beta_i)| {
+        let scratch = scratch.reborrow();
+        pk_encrypt_zero(
+            ring,
+            &mut ct,
+            pk,
+            u_distribution,
+            noise_distribution,
+            scratch,
+            rng,
+        );
+        ring.slice_scalar_fma(ct.a_mut(), pt.as_ref(), &beta_i);
+    });
+    izip_eq!(ct.b_ct_iter_mut(), decomposer_b.gadget_iter()).for_each(|(mut ct, beta_i)| {
+        let scratch = scratch.reborrow();
+        pk_encrypt_zero(
+            ring,
+            &mut ct,
+            pk,
+            u_distribution,
+            noise_distribution,
+            scratch,
+            rng,
+        );
         ring.slice_scalar_fma(ct.b_mut(), pt.as_ref(), &beta_i);
     });
 }

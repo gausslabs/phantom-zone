@@ -4,7 +4,7 @@ mod structure;
 #[cfg(test)]
 pub(crate) mod test;
 
-pub(crate) use method::{decomposed_fma, decomposed_fma_prep, sk_encrypt_zero};
+pub(crate) use method::{decomposed_fma, decomposed_fma_prep, pk_encrypt_zero, sk_encrypt_zero};
 
 pub use method::{
     auto_key_gen, automorphism_in_place, automorphism_prep_in_place, decrypt, key_switch_in_place,
