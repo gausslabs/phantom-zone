@@ -100,7 +100,7 @@ impl Ffnt {
         self.add_backward(b, a, add_from_f64)
     }
 
-    fn normalize(&self, a: &mut [Complex64]) {
+    pub fn normalize(&self, a: &mut [Complex64]) {
         a.iter_mut().for_each(|a| *a *= self.fft_size_inv);
     }
 

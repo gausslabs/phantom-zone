@@ -5,10 +5,10 @@ pub mod ntt;
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::ring::SliceOps;
+    use crate::modulus::ModulusOps;
     use itertools::izip;
 
-    pub fn nega_cyclic_schoolbook_mul<T: SliceOps>(
+    pub fn nega_cyclic_schoolbook_mul<T: ModulusOps>(
         arith: &T,
         c: &mut [T::Elem],
         a: &[T::Elem],

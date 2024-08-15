@@ -1,6 +1,7 @@
 use crate::{
     distribution::{DistributionSized, Sampler},
     modulus::{power_of_two::PowerOfTwo, Modulus},
+    poly::ffnt::Ffnt,
     ring::{ElemFrom, ElemTo, ModulusOps, SliceOps},
 };
 use core::fmt::Debug;
@@ -9,19 +10,19 @@ use rand::distributions::Distribution;
 pub mod noisy;
 pub mod precise;
 
-#[derive(Clone, Copy, Debug)]
-pub struct PowerOfTwoRing<T, const NATIVE: bool> {
+#[derive(Clone, Debug)]
+pub struct PowerOfTwoRing<const NATIVE: bool, const LIMBS: usize> {
     q: PowerOfTwo<NATIVE>,
-    fft: T,
+    fft: Ffnt,
 }
 
-impl<T, const NATIVE: bool> PowerOfTwoRing<T, NATIVE> {
-    fn new(q: PowerOfTwo<NATIVE>, fft: T) -> Self {
+impl<const NATIVE: bool, const LIMBS: usize> PowerOfTwoRing<NATIVE, LIMBS> {
+    fn new(q: PowerOfTwo<NATIVE>, fft: Ffnt) -> Self {
         Self { q, fft }
     }
 }
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> ModulusOps for PowerOfTwoRing<T, NATIVE> {
+impl<const NATIVE: bool, const LIMBS: usize> ModulusOps for PowerOfTwoRing<NATIVE, LIMBS> {
     type Elem = u64;
     type Prep = u64;
 
@@ -92,72 +93,62 @@ impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> ModulusOps for PowerOfT
     }
 }
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> ElemFrom<u64>
-    for PowerOfTwoRing<T, NATIVE>
-{
+impl<const NATIVE: bool, const LIMBS: usize> ElemFrom<u64> for PowerOfTwoRing<NATIVE, LIMBS> {
     #[inline(always)]
     fn elem_from(&self, v: u64) -> Self::Elem {
         self.q.elem_from(v)
     }
 }
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> ElemFrom<i64>
-    for PowerOfTwoRing<T, NATIVE>
-{
+impl<const NATIVE: bool, const LIMBS: usize> ElemFrom<i64> for PowerOfTwoRing<NATIVE, LIMBS> {
     #[inline(always)]
     fn elem_from(&self, v: i64) -> Self::Elem {
         self.q.elem_from(v)
     }
 }
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> ElemFrom<u32>
-    for PowerOfTwoRing<T, NATIVE>
-{
+impl<const NATIVE: bool, const LIMBS: usize> ElemFrom<u32> for PowerOfTwoRing<NATIVE, LIMBS> {
     #[inline(always)]
     fn elem_from(&self, v: u32) -> Self::Elem {
         self.q.elem_from(v)
     }
 }
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> ElemFrom<i32>
-    for PowerOfTwoRing<T, NATIVE>
-{
+impl<const NATIVE: bool, const LIMBS: usize> ElemFrom<i32> for PowerOfTwoRing<NATIVE, LIMBS> {
     #[inline(always)]
     fn elem_from(&self, v: i32) -> Self::Elem {
         self.q.elem_from(v)
     }
 }
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> ElemFrom<f64>
-    for PowerOfTwoRing<T, NATIVE>
-{
+impl<const NATIVE: bool, const LIMBS: usize> ElemFrom<f64> for PowerOfTwoRing<NATIVE, LIMBS> {
     #[inline(always)]
     fn elem_from(&self, v: f64) -> Self::Elem {
         self.q.elem_from(v)
     }
 }
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> ElemTo<u64> for PowerOfTwoRing<T, NATIVE> {
+impl<const NATIVE: bool, const LIMBS: usize> ElemTo<u64> for PowerOfTwoRing<NATIVE, LIMBS> {
     #[inline(always)]
     fn elem_to(&self, v: Self::Elem) -> u64 {
         self.q.elem_to(v)
     }
 }
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> ElemTo<i64> for PowerOfTwoRing<T, NATIVE> {
+impl<const NATIVE: bool, const LIMBS: usize> ElemTo<i64> for PowerOfTwoRing<NATIVE, LIMBS> {
     #[inline(always)]
     fn elem_to(&self, v: Self::Elem) -> i64 {
         self.q.elem_to(v)
     }
 }
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> ElemTo<f64> for PowerOfTwoRing<T, NATIVE> {
+impl<const NATIVE: bool, const LIMBS: usize> ElemTo<f64> for PowerOfTwoRing<NATIVE, LIMBS> {
     #[inline(always)]
     fn elem_to(&self, v: Self::Elem) -> f64 {
         self.q.elem_to(v)
     }
 }
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> SliceOps for PowerOfTwoRing<T, NATIVE> {}
+impl<const NATIVE: bool, const LIMBS: usize> SliceOps for PowerOfTwoRing<NATIVE, LIMBS> {}
 
-impl<T: Clone + Debug + Send + Sync, const NATIVE: bool> Sampler for PowerOfTwoRing<T, NATIVE> {}
+impl<const NATIVE: bool, const LIMBS: usize> Sampler for PowerOfTwoRing<NATIVE, LIMBS> {}
