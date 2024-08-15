@@ -2,7 +2,7 @@ use core::fmt::Debug;
 
 pub mod fhew;
 
-pub trait BoolEvaluator {
+pub trait BoolEvaluator: Send + Sync {
     type Ciphertext: Clone + Debug;
 
     fn bitnot_assign(&self, a: &mut Self::Ciphertext);

@@ -252,8 +252,8 @@ pub trait RingOps:
     + ElemTo<i64>
     + ElemTo<f64>
 {
-    type Eval: 'static + Copy + Debug + Default;
-    type EvalPrep: 'static + Copy + Debug + Default;
+    type Eval: 'static + Copy + Debug + Default + Send + Sync;
+    type EvalPrep: 'static + Copy + Debug + Default + Send + Sync;
     type Decomposer: Decomposer<Self::Elem>;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self;

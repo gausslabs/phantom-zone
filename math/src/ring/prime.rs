@@ -21,7 +21,7 @@ impl<T> PrimeRing<T> {
     }
 }
 
-impl<T: Clone + Debug> ModulusOps for PrimeRing<T> {
+impl<T: Clone + Debug + Send + Sync> ModulusOps for PrimeRing<T> {
     type Elem = <Prime as ModulusOps>::Elem;
     type Prep = <Prime as ModulusOps>::Prep;
 
@@ -92,62 +92,62 @@ impl<T: Clone + Debug> ModulusOps for PrimeRing<T> {
     }
 }
 
-impl<T: Clone + Debug> ElemFrom<u64> for PrimeRing<T> {
+impl<T: Clone + Debug + Send + Sync> ElemFrom<u64> for PrimeRing<T> {
     #[inline(always)]
     fn elem_from(&self, v: u64) -> Self::Elem {
         self.q.elem_from(v)
     }
 }
 
-impl<T: Clone + Debug> ElemFrom<i64> for PrimeRing<T> {
+impl<T: Clone + Debug + Send + Sync> ElemFrom<i64> for PrimeRing<T> {
     #[inline(always)]
     fn elem_from(&self, v: i64) -> Self::Elem {
         self.q.elem_from(v)
     }
 }
 
-impl<T: Clone + Debug> ElemFrom<u32> for PrimeRing<T> {
+impl<T: Clone + Debug + Send + Sync> ElemFrom<u32> for PrimeRing<T> {
     #[inline(always)]
     fn elem_from(&self, v: u32) -> Self::Elem {
         self.q.elem_from(v)
     }
 }
 
-impl<T: Clone + Debug> ElemFrom<i32> for PrimeRing<T> {
+impl<T: Clone + Debug + Send + Sync> ElemFrom<i32> for PrimeRing<T> {
     #[inline(always)]
     fn elem_from(&self, v: i32) -> Self::Elem {
         self.q.elem_from(v)
     }
 }
 
-impl<T: Clone + Debug> ElemFrom<f64> for PrimeRing<T> {
+impl<T: Clone + Debug + Send + Sync> ElemFrom<f64> for PrimeRing<T> {
     #[inline(always)]
     fn elem_from(&self, v: f64) -> Self::Elem {
         self.q.elem_from(v)
     }
 }
 
-impl<T: Clone + Debug> ElemTo<u64> for PrimeRing<T> {
+impl<T: Clone + Debug + Send + Sync> ElemTo<u64> for PrimeRing<T> {
     #[inline(always)]
     fn elem_to(&self, v: Self::Elem) -> u64 {
         self.q.elem_to(v)
     }
 }
 
-impl<T: Clone + Debug> ElemTo<i64> for PrimeRing<T> {
+impl<T: Clone + Debug + Send + Sync> ElemTo<i64> for PrimeRing<T> {
     #[inline(always)]
     fn elem_to(&self, v: Self::Elem) -> i64 {
         self.q.elem_to(v)
     }
 }
 
-impl<T: Clone + Debug> ElemTo<f64> for PrimeRing<T> {
+impl<T: Clone + Debug + Send + Sync> ElemTo<f64> for PrimeRing<T> {
     #[inline(always)]
     fn elem_to(&self, v: Self::Elem) -> f64 {
         self.q.elem_to(v)
     }
 }
 
-impl<T: Clone + Debug> SliceOps for PrimeRing<T> {}
+impl<T: Clone + Debug + Send + Sync> SliceOps for PrimeRing<T> {}
 
-impl<T: Clone + Debug> Sampler for PrimeRing<T> {}
+impl<T: Clone + Debug + Send + Sync> Sampler for PrimeRing<T> {}

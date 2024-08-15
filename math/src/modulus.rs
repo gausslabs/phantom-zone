@@ -53,9 +53,9 @@ impl Modulus {
     }
 }
 
-pub trait ModulusOps: Clone + Debug {
-    type Elem: 'static + Copy + Debug + Default + Eq + Ord + Hash;
-    type Prep: 'static + Copy + Debug + Default;
+pub trait ModulusOps: Clone + Debug + Send + Sync {
+    type Elem: 'static + Copy + Debug + Default + Send + Sync + Eq + Ord + Hash;
+    type Prep: 'static + Copy + Debug + Default + Send + Sync;
 
     fn modulus(&self) -> Modulus;
 
