@@ -87,7 +87,7 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
 pub fn rlwe_by_rgsw_in_place<'a, 'b, R: RingOps>(
     ring: &R,
     ct_rlwe: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
-    ct_rgsw: impl Into<RgswCiphertextView<'a, R::Elem>>,
+    ct_rgsw: impl Into<RgswCiphertextView<'b, R::Elem>>,
     mut scratch: Scratch,
 ) {
     let (mut ct_rlwe, ct_rgsw) = (ct_rlwe.into(), ct_rgsw.into());
@@ -112,10 +112,10 @@ pub fn rlwe_by_rgsw_in_place<'a, 'b, R: RingOps>(
     ring.backward_normalized(ct_rlwe.b_mut(), ct_eval.b_mut());
 }
 
-pub fn prepare_rgsw<'a, R: RingOps>(
+pub fn prepare_rgsw<'a, 'b, R: RingOps>(
     ring: &R,
     ct_prep: impl Into<RgswCiphertextMutView<'a, R::EvalPrep>>,
-    ct: impl Into<RgswCiphertextView<'a, R::Elem>>,
+    ct: impl Into<RgswCiphertextView<'b, R::Elem>>,
     mut scratch: Scratch,
 ) {
     let (mut ct_prep, ct) = (ct_prep.into(), ct.into());
@@ -131,7 +131,7 @@ pub fn prepare_rgsw<'a, R: RingOps>(
 pub fn rlwe_by_rgsw_prep_in_place<'a, 'b, R: RingOps>(
     ring: &R,
     ct_rlwe: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
-    ct_rgsw: impl Into<RgswCiphertextView<'a, R::EvalPrep>>,
+    ct_rgsw: impl Into<RgswCiphertextView<'b, R::EvalPrep>>,
     mut scratch: Scratch,
 ) {
     let (mut ct_rlwe, ct_rgsw) = (ct_rlwe.into(), ct_rgsw.into());
@@ -159,7 +159,7 @@ pub fn rlwe_by_rgsw_prep_in_place<'a, 'b, R: RingOps>(
 pub fn rgsw_by_rgsw_in_place<'a, 'b, R: RingOps>(
     ring: &R,
     ct_a: impl Into<RgswCiphertextMutView<'a, R::Elem>>,
-    ct_b: impl Into<RgswCiphertextView<'a, R::Elem>>,
+    ct_b: impl Into<RgswCiphertextView<'b, R::Elem>>,
     mut scratch: Scratch,
 ) {
     let (mut ct_a, ct_b) = (ct_a.into(), ct_b.into());

@@ -64,6 +64,10 @@ impl<S: AsSlice> RlwePlaintext<S> {
     pub fn new(data: S, ring_size: usize) -> Self {
         Self { data, ring_size }
     }
+
+    pub fn ring_size(&self) -> usize {
+        self.ring_size
+    }
 }
 
 impl<T: Default> RlwePlaintext<Vec<T>> {

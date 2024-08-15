@@ -1,16 +1,21 @@
 use crate::core::{
-    lwe::{self, LweCiphertext, LweCiphertextMutView, LweKeySwitchKeyView},
+    lwe::{self, LweCiphertext, LweCiphertextMutView, LweCiphertextView, LweKeySwitchKeyView},
     rgsw::{self, RgswCiphertextOwned},
     rlwe::{self, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextMutView, RlwePlaintextView},
 };
-use core::{cmp::Reverse, iter::successors};
+use core::{cmp::Reverse, iter::successors, mem::size_of};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
-    izip_eq,
-    modulus::{ModulusOps, NonNativePowerOfTwo},
-    ring::RingOps,
-    util::scratch::Scratch,
+    izip_eq, modulus::NonNativePowerOfTwo, ring::RingOps, util::scratch::Scratch,
 };
+
+pub fn bootstrap_scratch_bytes<R: RingOps>(ring: &R, lwe_dimension: usize) -> usize {
+    // 2 (acc) + 2 (automorphism/rlwe_by_rgsw) + ceil(5 * lwe_dimension / ring_size) (ct_ks_mod_switch + i_n_i_p).
+    let poly = 2 + 2 + ((1 + 4) * lwe_dimension).div_ceil(ring.ring_size());
+    // 3 (automorphism/rlwe_by_rgsw)
+    let eval = 3;
+    size_of::<R::Elem>() * ring.ring_size() * poly + size_of::<R::Eval>() * ring.eval_size() * eval
+}
 
 /// Implementation of Figure 2 + Algorithm 7 in 2022/198.
 ///
@@ -20,26 +25,27 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     ring: &R1,
     ring_ks: &R2,
     ct: impl Into<LweCiphertextMutView<'a, R1::Elem>>,
-    q: usize,
     ks_key: impl Into<LweKeySwitchKeyView<'b, R2::Elem>>,
     brk: &[RgswCiphertextOwned<R1::EvalPrep>],
     ak: &[RlweAutoKeyOwned<R1::EvalPrep>],
     f_auto_neg_g: impl Into<RlwePlaintextView<'c, R1::Elem>>,
     mut scratch: Scratch,
 ) {
-    debug_assert_eq!((2 * ring.ring_size()) % q, 0);
-    let embedding_factor = 2 * ring.ring_size() / q;
-    let mod_q = NonNativePowerOfTwo::new(q.ilog2() as _);
     let (ct, ks_key, f_auto_neg_g) = (ct.into(), ks_key.into(), f_auto_neg_g.into());
-
-    let mut ct_mod_switch = LweCiphertext::scratch(ks_key.from_dimension(), &mut scratch);
-    ring.slice_mod_switch(ct_mod_switch.as_mut(), ct.as_ref(), ring_ks);
-
-    let mut ct_ks = LweCiphertext::scratch(ks_key.to_dimension(), &mut scratch);
-    lwe::key_switch(ring_ks, &mut ct_ks, ks_key, &ct_mod_switch);
+    let q = 2 * f_auto_neg_g.ring_size();
+    let embedding_factor = 2 * ring.ring_size() / q;
+    debug_assert_eq!(q * embedding_factor, 2 * ring.ring_size());
 
     let mut ct_ks_mod_switch = LweCiphertext::scratch(ks_key.to_dimension(), &mut scratch);
-    ring_ks.slice_mod_switch_odd(ct_ks_mod_switch.as_mut(), ct_ks.as_ref(), &mod_q);
+    key_switch_mod_switch_odd(
+        ring,
+        ring_ks,
+        ct_ks_mod_switch.as_mut_view(),
+        ct.as_view(),
+        ks_key.as_view(),
+        q,
+        scratch.reborrow(),
+    );
 
     let mut acc = RlweCiphertext::scratch(ring.ring_size(), ring.ring_size(), &mut scratch);
     acc.a_mut().fill(ring.zero());
@@ -49,12 +55,31 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
         let acc_b = acc.b_mut().iter_mut().step_by(embedding_factor);
         izip_eq!(acc_b, f_auto_neg_g.as_ref()).for_each(|(b, a)| *b = *a);
     }
-    let gb = ak[1].k() * mod_q.to_u64(*ct_ks_mod_switch.b()) as usize;
+    let gb = ak[1].k() * *ct_ks_mod_switch.b() as usize;
     ring.poly_mul_monomial(acc.b_mut(), (embedding_factor * gb) as _);
 
     blind_rotate_core(ring, &mut acc, q, brk, ak, ct_ks_mod_switch.a(), scratch);
 
     rlwe::sample_extract(ring, ct, &acc, 0);
+}
+
+fn key_switch_mod_switch_odd<R1: RingOps, R2: RingOps>(
+    ring: &R1,
+    ring_ks: &R2,
+    mut ct_ks_mod_switch: LweCiphertextMutView<u64>,
+    ct: LweCiphertextView<R1::Elem>,
+    ks_key: LweKeySwitchKeyView<R2::Elem>,
+    q: usize,
+    mut scratch: Scratch,
+) {
+    let mut ct_mod_switch = LweCiphertext::scratch(ks_key.from_dimension(), &mut scratch);
+    ring.slice_mod_switch(ct_mod_switch.as_mut(), ct.as_ref(), ring_ks);
+
+    let mut ct_ks = LweCiphertext::scratch(ks_key.to_dimension(), &mut scratch);
+    lwe::key_switch(ring_ks, &mut ct_ks, ks_key, &ct_mod_switch);
+
+    let mod_q = NonNativePowerOfTwo::new(q.ilog2() as _);
+    ring_ks.slice_mod_switch_odd(ct_ks_mod_switch.as_mut(), ct_ks.as_ref(), &mod_q);
 }
 
 /// Implementation of Algorithm 3 in 2022/198.
@@ -164,10 +189,10 @@ mod test {
             },
             rlwe::{test::RlweParam, RlwePlaintext},
         },
-        scheme::blind_rotation::lmkcdey::{bootstrap, power_g_mod_q},
+        scheme::blind_rotation::lmkcdey::{bootstrap, bootstrap_scratch_bytes, power_g_mod_q},
         util::rng::StdLweRng,
     };
-    use core::{array::from_fn, iter::repeat, mem::size_of};
+    use core::{array::from_fn, iter::repeat};
     use itertools::{chain, Itertools};
     use phantom_zone_math::{
         decomposer::DecompositionParam,
@@ -249,15 +274,8 @@ mod test {
             let rlwe = rgsw.rlwe();
             let ring = rlwe.ring();
             let ring_ks = lwe_ks.ring();
-            let mut scratch = {
-                let elem = 5 * ring.ring_size()
-                    + (ring.ring_size() + 1)
-                    + 2 * (lwe_ks.dimension() + 1)
-                    + (4 * lwe_ks.dimension() + 1);
-                let eval = 2 * ring.eval_size();
-                ScratchOwned::allocate(size_of::<R::Elem>() * elem + size_of::<R::Eval>() * eval)
-            };
-            let mut scratch = scratch.borrow_mut();
+            let mut scratch =
+                ScratchOwned::allocate(bootstrap_scratch_bytes(ring, lwe_ks.dimension()));
 
             let sk = rlwe.sk_gen();
             let sk_ks = lwe_ks.sk_gen();
@@ -303,12 +321,11 @@ mod test {
                     ring,
                     ring_ks,
                     &mut ct,
-                    param.q,
                     &ks_key,
                     &brk,
                     &ak,
                     &nand_lut_auto_neg_g,
-                    scratch.reborrow(),
+                    scratch.borrow_mut(),
                 );
                 *ct.b_mut() = ring.add(ct.b(), &big_q_by_8);
                 assert_eq!(!(a & b) as u64, lwe.decode(lwe.decrypt(&sk, &ct)));

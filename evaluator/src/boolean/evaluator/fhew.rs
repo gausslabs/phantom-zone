@@ -2,7 +2,7 @@
 //! blind rotation in 2022/198.
 
 use crate::boolean::evaluator::BoolEvaluator;
-use core::{cell::RefCell, iter::repeat, marker::PhantomData, mem::size_of};
+use core::{iter::repeat, marker::PhantomData};
 use itertools::{chain, Itertools};
 use phantom_zone_crypto::{
     core::{
@@ -13,7 +13,7 @@ use phantom_zone_crypto::{
         rgsw::{RgswCiphertext, RgswCiphertextOwned, RgswDecompositionParam},
         rlwe::{RlweAutoKey, RlweAutoKeyOwned, RlwePlaintext, RlwePlaintextOwned},
     },
-    scheme::blind_rotation::lmkcdey::{bootstrap, power_g_mod_q},
+    scheme::blind_rotation::lmkcdey::{bootstrap, bootstrap_scratch_bytes, power_g_mod_q},
     util::{distribution::NoiseDistribution, rng::LweRng},
 };
 use phantom_zone_math::{
@@ -89,7 +89,7 @@ pub struct FhewBoolEvaluator<R1: RingOps, R2: RingOps> {
     ak: Vec<RlweAutoKeyOwned<R1::EvalPrep>>,
     /// Contains tables for AND, NAND, OR (XOR), NOR (XNOR).
     luts: [RlwePlaintextOwned<R1::Elem>; 4],
-    scratch: RefCell<ScratchOwned>,
+    scratch_bytes: usize,
 }
 
 impl<R1: RingOps, R2: RingOps> FhewBoolEvaluator<R1, R2> {
@@ -118,14 +118,7 @@ impl<R1: RingOps, R2: RingOps> FhewBoolEvaluator<R1, R2> {
                 param.q / 2,
             )
         });
-        let scratch = {
-            let elem = 5 * ring.ring_size()
-                + (ring.ring_size() + 1)
-                + 2 * (param.lwe_dimension + 1)
-                + (4 * param.lwe_dimension + 1);
-            let eval = 2 * ring.eval_size();
-            ScratchOwned::allocate(size_of::<R1::Elem>() * elem + size_of::<R1::Eval>() * eval)
-        };
+        let scratch_bytes = bootstrap_scratch_bytes(&ring, param.lwe_dimension);
         Self {
             param,
             ring,
@@ -136,7 +129,7 @@ impl<R1: RingOps, R2: RingOps> FhewBoolEvaluator<R1, R2> {
             brk,
             ak,
             luts,
-            scratch: scratch.into(),
+            scratch_bytes,
         }
     }
 
@@ -168,6 +161,10 @@ impl<R1: RingOps, R2: RingOps> FhewBoolEvaluator<R1, R2> {
         Self::new(param, ks_key, brk, ak)
     }
 
+    pub fn param(&self) -> FhewBoolParam {
+        self.param
+    }
+
     fn bitop_assign<const XOR: bool>(
         &self,
         lut_idx: usize,
@@ -185,12 +182,11 @@ impl<R1: RingOps, R2: RingOps> FhewBoolEvaluator<R1, R2> {
             &self.ring,
             &self.ring_ks,
             &mut a,
-            self.param.q,
             &self.ks_key,
             &self.brk,
             &self.ak,
             lut,
-            self.scratch.borrow_mut().borrow_mut(),
+            ScratchOwned::allocate(self.scratch_bytes).borrow_mut(),
         );
         self.ring.add_assign(a.b_mut(), &self.big_q_by_8);
     }
@@ -289,8 +285,10 @@ mod test {
         param: FhewBoolParam,
         sk: &LweSecretKeyOwned<i32>,
     ) -> FhewBoolEvaluator<R, NonNativePowerOfTwoRing> {
-        let mut evaluator = FhewBoolEvaluator::<R, NonNativePowerOfTwoRing>::allocate(param);
         let mut rng = StdLweRng::from_entropy();
+        let mut evaluator = FhewBoolEvaluator::<R, NonNativePowerOfTwoRing>::allocate(param);
+        let mut scratch = evaluator.ring.allocate_scratch(0, 3, 0);
+        let mut scratch = scratch.borrow_mut();
         let sk_ks = LweSecretKeyOwned::<i32>::sample(
             evaluator.param.lwe_dimension,
             Gaussian(3.2).into(),
@@ -305,7 +303,6 @@ mod test {
             &mut rng,
         );
         izip!(&mut evaluator.brk, sk_ks.as_ref()).for_each(|(brk_prep, sk_ks_i)| {
-            let mut scratch = evaluator.scratch.borrow_mut();
             let mut brk =
                 RgswCiphertext::allocate(brk_prep.ring_size(), brk_prep.decomposition_param());
             let mut pt = RlwePlaintext::allocate(brk_prep.ring_size());
@@ -317,13 +314,12 @@ mod test {
                 sk.as_view(),
                 &pt,
                 Gaussian(3.2).into(),
-                scratch.borrow_mut(),
+                scratch.reborrow(),
                 &mut rng,
             );
-            rgsw::prepare_rgsw(&evaluator.ring, brk_prep, &brk, scratch.borrow_mut());
+            rgsw::prepare_rgsw(&evaluator.ring, brk_prep, &brk, scratch.reborrow());
         });
         evaluator.ak.iter_mut().for_each(|ak_prep| {
-            let mut scratch = evaluator.scratch.borrow_mut();
             let mut ak = RlweAutoKey::allocate(
                 ak_prep.ring_size(),
                 ak_prep.decomposition_param(),
@@ -334,10 +330,10 @@ mod test {
                 &mut ak,
                 sk.as_view(),
                 Gaussian(3.2).into(),
-                scratch.borrow_mut(),
+                scratch.reborrow(),
                 &mut rng,
             );
-            rlwe::prepare_auto_key(&evaluator.ring, ak_prep, &ak, scratch.borrow_mut());
+            rlwe::prepare_auto_key(&evaluator.ring, ak_prep, &ak, scratch.reborrow());
         });
         evaluator
     }
