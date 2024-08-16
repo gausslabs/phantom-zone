@@ -19,6 +19,7 @@ pub type PowerOfTwoRing<const NATIVE: bool> = power_of_two::PowerOfTwoRing<NATIV
 
 impl<const NATIVE: bool> PowerOfTwoRing<NATIVE> {
     fn split_limbs<'a, T>(&self, a: &'a [T]) -> [&'a [T]; LIMBS] {
+        debug_assert_eq!(a.len(), LIMBS * self.fft.fft_size());
         let (a, b) = a.split_at(2 * self.fft.fft_size());
         let (aa, ab) = a.split_at(self.fft.fft_size());
         let (ba, bb) = b.split_at(self.fft.fft_size());
@@ -26,6 +27,7 @@ impl<const NATIVE: bool> PowerOfTwoRing<NATIVE> {
     }
 
     fn split_limbs_mut<'a, T>(&self, a: &'a mut [T]) -> [&'a mut [T]; LIMBS] {
+        debug_assert_eq!(a.len(), LIMBS * self.fft.fft_size());
         let (a, b) = a.split_at_mut(2 * self.fft.fft_size());
         let (aa, ab) = a.split_at_mut(self.fft.fft_size());
         let (ba, bb) = b.split_at_mut(self.fft.fft_size());
@@ -53,57 +55,80 @@ where
         LIMBS * self.fft.fft_size()
     }
 
-    fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
-        let [b0, b1, b2, b3] = self.split_limbs_mut(b);
-        self.fft.forward(b0, a, to_f64::<0>);
-        self.fft.forward(b1, a, to_f64::<1>);
-        self.fft.forward(b2, a, to_f64::<2>);
-        self.fft.forward(b3, a, to_f64::<3>);
+    fn eval_scratch_size(&self) -> usize {
+        self.fft.fft_scratch_size()
     }
 
-    fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T])
+    fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem], scratch: &mut [Self::Eval]) {
+        let [b0, b1, b2, b3] = self.split_limbs_mut(b);
+        self.fft.forward(b0, a, to_f64::<0>, scratch);
+        self.fft.forward(b1, a, to_f64::<1>, scratch);
+        self.fft.forward(b2, a, to_f64::<2>, scratch);
+        self.fft.forward(b3, a, to_f64::<3>, scratch);
+    }
+
+    fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T], scratch: &mut [Self::Eval])
     where
         Self: ElemFrom<T>,
     {
         let [b0, b1, b2, b3] = self.split_limbs_mut(b);
         let to_u64 = |a: &_| self.elem_from(*a);
-        self.fft.forward(b0, a, |a| to_f64::<0>(&to_u64(a)));
-        self.fft.forward(b1, a, |a| to_f64::<1>(&to_u64(a)));
-        self.fft.forward(b2, a, |a| to_f64::<2>(&to_u64(a)));
-        self.fft.forward(b3, a, |a| to_f64::<3>(&to_u64(a)));
+        self.fft
+            .forward(b0, a, |a| to_f64::<0>(&to_u64(a)), scratch);
+        self.fft
+            .forward(b1, a, |a| to_f64::<1>(&to_u64(a)), scratch);
+        self.fft
+            .forward(b2, a, |a| to_f64::<2>(&to_u64(a)), scratch);
+        self.fft
+            .forward(b3, a, |a| to_f64::<3>(&to_u64(a)), scratch);
     }
 
-    fn forward_normalized(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
-        self.forward(b, a);
+    fn forward_normalized(
+        &self,
+        b: &mut [Self::Eval],
+        a: &[Self::Elem],
+        scratch: &mut [Self::Eval],
+    ) {
+        self.forward(b, a, scratch);
         self.fft.normalize(b);
     }
 
-    fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
+    fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], scratch: &mut [Self::Eval]) {
         let [a0, a1, a2, a3] = self.split_limbs_mut(a);
         let reduce_add_from_f64 = |b: &mut _, a| *b = self.q.reduce(add_f64::<3>(b, a));
-        self.fft.backward(b, a0, from_f64);
-        self.fft.add_backward(b, a1, add_from_f64::<1>);
-        self.fft.add_backward(b, a2, add_from_f64::<2>);
-        self.fft.add_backward(b, a3, reduce_add_from_f64);
+        self.fft.backward(b, a0, from_f64, scratch);
+        self.fft.add_backward(b, a1, add_from_f64::<1>, scratch);
+        self.fft.add_backward(b, a2, add_from_f64::<2>, scratch);
+        self.fft.add_backward(b, a3, reduce_add_from_f64, scratch);
     }
 
-    fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
+    fn backward_normalized(
+        &self,
+        b: &mut [Self::Elem],
+        a: &mut [Self::Eval],
+        scratch: &mut [Self::Eval],
+    ) {
         self.fft.normalize(a);
-        self.backward(b, a);
+        self.backward(b, a, scratch);
     }
 
-    fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
+    fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], scratch: &mut [Self::Eval]) {
         let [a0, a1, a2, a3] = self.split_limbs_mut(a);
         let reduce_add_from_f64 = |b: &mut _, a| *b = self.q.reduce(add_f64::<3>(b, a));
-        self.fft.add_backward(b, a0, add_from_f64::<0>);
-        self.fft.add_backward(b, a1, add_from_f64::<1>);
-        self.fft.add_backward(b, a2, add_from_f64::<2>);
-        self.fft.add_backward(b, a3, reduce_add_from_f64);
+        self.fft.add_backward(b, a0, add_from_f64::<0>, scratch);
+        self.fft.add_backward(b, a1, add_from_f64::<1>, scratch);
+        self.fft.add_backward(b, a2, add_from_f64::<2>, scratch);
+        self.fft.add_backward(b, a3, reduce_add_from_f64, scratch);
     }
 
-    fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
+    fn add_backward_normalized(
+        &self,
+        b: &mut [Self::Elem],
+        a: &mut [Self::Eval],
+        scratch: &mut [Self::Eval],
+    ) {
         self.fft.normalize(a);
-        self.add_backward(b, a);
+        self.add_backward(b, a, scratch);
     }
 
     fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]) {

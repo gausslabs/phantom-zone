@@ -26,41 +26,60 @@ impl RingOps for NoisyPrimeRing {
         self.fft.fft_size()
     }
 
-    fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
-        self.fft.forward(b, a, |a| self.q.center(*a) as _);
+    fn eval_scratch_size(&self) -> usize {
+        self.fft.fft_scratch_size()
     }
 
-    fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T])
+    fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem], scratch: &mut [Self::Eval]) {
+        self.fft.forward(b, a, |a| self.q.center(*a) as _, scratch);
+    }
+
+    fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T], scratch: &mut [Self::Eval])
     where
         Self: ElemFrom<T>,
     {
         self.fft
-            .forward(b, a, |a| self.q.center(self.elem_from(*a)) as _);
+            .forward(b, a, |a| self.q.center(self.elem_from(*a)) as _, scratch);
     }
 
-    fn forward_normalized(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
+    fn forward_normalized(
+        &self,
+        b: &mut [Self::Eval],
+        a: &[Self::Elem],
+        scratch: &mut [Self::Eval],
+    ) {
         self.fft
-            .forward_normalized(b, a, |a| self.q.center(*a) as _);
+            .forward_normalized(b, a, |a| self.q.center(*a) as _, scratch);
     }
 
-    fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft.backward(b, a, |a| self.elem_from(a));
+    fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], scratch: &mut [Self::Eval]) {
+        self.fft.backward(b, a, |a| self.elem_from(a), scratch);
     }
 
-    fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft.backward_normalized(b, a, |a| self.elem_from(a));
+    fn backward_normalized(
+        &self,
+        b: &mut [Self::Elem],
+        a: &mut [Self::Eval],
+        scratch: &mut [Self::Eval],
+    ) {
+        self.fft
+            .backward_normalized(b, a, |a| self.elem_from(a), scratch);
     }
 
-    fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft.add_backward(b, a, |b, a| {
-            *b = self.q.reduce_i128(*b as i128 + a.round() as i128)
-        });
+    fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], scratch: &mut [Self::Eval]) {
+        let add_from_f64 =
+            |b: &mut _, a: f64| *b = self.q.reduce_i128(*b as i128 + a.round() as i128);
+        self.fft.add_backward(b, a, add_from_f64, scratch);
     }
 
-    fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft.add_backward_normalized(b, a, |b, a| {
-            *b = self.q.reduce_i128(*b as i128 + a.round() as i128)
-        });
+    fn add_backward_normalized(
+        &self,
+        b: &mut [Self::Elem],
+        a: &mut [Self::Eval],
+        scratch: &mut [Self::Eval],
+    ) {
+        self.fft.normalize(a);
+        self.add_backward(b, a, scratch);
     }
 
     fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]) {

@@ -17,5 +17,5 @@ phantom-zone-derive = { path = "../derive" }
 criterion = { workspace = true }
 
 [[bench]]
-name = "poly_mul"
+name = "ring"
 harness = false
