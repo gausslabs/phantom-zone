@@ -23,6 +23,8 @@ use phantom_zone_math::{
 };
 use rand::RngCore;
 
+use super::structure::SeededRlweAutoKeyMutView;
+
 pub fn pk_gen<'a, 'b, R, T>(
     ring: &R,
     pk: impl Into<RlwePublicKeyMutView<'a, R::Elem>>,
@@ -242,7 +244,24 @@ pub fn auto_key_gen<'a, 'b, R, T>(
     ks_key_gen_inner(ring, ks_key, sk_auto, sk, noise_distribution, scratch, rng);
 }
 
-pub fn automorphism_in_place<'a, 'b, R: RingOps>(
+// TODO: seeded AUto key gen
+
+pub fn seeded_auto_key_gen<'a, 'b, R, T>(
+    ring: &R,
+    auto_key: impl Into<SeededRlweAutoKeyMutView<'a, R::Elem>>,
+    sk: impl Into<RlweSecretKeyView<'b, T>>,
+    noise_distribution: NoiseDistribution,
+    mut scratch: Scratch<'b>,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) where
+    R: RingOps + ElemFrom<T>,
+    T: 'b + Copy + Neg<Output = T>,
+{
+    let (mut auto_key, sk) = (auto_key.into(), sk.into());
+    
+}
+
+pub fn automorphism_in_place<'a, 'b, 'c, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     auto_key: impl Into<RlweAutoKeyView<'b, R::Elem>>,

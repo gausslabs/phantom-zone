@@ -1,14 +1,19 @@
 use phantom_zone_math::{
+    decomposer::DecompositionParam,
     modulus::ElemFrom,
     ring::RingOps,
     util::scratch::{self, Scratch},
 };
 use rand::{RngCore, SeedableRng};
-use structure::{RlwePublicKeyShare, RlwePublicKeyShareMutView};
+use structure::{InteractiveMpcParameters, RlwePublicKeyShare, RlwePublicKeyShareMutView};
 
 use crate::{
     core::{
-        lwe::{ks_key_gen, LweSecretKeyView},
+        lwe::{
+            ks_key_gen, seeded_ks_key_gen, LweKeySwitchKey, LweSecretKey, LweSecretKeyView,
+            SeededLweKeySwitchKey,
+        },
+        rgsw::{self, RgswDecompositionParam},
         rlwe::{sk_encrypt_zero, RlweSecretKeyView},
     },
     util::{distribution::NoiseDistribution, rng::LweRng},
@@ -50,18 +55,38 @@ impl<S: Copy> InteractiveCrs<S> {
 }
 
 fn crs_server_key_share<'a, R, T, S>(
-    ring_rlwe: &R,
-    ring_lwe: &R,
+    parameters: InteractiveMpcParameters,
     lwe_sk: impl Into<LweSecretKeyView<'a, T>>,
     rlwe_sk: impl Into<RlweSecretKeyView<'a, T>>,
     user_id: usize,
     total_users: usize,
     crs: InteractiveCrs<S>,
+    scratch: &mut Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
+    R: RingOps + ElemFrom<T>,
     T: 'a + Copy,
     S: Copy,
 {
+    let ring_rlwe = R::new(parameters.rlwe_q(), parameters.rlwe_n());
+    let ring_lwe = R::new(parameters.lwe_q(), parameters.lwe_n());
 
-    // ks_key_gen(ring, ks_key, sk_from, sk_to, noise_distribution, rng)
+    // Seeded LWE key switching key
+    let mut seeded_ks_key = SeededLweKeySwitchKey::allocate(
+        parameters.lwe_n(),
+        parameters.rlwe_n(),
+        parameters.lwe_ksk_decomposer(),
+    );
+    seeded_ks_key_gen(
+        &ring_lwe,
+        seeded_ks_key.as_mut_view(),
+        LweSecretKey::from(rlwe_sk.into()).as_view(),
+        lwe_sk,
+        parameters.noise_distribution(),
+        scratch,
+        rng,
+    );
+
+    // Seeded auto keys
+    
 }

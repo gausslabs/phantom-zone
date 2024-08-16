@@ -18,5 +18,5 @@ pub use structure::{
     RlweKeySwitchKeyMutView, RlweKeySwitchKeyOwned, RlweKeySwitchKeyView, RlwePlaintext,
     RlwePlaintextMutView, RlwePlaintextOwned, RlwePlaintextView, RlwePublicKey,
     RlwePublicKeyMutView, RlwePublicKeyOwned, RlwePublicKeyView, RlweSecretKey,
-    RlweSecretKeyMutView, RlweSecretKeyOwned, RlweSecretKeyView,
+    RlweSecretKeyMutView, RlweSecretKeyOwned, RlweSecretKeyView, SeededRlweAutoKey,
 };
