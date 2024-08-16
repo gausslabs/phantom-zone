@@ -1,7 +1,10 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use phantom_zone_crypto::core::{
-    rgsw::{self, RgswCiphertext, RgswDecompositionParam},
-    rlwe::{self, RlweAutoKey, RlweCiphertext},
+use phantom_zone_crypto::{
+    core::{
+        rgsw::{self, RgswCiphertext, RgswDecompositionParam},
+        rlwe::{self, RlweAutoKey, RlweCiphertext},
+    },
+    util::rng::StdLweRng,
 };
 use phantom_zone_math::{
     decomposer::DecompositionParam,
@@ -11,6 +14,7 @@ use phantom_zone_math::{
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
 };
+use rand::SeedableRng;
 
 fn automorphism(c: &mut Criterion) {
     fn runner<R: RingOps + 'static>(
@@ -19,13 +23,20 @@ fn automorphism(c: &mut Criterion) {
         decomposition_param: DecompositionParam,
     ) -> Box<dyn FnMut()> {
         let ring = R::new(modulus, ring_size);
-        let auto_key_prep =
+        let mut rng = StdLweRng::from_entropy();
+        let mut scratch = ring.allocate_scratch(2, 3, 0);
+        let mut auto_key = RlweAutoKey::allocate(ring.ring_size(), decomposition_param, 5);
+        let mut auto_key_prep =
             RlweAutoKey::allocate_eval(ring.ring_size(), ring.eval_size(), decomposition_param, 5);
         let mut ct = RlweCiphertext::allocate(ring.ring_size());
-        let mut scratch = ring.allocate_scratch(2, 3, 0);
+        auto_key
+            .as_ks_key_mut()
+            .ct_iter_mut()
+            .for_each(|mut ct| ring.sample_uniform_into(ct.as_mut(), &mut rng));
+        ring.sample_uniform_into(ct.as_mut(), &mut rng);
+        rlwe::prepare_auto_key(&ring, &mut auto_key_prep, &auto_key, scratch.borrow_mut());
         Box::new(move || {
-            let mut scratch = scratch.borrow_mut();
-            rlwe::automorphism_prep_in_place(&ring, &mut ct, &auto_key_prep, scratch.reborrow());
+            rlwe::automorphism_prep_in_place(&ring, &mut ct, &auto_key_prep, scratch.borrow_mut());
         })
     }
 
@@ -76,18 +87,20 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
         decomposition_param: RgswDecompositionParam,
     ) -> Box<dyn FnMut()> {
         let ring = R::new(modulus, ring_size);
-        let ct_rgsw_prep =
+        let mut rng = StdLweRng::from_entropy();
+        let mut scratch = ring.allocate_scratch(2, 3, 0);
+        let mut ct_rgsw = RgswCiphertext::allocate(ring.ring_size(), decomposition_param);
+        let mut ct_rgsw_prep =
             RgswCiphertext::allocate_eval(ring.ring_size(), ring.eval_size(), decomposition_param);
         let mut ct_rlwe = RlweCiphertext::allocate(ring.ring_size());
-        let mut scratch = ring.allocate_scratch(2, 3, 0);
+        ct_rgsw
+            .ct_iter_mut()
+            .for_each(|mut ct| ring.sample_uniform_into(ct.as_mut(), &mut rng));
+        ring.sample_uniform_into(ct_rlwe.as_mut(), &mut rng);
+        rgsw::prepare_rgsw(&ring, &mut ct_rgsw_prep, &ct_rgsw, scratch.borrow_mut());
         Box::new(move || {
-            let mut scratch = scratch.borrow_mut();
-            rgsw::rlwe_by_rgsw_prep_in_place(
-                &ring,
-                &mut ct_rlwe,
-                &ct_rgsw_prep,
-                scratch.reborrow(),
-            );
+            let scratch = scratch.borrow_mut();
+            rgsw::rlwe_by_rgsw_prep_in_place(&ring, &mut ct_rlwe, &ct_rgsw_prep, scratch);
         })
     }
 

@@ -6,21 +6,23 @@ use phantom_zone_math::{
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
 };
+use rand::thread_rng;
 
 fn forward(c: &mut Criterion) {
     fn runner<R: RingOps + 'static>(ring: R) -> Box<dyn FnMut()> {
-        let mut scratch = black_box(ring.allocate_scratch(1, 1, 0));
+        let mut rng = thread_rng();
+        let mut scratch = ring.allocate_scratch(0, 1, 0);
+        let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
         Box::new(move || {
-            let scratch = &mut scratch.borrow_mut();
-            let b = ring.take_eval(scratch);
-            let a = ring.take_poly(scratch);
-            let eval_scratch = ring.take_eval_scratch(scratch);
-            ring.forward(b, a, eval_scratch)
+            let mut scratch = scratch.borrow_mut();
+            let b = ring.take_eval(&mut scratch);
+            let eval_scratch = ring.take_eval_scratch(&mut scratch);
+            ring.forward(b, &a, eval_scratch)
         })
     }
 
     let mut b = c.benchmark_group("forward");
-    for log_ring_size in 11..15 {
+    for log_ring_size in 11..13 {
         let ring_size = 1 << log_ring_size;
         let runners = [
             ("noisy_native", {
@@ -57,16 +59,19 @@ fn forward(c: &mut Criterion) {
 
 fn poly_mul(c: &mut Criterion) {
     fn runner<R: RingOps + 'static>(ring: R) -> Box<dyn FnMut()> {
-        let mut scratch = black_box(ring.allocate_scratch(3, 2, 0));
+        let mut rng = thread_rng();
+        let mut scratch = black_box(ring.allocate_scratch(1, 2, 0));
+        let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
+        let b = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
         Box::new(move || {
-            let scratch = &mut scratch.borrow_mut();
-            let [a, b, c] = ring.take_polys(scratch);
-            ring.poly_mul(c, a, b, scratch.reborrow())
+            let mut scratch = scratch.borrow_mut();
+            let c = ring.take_poly(&mut scratch);
+            ring.poly_mul(c, &a, &b, scratch.reborrow())
         })
     }
 
     let mut b = c.benchmark_group("poly_mul");
-    for log_ring_size in 11..15 {
+    for log_ring_size in 11..13 {
         let ring_size = 1 << log_ring_size;
         let runners = [
             ("noisy_native", {
