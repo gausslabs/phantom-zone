@@ -7,7 +7,7 @@ use crate::{
         },
     },
     util::{
-        distribution::{NoiseDistribution, SecretKeyDistribution},
+        distribution::{NoiseDistribution, SecretDistribution},
         rng::LweRng,
     },
 };
@@ -48,7 +48,7 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     ct: impl Into<RgswCiphertextMutView<'a, R::Elem>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
     pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
-    u_distribution: SecretKeyDistribution,
+    u_distribution: SecretDistribution,
     noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,

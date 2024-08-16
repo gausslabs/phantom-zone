@@ -1,4 +1,4 @@
-use crate::{core::lwe::LweSecretKey, util::distribution::SecretKeyDistribution};
+use crate::{core::lwe::LweSecretKey, util::distribution::SecretDistribution};
 use core::iter::repeat_with;
 use num_traits::{FromPrimitive, Signed};
 use phantom_zone_derive::AsSliceWrapper;
@@ -37,7 +37,7 @@ impl<T: Default> RlweSecretKey<Vec<T>> {
 
     pub fn sample(
         ring_size: usize,
-        sk_distribution: SecretKeyDistribution,
+        sk_distribution: SecretDistribution,
         rng: impl RngCore,
     ) -> Self
     where

@@ -207,6 +207,7 @@ mod test {
         },
         util::scratch::ScratchOwned,
     };
+    use rand::SeedableRng;
 
     #[derive(Clone, Copy, Debug)]
     struct BootstrappingParam {

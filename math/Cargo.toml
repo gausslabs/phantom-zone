@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 itertools = { workspace = true }
-num-bigint-dig = { workspace = true, features = ["prime"] }
+num-bigint-dig = { workspace = true }
 num-complex = { workspace = true }
 num-traits = { workspace = true }
 rand = { workspace = true }
@@ -15,6 +15,12 @@ phantom-zone-derive = { path = "../derive" }
 
 [dev-dependencies]
 criterion = { workspace = true }
+rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
+
+[features]
+default = []
+dev = ["getrandom", "rand/std", "rand/std_rng"]
+getrandom = ["rand/getrandom"]
 
 [[bench]]
 name = "ring"

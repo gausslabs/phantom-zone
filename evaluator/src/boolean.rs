@@ -170,8 +170,10 @@ impl_core_op!(
 #[cfg(test)]
 pub(crate) mod test {
     use crate::boolean::{evaluator::BoolEvaluator, FheBool};
-    use core::array::from_fn;
-    use std::ops::{BitAnd, BitOr, BitXor};
+    use core::{
+        array::from_fn,
+        ops::{BitAnd, BitOr, BitXor},
+    };
 
     /// Truth tables for overflowing, carrying and borrowing bit operations.
     #[rustfmt::skip]

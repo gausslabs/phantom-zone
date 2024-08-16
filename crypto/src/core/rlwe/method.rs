@@ -9,7 +9,7 @@ use crate::{
         },
     },
     util::{
-        distribution::{NoiseDistribution, SecretKeyDistribution},
+        distribution::{NoiseDistribution, SecretDistribution},
         rng::LweRng,
     },
 };
@@ -74,9 +74,9 @@ pub(crate) fn sk_encrypt_zero<'a, 'b, R, T>(
 {
     let mut ct = ct.into();
     let (a, b) = ct.a_b_mut();
-    ring.sample_uniform_into(a, rng.a());
+    ring.sample_uniform_into(a, rng.seedable());
     ring.poly_mul_elem_from(b, a, sk.into().as_ref(), scratch);
-    let e = ring.sample_iter::<i64>(noise_distribution, rng.noise());
+    let e = ring.sample_iter::<i64>(noise_distribution, rng);
     ring.slice_add_assign_iter(b, e);
 }
 
@@ -85,7 +85,7 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
     pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
-    u_distribution: SecretKeyDistribution,
+    u_distribution: SecretDistribution,
     noise_distribution: NoiseDistribution,
     scratch: Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
@@ -107,7 +107,7 @@ pub fn pk_encrypt_zero<'a, 'b, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
-    u_distribution: SecretKeyDistribution,
+    u_distribution: SecretDistribution,
     noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
@@ -117,18 +117,18 @@ pub fn pk_encrypt_zero<'a, 'b, R: RingOps>(
     let eval_scratch = ring.take_eval_scratch(&mut scratch);
     let t0 = ring.take_eval(&mut scratch);
     let u = ring.take_poly(&mut scratch.reborrow());
-    ring.sample_into::<i64>(u, u_distribution, rng.noise());
+    ring.sample_into::<i64>(u, u_distribution, &mut *rng);
     ring.forward(t0, u, eval_scratch);
 
     let t1 = ring.take_eval(&mut scratch);
     ring.forward(t1, pk.a(), eval_scratch);
     ring.eval_mul_assign(t1, t0);
-    ring.sample_into::<i64>(ct.a_mut(), noise_distribution, rng.noise());
+    ring.sample_into::<i64>(ct.a_mut(), noise_distribution, &mut *rng);
     ring.add_backward_normalized(ct.a_mut(), t1, eval_scratch);
 
     ring.forward(t1, pk.b(), eval_scratch);
     ring.eval_mul_assign(t1, t0);
-    ring.sample_into::<i64>(ct.b_mut(), noise_distribution, rng.noise());
+    ring.sample_into::<i64>(ct.b_mut(), noise_distribution, &mut *rng);
     ring.add_backward_normalized(ct.b_mut(), t1, eval_scratch);
 }
 
