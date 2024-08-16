@@ -416,3 +416,104 @@ impl<T: Default> RlweAutoKey<Vec<T>, Vec<usize>> {
         )
     }
 }
+
+#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+pub struct SeededRlweKeyCiphertextList<S> {
+    #[as_slice]
+    data: S,
+    ring_size: usize,
+}
+
+impl<S> SeededRlweKeyCiphertextList<S> {
+    pub fn new(data: S, ring_size: usize) -> Self {
+        Self { data, ring_size }
+    }
+
+    fn ring_size(&self) -> usize {
+        self.ring_size
+    }
+}
+
+impl<T: Default> SeededRlweKeyCiphertextList<Vec<T>> {
+    fn allocate(ring_size: usize, n: usize) -> Self {
+        Self::new(
+            repeat_with(T::default).take(n * ring_size).collect(),
+            ring_size,
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+pub struct SeededRlweKeySwitchKey<S> {
+    #[as_slice(nested)]
+    cts: SeededRlweKeyCiphertextList<S>,
+    decomposition_param: DecompositionParam,
+}
+
+impl<S: AsSlice> SeededRlweKeySwitchKey<S> {
+    pub fn new(
+        cts: SeededRlweKeyCiphertextList<S>,
+        decomposition_param: DecompositionParam,
+    ) -> Self {
+        assert_eq!(cts.data.len(), cts.ring_size() * decomposition_param.level);
+        Self {
+            cts,
+            decomposition_param,
+        }
+    }
+
+    fn ring_size(&self) -> usize {
+        self.cts.ring_size
+    }
+
+    fn decomposition_param(&self) -> DecompositionParam {
+        self.decomposition_param
+    }
+}
+
+impl<T: Default> SeededRlweKeySwitchKey<Vec<T>> {
+    fn allocate(ring_size: usize, decomposition_param: DecompositionParam) -> Self {
+        Self::new(
+            SeededRlweKeyCiphertextList::allocate(ring_size, decomposition_param.level),
+            decomposition_param,
+        )
+    }
+}
+
+#[derive(Clone, Debug, AsSliceWrapper)]
+pub struct SeededRlweAutoKey<S1, S2: AsSlice<Elem = usize>> {
+    #[as_slice(nested)]
+    ks_key: SeededRlweKeySwitchKey<S1>,
+    #[as_slice(nested)]
+    auto_map: AutomorphismMap<S2>,
+}
+
+impl<S1: AsSlice, S2: AsSlice<Elem = usize>> SeededRlweAutoKey<S1, S2> {
+    pub fn new(ks_key: SeededRlweKeySwitchKey<S1>, auto_map: AutomorphismMap<S2>) -> Self {
+        assert_eq!(ks_key.ring_size(), auto_map.ring_size());
+        Self { ks_key, auto_map }
+    }
+
+    pub fn ring_size(&self) -> usize {
+        self.ks_key.ring_size()
+    }
+
+    pub fn decomposition_param(&self) -> DecompositionParam {
+        self.ks_key.decomposition_param()
+    }
+
+    pub fn auto_map(&self) -> AutomorphismMapView {
+        self.auto_map.as_view()
+    }
+}
+
+// TODO: impl MutSlice
+
+impl<T: Default> SeededRlweAutoKey<Vec<T>, Vec<usize>> {
+    pub fn allocate(ring_size: usize, decomposition_param: DecompositionParam, k: i64) -> Self {
+        Self::new(
+            SeededRlweKeySwitchKey::allocate(ring_size, decomposition_param),
+            AutomorphismMap::new(ring_size, k),
+        )
+    }
+}

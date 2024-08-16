@@ -1,11 +1,13 @@
 use crate::{
     core::lwe::structure::{
         LweCiphertextMutView, LweCiphertextView, LweKeySwitchKeyMutView, LweKeySwitchKeyView,
-        LwePlaintext, LweSecretKeyView,
+        LwePlaintext, LweSecretKeyView, SeededLweKeySwitchKeyMutView,
     },
     util::{distribution::NoiseDistribution, rng::LweRng},
 };
-use phantom_zone_math::{decomposer::Decomposer, izip_eq, modulus::ElemFrom, ring::RingOps};
+use phantom_zone_math::{
+    decomposer::Decomposer, izip_eq, modulus::ElemFrom, ring::RingOps, util::scratch::Scratch,
+};
 use rand::RngCore;
 
 pub fn sk_encrypt<'a, 'b, R, T>(
@@ -78,6 +80,36 @@ pub fn ks_key_gen<'a, 'b, 'c, R, T>(
             )
         },
     );
+}
+
+pub fn seeded_ks_key_gen<'a, 'b, 'c, R, T>(
+    ring: &R,
+    ks_key: impl Into<SeededLweKeySwitchKeyMutView<'b, R::Elem>>,
+    sk_from: impl Into<LweSecretKeyView<'c, T>>,
+    sk_to: impl Into<LweSecretKeyView<'a, T>>,
+    noise_distribution: NoiseDistribution,
+    scratch: &mut Scratch,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) where
+    R: RingOps + ElemFrom<T>,
+    T: 'a + 'c + Copy,
+{
+    let (mut ks_key, sk_to) = (ks_key.into(), sk_to.into());
+    let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
+    let a = scratch.take_slice(ks_key.to_dimension());
+    izip_eq!(ks_key.cts_iter_mut(), sk_from.into().as_ref()).for_each(|(seeded_cts, si_from)| {
+        izip_eq!(seeded_cts.iter_mut(), decomposer.gadget_iter()).for_each(|(seeded_ct, beta_i)| {
+            // sample `a`
+            ring.sample_uniform_into(a, rng.a());
+
+            // b = a*s + e + beta_i * s_from_{i}
+            let mut a_s = ring.slice_dot_elem_from(&a, sk_to.as_ref());
+            let e = ring.sample::<f64>(&noise_distribution, rng.noise());
+            ring.add_assign(&mut a_s, &e);
+            let betai_si = ring.mul_elem_from(&beta_i, si_from);
+            *seeded_ct = ring.add(&mut a_s, &betai_si);
+        })
+    });
 }
 
 pub fn key_switch<'a, 'b, 'c, R: RingOps>(

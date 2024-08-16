@@ -137,7 +137,8 @@ fn log_g_map(q: usize, g: usize, mut scratch: Scratch) -> &mut [usize] {
     log_g_map
 }
 
-fn power_g_mod_q(g: usize, q: usize) -> impl Iterator<Item = usize> {
+pub(crate) fn power_g_mod_q(g: usize, q: usize) -> impl Iterator<Item = usize> {
+    debug_assert!(q.is_power_of_two());
     let mask = q - 1;
     successors(Some(1), move |v| ((v * g) & mask).into())
 }

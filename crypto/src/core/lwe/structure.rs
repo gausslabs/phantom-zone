@@ -11,6 +11,7 @@ use phantom_zone_math::{
     },
 };
 use rand::RngCore;
+use std::slice::ChunksMut;
 
 #[derive(Clone, Copy, Debug, AsSliceWrapper)]
 pub struct LweSecretKey<S>(S);
@@ -221,6 +222,54 @@ impl<T: Default> LweKeySwitchKey<Vec<T>> {
         Self::new(
             LweCiphertextList::allocate(to_dimension, from_dimension * decomposition_param.level),
             decomposition_param,
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+pub struct SeededLweKeySwitchKey<S> {
+    #[as_slice]
+    cts: S,
+    decomposition_param: DecompositionParam,
+    to_dimension: usize,
+}
+
+impl<S: AsSlice> SeededLweKeySwitchKey<S> {
+    pub fn new(cts: S, decomposition_param: DecompositionParam, to_dimension: usize) -> Self {
+        Self {
+            cts,
+            decomposition_param,
+            to_dimension,
+        }
+    }
+
+    pub fn decomposition_param(&self) -> DecompositionParam {
+        self.decomposition_param
+    }
+
+    pub fn to_dimension(&self) -> usize {
+        self.to_dimension
+    }
+}
+
+impl<S: AsMutSlice> SeededLweKeySwitchKey<S> {
+    pub fn cts_iter_mut(&mut self) -> ChunksMut<'_, <S as AsSlice>::Elem> {
+        self.cts.as_mut().chunks_mut(self.decomposition_param.level)
+    }
+}
+
+impl<T: Default> SeededLweKeySwitchKey<Vec<T>> {
+    pub fn allocate(
+        to_dimension: usize,
+        from_dimension: usize,
+        decomposition_param: DecompositionParam,
+    ) -> Self {
+        Self::new(
+            repeat_with(T::default)
+                .take(from_dimension * decomposition_param.level)
+                .collect(),
+            decomposition_param,
+            to_dimension,
         )
     }
 }
