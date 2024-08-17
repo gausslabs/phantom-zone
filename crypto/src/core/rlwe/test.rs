@@ -9,7 +9,7 @@ use crate::{
     },
     util::{
         distribution::{NoiseDistribution, SecretKeyDistribution},
-        rng::{test::StdLweRng, LweRng},
+        rng::{LweRng, StdLweRng},
     },
 };
 use itertools::Itertools;
@@ -317,9 +317,9 @@ pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RlweParam {
         message_modulus: 1 << 6,
         ciphertext_modulus: ciphertext_modulus.into(),
         ring_size,
-        sk_distribution: Gaussian::new(3.2).into(),
+        sk_distribution: Gaussian(3.2).into(),
         u_distribution: Ternary(ring_size / 2).into(),
-        noise_distribution: Gaussian::new(3.2).into(),
+        noise_distribution: Gaussian(3.2).into(),
         ks_decomposition_param: DecompositionParam {
             log_base: 8,
             level: 6,

@@ -1,4 +1,6 @@
-use rand::{RngCore, SeedableRng};
+use rand::{rngs::StdRng, RngCore, SeedableRng};
+
+pub type StdLweRng = LweRng<StdRng, StdRng>;
 
 pub struct LweRng<R1, R2> {
     noise: R1,
@@ -41,12 +43,4 @@ impl<R1: Default, R2: Default> Default for LweRng<R1, R2> {
     fn default() -> Self {
         Self::new(R1::default(), R2::default())
     }
-}
-
-#[cfg(test)]
-pub(crate) mod test {
-    use crate::util::rng::LweRng;
-    use rand::rngs::StdRng;
-
-    pub type StdLweRng = LweRng<StdRng, StdRng>;
 }

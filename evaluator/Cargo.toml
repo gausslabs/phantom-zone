@@ -1,0 +1,12 @@
+[package]
+name = "phantom-zone-evaluator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itertools = { workspace = true }
+paste = { workspace = true }
+rand = { workspace = true }
+phantom-zone-crypto = { path = "../crypto" }
+phantom-zone-derive = { path = "../derive" }
+phantom-zone-math = { path = "../math" }

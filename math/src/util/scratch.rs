@@ -43,7 +43,7 @@ impl<'a> Scratch<'a> {
         let len = self.0.len();
 
         let aligned_offset = ptr.align_offset(size_of::<T>());
-        let aligned_len = len - aligned_offset;
+        let aligned_len = len.saturating_sub(aligned_offset);
 
         let taken_len = count * size_of::<T>();
         let Some(remaining_len) = aligned_len.checked_sub(taken_len) else {

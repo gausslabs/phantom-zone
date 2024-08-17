@@ -87,6 +87,28 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
     u_distribution: SecretKeyDistribution,
     noise_distribution: NoiseDistribution,
+    scratch: Scratch,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) {
+    let mut ct = ct.into();
+    pk_encrypt_zero(
+        ring,
+        &mut ct,
+        pk,
+        u_distribution,
+        noise_distribution,
+        scratch,
+        rng,
+    );
+    ring.slice_add_assign(ct.b_mut(), pt.into().as_ref());
+}
+
+pub fn pk_encrypt_zero<'a, 'b, R: RingOps>(
+    ring: &R,
+    ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
+    pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
+    u_distribution: SecretKeyDistribution,
+    noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) {
@@ -107,7 +129,6 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     ring.eval_mul_assign(t1, t0);
     ring.sample_into::<i64>(ct.b_mut(), noise_distribution, rng.noise());
     ring.add_backward_normalized(ct.b_mut(), t1);
-    ring.slice_add_assign(ct.b_mut(), pt.into().as_ref());
 }
 
 pub fn decrypt<'a, 'b, 'c, R, T>(
@@ -184,7 +205,7 @@ fn ks_key_gen_inner<R, T>(
     });
 }
 
-pub fn key_switch_in_place<'a, 'b, 'c, R: RingOps>(
+pub fn key_switch_in_place<'a, 'b, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     ks_key: impl Into<RlweKeySwitchKeyView<'b, R::Elem>>,
@@ -221,7 +242,7 @@ pub fn auto_key_gen<'a, 'b, R, T>(
     ks_key_gen_inner(ring, ks_key, sk_auto, sk, noise_distribution, scratch, rng);
 }
 
-pub fn automorphism_in_place<'a, 'b, 'c, R: RingOps>(
+pub fn automorphism_in_place<'a, 'b, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     auto_key: impl Into<RlweAutoKeyView<'b, R::Elem>>,
@@ -244,10 +265,10 @@ pub fn automorphism_in_place<'a, 'b, 'c, R: RingOps>(
     ring.poly_add_auto(ct.b_mut(), b, auto_map);
 }
 
-pub fn prepare_ks_key<'a, 'b, 'c, R: RingOps>(
+pub fn prepare_ks_key<'a, 'b, R: RingOps>(
     ring: &R,
     ks_key_prep: impl Into<RlweKeySwitchKeyMutView<'a, R::EvalPrep>>,
-    ks_key: impl Into<RlweKeySwitchKeyView<'a, R::Elem>>,
+    ks_key: impl Into<RlweKeySwitchKeyView<'b, R::Elem>>,
     mut scratch: Scratch,
 ) {
     let (mut ks_key_prep, ks_key) = (ks_key_prep.into(), ks_key.into());
@@ -260,10 +281,10 @@ pub fn prepare_ks_key<'a, 'b, 'c, R: RingOps>(
     });
 }
 
-pub fn prepare_auto_key<'a, 'b, 'c, R: RingOps>(
+pub fn prepare_auto_key<'a, 'b, R: RingOps>(
     ring: &R,
     auto_key_prep: impl Into<RlweAutoKeyMutView<'a, R::EvalPrep>>,
-    auto_key: impl Into<RlweAutoKeyView<'a, R::Elem>>,
+    auto_key: impl Into<RlweAutoKeyView<'b, R::Elem>>,
     scratch: Scratch,
 ) {
     prepare_ks_key(
@@ -274,7 +295,7 @@ pub fn prepare_auto_key<'a, 'b, 'c, R: RingOps>(
     );
 }
 
-pub fn key_switch_prep_in_place<'a, 'b, 'c, R: RingOps>(
+pub fn key_switch_prep_in_place<'a, 'b, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     ks_key: impl Into<RlweKeySwitchKeyView<'b, R::EvalPrep>>,
@@ -294,7 +315,7 @@ pub fn key_switch_prep_in_place<'a, 'b, 'c, R: RingOps>(
     ring.add_backward(ct.b_mut(), ct_eval.b_mut());
 }
 
-pub fn automorphism_prep_in_place<'a, 'b, 'c, R: RingOps>(
+pub fn automorphism_prep_in_place<'a, 'b, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     auto_key: impl Into<RlweAutoKeyView<'b, R::EvalPrep>>,

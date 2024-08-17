@@ -4,10 +4,11 @@ use crate::{
         rlwe::{
             self,
             test::{Rlwe, RlweParam},
-            RlweCiphertextOwned, RlwePlaintext, RlwePlaintextOwned, RlweSecretKeyOwned,
+            RlweCiphertextOwned, RlwePlaintext, RlwePlaintextOwned, RlwePublicKeyOwned,
+            RlweSecretKeyOwned,
         },
     },
-    util::rng::{test::StdLweRng, LweRng},
+    util::rng::{LweRng, StdLweRng},
 };
 use core::ops::Deref;
 use phantom_zone_math::{
@@ -107,6 +108,27 @@ impl<R: RingOps> Rgsw<R> {
         ct
     }
 
+    pub fn pk_encrypt(
+        &self,
+        pk: &RlwePublicKeyOwned<R::Elem>,
+        pt: &RlwePlaintextOwned<R::Elem>,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
+    ) -> RgswCiphertextOwned<R::Elem> {
+        let mut ct = RgswCiphertext::allocate(self.ring_size(), self.param.decomposition_param);
+        let mut scratch = self.ring().allocate_scratch(0, 2, 0);
+        rgsw::pk_encrypt(
+            self.ring(),
+            &mut ct,
+            pk,
+            pt,
+            self.param.u_distribution,
+            self.param.noise_distribution,
+            scratch.borrow_mut(),
+            rng,
+        );
+        ct
+    }
+
     pub fn decrypt(
         &self,
         sk: &RlweSecretKeyOwned<i32>,
@@ -191,12 +213,22 @@ fn rlwe_by_rgsw() {
         let rgsw = param.build::<R>();
         let rlwe = &rgsw.rlwe;
         let sk = rlwe.sk_gen();
+        let pk = rlwe.pk_gen(&sk, &mut rng);
         for _ in 0..100 {
             let m_rlwe = rgsw.message_ring().sample_uniform_poly(rng.noise());
             let m_rgsw = rgsw.message_ring().sample_uniform_poly(rng.noise());
             let m = rgsw.message_poly_mul(&m_rlwe, &m_rgsw);
+            // sk
             let ct_rlwe = rlwe.sk_encrypt(&sk, &rlwe.encode(&m_rlwe), &mut rng);
             let ct_rgsw = rgsw.sk_encrypt(&sk, &rgsw.encode(&m_rgsw), &mut rng);
+            let ct_rgsw_prep = rgsw.prepare_rgsw(&ct_rgsw);
+            let ct = rgsw.rlwe_by_rgsw(&ct_rlwe, &ct_rgsw);
+            assert_eq!(m, rlwe.decode(&rlwe.decrypt(&sk, &ct)));
+            let ct = rgsw.rlwe_by_rgsw_prep(&ct_rlwe, &ct_rgsw_prep);
+            assert_eq!(m, rlwe.decode(&rlwe.decrypt(&sk, &ct)));
+            // pk
+            let ct_rlwe = rlwe.pk_encrypt(&pk, &rlwe.encode(&m_rlwe), &mut rng);
+            let ct_rgsw = rgsw.pk_encrypt(&pk, &rgsw.encode(&m_rgsw), &mut rng);
             let ct_rgsw_prep = rgsw.prepare_rgsw(&ct_rgsw);
             let ct = rgsw.rlwe_by_rgsw(&ct_rlwe, &ct_rgsw);
             assert_eq!(m, rlwe.decode(&rlwe.decrypt(&sk, &ct)));

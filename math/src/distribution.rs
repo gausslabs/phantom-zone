@@ -9,7 +9,7 @@ use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
     Rng, RngCore,
 };
-use rand_distr::Normal;
+use rand_distr::StandardNormal;
 
 pub trait Sampler: ModulusOps {
     fn sample<T>(&self, dist: impl Distribution<T>, mut rng: impl RngCore) -> Self::Elem
@@ -93,21 +93,18 @@ pub trait DistributionSized<T> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Gaussian(Normal<f64>);
+pub struct Gaussian(pub f64);
 
 impl Gaussian {
-    pub fn new(std_dev: f64) -> Self {
-        Self(Normal::new(0f64, std_dev).unwrap())
-    }
-
     pub fn std_dev(&self) -> f64 {
-        self.0.std_dev()
+        self.0
     }
 }
 
 impl<T: FromPrimitive> Distribution<T> for Gaussian {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
-        FromPrimitive::from_f64(self.0.sample(rng).round()).unwrap()
+        let zscore: f64 = rng.sample(StandardNormal);
+        FromPrimitive::from_f64((self.std_dev() * zscore).round()).unwrap()
     }
 }
 
@@ -140,6 +137,7 @@ impl<T: Signed> DistributionSized<T> for Ternary {
             }
             set.into_iter().flat_map(into_bits).positions(identity)
         };
+        out.fill_with(|| f(T::zero()));
         izip!(indices, repeat_with(|| rng.next_u64()).flat_map(into_bits))
             .for_each(|(idx, bit)| out[idx] = f(if bit { T::one() } else { -T::one() }));
     }
