@@ -9,7 +9,7 @@ pub(crate) use method::{decomposed_fma, decomposed_fma_prep, pk_encrypt_zero, sk
 pub use method::{
     auto_key_gen, automorphism_in_place, automorphism_prep_in_place, decrypt, key_switch_in_place,
     key_switch_prep_in_place, ks_key_gen, pk_encrypt, pk_gen, prepare_auto_key, prepare_ks_key,
-    sample_extract, sk_encrypt,
+    sample_extract, seeded_auto_key_gen, sk_encrypt,
 };
 pub use structure::{
     RlweAutoKey, RlweAutoKeyMutView, RlweAutoKeyOwned, RlweAutoKeyView, RlweCiphertext,
@@ -19,4 +19,5 @@ pub use structure::{
     RlwePlaintextMutView, RlwePlaintextOwned, RlwePlaintextView, RlwePublicKey,
     RlwePublicKeyMutView, RlwePublicKeyOwned, RlwePublicKeyView, RlweSecretKey,
     RlweSecretKeyMutView, RlweSecretKeyOwned, RlweSecretKeyView, SeededRlweAutoKey,
+    SeededRlweAutoKeyMutView,
 };

@@ -5,16 +5,20 @@ use phantom_zone_math::{
     modulus::Modulus,
     util::as_slice::{self, AsMutSlice, AsSlice},
 };
+use rand::{RngCore, SeedableRng};
 use std::iter::repeat_with;
 
 use crate::{
     core::{
         lwe::{SeededLweKeySwitchKey, SeededLweKeySwitchKeyMutView},
-        rgsw::RgswDecompositionParam,
-        rlwe::{RlweAutoKey, SeededRlweAutoKey},
+        rgsw::{RgswCiphertext, RgswCiphertextMutView, RgswDecompositionParam},
+        rlwe::{RlweAutoKey, SeededRlweAutoKey, SeededRlweAutoKeyMutView},
     },
     scheme::blind_rotation::lmkcdey::power_g_mod_q,
-    util::distribution::NoiseDistribution,
+    util::{
+        distribution::{NoiseDistribution, SecretKeyDistribution},
+        rng::LweRng,
+    },
 };
 
 // trait Parameters {
@@ -39,6 +43,8 @@ pub struct InteractiveMpcParameters {
     auto_decomposer: DecompositionParam,
     rgsw_x_rgsw_decomposer: RgswDecompositionParam,
     noise_distribution: NoiseDistribution,
+    lwe_secret_key_distribution: SecretKeyDistribution,
+    rlwe_secret_key_distribution: SecretKeyDistribution,
     w: usize,
     g: usize,
 }
@@ -71,22 +77,28 @@ impl InteractiveMpcParameters {
     pub fn noise_distribution(&self) -> NoiseDistribution {
         self.noise_distribution
     }
-    fn g(&self) -> usize {
+    pub fn g(&self) -> usize {
         self.g
     }
-    fn br_q(&self) -> usize {
+    pub fn br_q(&self) -> usize {
         self.br_q
     }
-}
-
-impl InteractiveMpcParameters {
-    fn rgsw_x_rgsw_decomposer(&self) -> RgswDecompositionParam {
+    pub fn rgsw_x_rgsw_decomposer(&self) -> RgswDecompositionParam {
         self.rgsw_x_rgsw_decomposer.clone()
+    }
+    pub fn embedding_factor(&self) -> usize {
+        (self.rlwe_n() * 2) / self.br_q()
+    }
+    pub fn lwe_secret_key_distribution(&self) -> SecretKeyDistribution {
+        self.lwe_secret_key_distribution.clone()
+    }
+    pub fn rlwe_secret_key_distribution(&self) -> SecretKeyDistribution {
+        self.rlwe_secret_key_distribution.clone()
     }
 }
 
 /// Divides LWE dimension into two chunks. The first contains indices for which `self` generates RGSW ciphertexts for RLWE x RGSW and second contains indices for which `self`  generates RGSW for RGSW x RGSW
-fn split_lwe_dimension_for_rgsws(
+pub(crate) fn split_lwe_dimension_for_rgsws(
     lwe_n: usize,
     user_id: usize,
     total_users: usize,
@@ -122,64 +134,137 @@ impl<T: Default> RlwePublicKeyShare<Vec<T>> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
-pub struct RgswCiphertextList<S> {
-    #[as_slice]
-    data: S,
+/// Common reference seed known to all parties participating in the interactive MPC.
+///
+///
+#[derive(Clone, Copy, Debug)]
+pub struct InteractiveCrs<S> {
+    seed: S,
 }
 
-impl<S: AsSlice> RgswCiphertextList<S> {
-    fn new(data: S) -> Self {
-        Self { data }
+impl<S: Copy + Default + AsMut<[u8]>> InteractiveCrs<S> {
+    /// Random number generator for LWE Key switching key
+    ///
+    /// Random elements `a`s must be derived from CRS. We puncture main RNG, seeded with self.seed, once to derive the seed of lwe_ksk_rng
+    pub(crate) fn lwe_ksk_rng<R: RngCore + SeedableRng<Seed = S>>(
+        &self,
+        noise_rng: &mut R,
+    ) -> LweRng<R, R> {
+        // Puncture once
+        let mut main_rng = R::from_seed(self.seed);
+        let mut a_seed = <R as SeedableRng>::Seed::default();
+        main_rng.fill_bytes(a_seed.as_mut());
+
+        let mut e_seed = <R as SeedableRng>::Seed::default();
+        noise_rng.fill_bytes(e_seed.as_mut());
+
+        LweRng::new(R::from_seed(e_seed), R::from_seed(a_seed))
     }
-}
 
-impl<T: Default> RgswCiphertextList<Vec<T>> {
-    fn allocate(
-        count: usize,
-        ring_size: usize,
-        decomposition_param: RgswDecompositionParam,
-    ) -> Self {
-        Self::new(
-            repeat_with(T::default)
-                .take(
-                    count
-                        * ((2 * ring_size * decomposition_param.level_a)
-                            + (2 * ring_size * decomposition_param.level_b)),
-                )
-                .collect(),
-        )
+    /// Random number generator for auto keys
+    ///
+    /// Random polynomials `a` of auto keys must derive from CRS. We puncture main RNG, seeded with self.seed, twice to derive the seed of auto_rng
+    pub(crate) fn auto_keys_rng<R: RngCore + SeedableRng<Seed = S>>(
+        &self,
+        noise_rng: &mut R,
+    ) -> LweRng<R, R> {
+        // Puncture twice
+        let mut main_rng = R::from_seed(self.seed);
+        let mut a_seed = <R as SeedableRng>::Seed::default();
+        main_rng.fill_bytes(a_seed.as_mut());
+        main_rng.fill_bytes(a_seed.as_mut());
+
+        let mut e_seed = <R as SeedableRng>::Seed::default();
+        noise_rng.fill_bytes(e_seed.as_mut());
+
+        LweRng::new(R::from_seed(e_seed), R::from_seed(a_seed))
+    }
+
+    /// Random number generator for RGSW ciphertexts
+    ///
+    /// RGSW ciphertexts are encrypted with RLWE pulic key. Hence, both random polynomials `a` and noise polynomials `e` are not drived from CRS.
+    pub(crate) fn rgsw_cts_rng<R: RngCore + SeedableRng<Seed = S>>(
+        &self,
+        noise_rng: &mut R,
+    ) -> LweRng<R, R> {
+        let mut a_seed = S::default();
+        noise_rng.fill_bytes(a_seed.as_mut());
+
+        let mut e_seed = S::default();
+        noise_rng.fill_bytes(e_seed.as_mut());
+
+        LweRng::new(R::from_seed(e_seed), R::from_seed(a_seed))
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct InteractiveServerKeyShare<S1, S2: AsSlice<Elem = usize>> {
+pub struct CommonReferenceSeededServerKeyShare<S1, S2: AsSlice<Elem = usize>, Seed> {
     seeded_lwe_ksk: SeededLweKeySwitchKey<S1>,
     seeded_auto_keys: Vec<SeededRlweAutoKey<S1, S2>>,
-    // #[as_slice]
-    // seeded_self_rgsw_cts: S,
-    // #[as_slice]
-    // seeded_not_self_rgsw_cts: S,
+    self_rgsw_cts: Vec<RgswCiphertext<S1>>,
+    not_self_rgsw_cts: Vec<RgswCiphertext<S1>>,
+    crs: InteractiveCrs<Seed>,
 }
 
-impl<S1: AsSlice, S2: AsSlice<Elem = usize>> InteractiveServerKeyShare<S1, S2> {
+impl<S1: AsSlice, S2: AsSlice<Elem = usize>, Seed: Clone>
+    CommonReferenceSeededServerKeyShare<S1, S2, Seed>
+{
     pub fn new(
         lwe_ksk: SeededLweKeySwitchKey<S1>,
         auto_keys: Vec<SeededRlweAutoKey<S1, S2>>,
-        // self_rgsw_cts: S,
-        // not_self_rgsw_cts: S,
+        self_rgsw_cts: Vec<RgswCiphertext<S1>>,
+        not_self_rgsw_cts: Vec<RgswCiphertext<S1>>,
+        crs: InteractiveCrs<Seed>,
     ) -> Self {
         Self {
             seeded_lwe_ksk: lwe_ksk,
             seeded_auto_keys: auto_keys,
-            // seeded_self_rgsw_cts: self_rgsw_cts,
-            // seeded_not_self_rgsw_cts: not_self_rgsw_cts,
+            self_rgsw_cts,
+            not_self_rgsw_cts,
+            crs,
         }
+    }
+
+    pub fn crs(&self) -> InteractiveCrs<Seed> {
+        self.crs.clone()
     }
 }
 
-impl<T: Default> InteractiveServerKeyShare<Vec<T>, Vec<usize>> {
-    fn allocate(parameters: InteractiveMpcParameters, user_id: usize, total_users: usize) -> Self {
+impl<S1: AsMutSlice, S2: AsMutSlice<Elem = usize>, Seed>
+    CommonReferenceSeededServerKeyShare<S1, S2, Seed>
+{
+    pub fn as_mut_lwe_ksk(&mut self) -> SeededLweKeySwitchKeyMutView<S1::Elem> {
+        self.seeded_lwe_ksk.as_mut_view()
+    }
+
+    pub fn auto_keys_mut_iter(
+        &mut self,
+    ) -> impl Iterator<Item = SeededRlweAutoKeyMutView<S1::Elem>> {
+        self.seeded_auto_keys
+            .iter_mut()
+            .map(|auto_key| auto_key.as_mut_view())
+    }
+
+    pub fn self_rgsw_cts_mut_iter(
+        &mut self,
+    ) -> impl Iterator<Item = RgswCiphertextMutView<S1::Elem>> {
+        self.self_rgsw_cts.iter_mut().map(|ct| ct.as_mut_view())
+    }
+
+    pub fn not_self_rgsw_cts_mut_iter(
+        &mut self,
+    ) -> impl Iterator<Item = RgswCiphertextMutView<S1::Elem>> {
+        self.not_self_rgsw_cts.iter_mut().map(|ct| ct.as_mut_view())
+    }
+}
+
+impl<T: Default, Seed: Clone> CommonReferenceSeededServerKeyShare<Vec<T>, Vec<usize>, Seed> {
+    pub fn allocate(
+        parameters: InteractiveMpcParameters,
+        user_id: usize,
+        total_users: usize,
+        crs: InteractiveCrs<Seed>,
+    ) -> Self {
         let (self_count, not_self_count) =
             split_lwe_dimension_for_rgsws(parameters.lwe_n(), user_id, total_users);
 
@@ -200,45 +285,30 @@ impl<T: Default> InteractiveServerKeyShare<Vec<T>, Vec<usize>> {
                 SeededRlweAutoKey::allocate(parameters.rlwe_n(), parameters.auto_decomposer(), k)
             })
             .collect(),
-            // repeat_with(T::default)
-            //     .take(
-            //         (parameters.w() + 1) * parameters.auto_decomposer().level * parameters.rlwe_n(),
-            //     )
-            //     .collect(),
-            // repeat_with(T::default)
-            //     .take(
-            //         self_count.len()
-            //             * ((2 * parameters.rlwe_n() * parameters.rlwe_x_rgsw_decomposer().level_a)
-            //                 + (2 * parameters.rlwe_n()
-            //                     * parameters.rlwe_x_rgsw_decomposer().level_b)),
-            //     )
-            //     .collect(),
-            // repeat_with(T::default)
-            //     .take(
-            //         not_self_count.len()
-            //             * ((2 * parameters.rlwe_n() * parameters.rgsw_x_rgsw_decomposer().level_a)
-            //                 + (2 * parameters.rlwe_n()
-            //                     * parameters.rgsw_x_rgsw_decomposer().level_b)),
-            //     )
-            //     .collect(),
+            (0..self_count.len())
+                .map(|_| {
+                    RgswCiphertext::allocate(
+                        parameters.rlwe_n(),
+                        parameters.rlwe_x_rgsw_decomposer(),
+                    )
+                })
+                .collect_vec(),
+            (0..not_self_count.len())
+                .map(|_| {
+                    RgswCiphertext::allocate(
+                        parameters.rlwe_n(),
+                        parameters.rgsw_x_rgsw_decomposer(),
+                    )
+                })
+                .collect_vec(),
+            crs,
         )
     }
 }
 
-// impl<S: AsMutSlice> InteractiveServerKeyShare<S> {
-//     pub fn as_mut_lwe_ksk(&mut self) -> SeededLweKeySwitchKeyMutView<S::Elem> {
-//         self.seeded_lwe_ksk.as_mut_view()
-//     }
-
-// pub fn as_mut_auto_keys(&mut self) -> S::MutView {
-//     self.seeded_auto_keys.as_mut_view()
-// }
-
-// pub fn as_mut_self_rgsw_cts(&mut self) -> RgswCiphertextListMutView<S::Elem> {
-//     self.seeded_self_rgsw_cts.as_mut_view()
-// }
-
-// pub fn as_mut_not_self_rgsw_cts(&mut self) -> RgswCiphertextListMutView<S::Elem> {
-//     self.seeded_not_self_rgsw_cts.as_mut_view()
-// }
-// }
+pub struct CommonReferenceSeededServerKey {
+    seeded_lwe_ksk: SeededLweKeySwitchKey<Vec<u8>>,
+    seeded_auto_keys: Vec<SeededRlweAutoKey<Vec<u8>, Vec<usize>>>,
+    rgsw_cts: Vec<RgswCiphertext<Vec<u8>>>,
+    crs: InteractiveCrs<Vec<u8>>,
+}

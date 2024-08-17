@@ -23,7 +23,7 @@ use phantom_zone_math::{
 };
 use rand::RngCore;
 
-use super::structure::SeededRlweAutoKeyMutView;
+use super::structure::{SeededRlweAutoKeyMutView, SeededRlweKeySwitchKeyMutView};
 
 pub fn pk_gen<'a, 'b, R, T>(
     ring: &R,
@@ -207,6 +207,31 @@ fn ks_key_gen_inner<R, T>(
     });
 }
 
+fn seeded_ks_key_gen_inner<R, T>(
+    ring: &R,
+    mut ks_key: SeededRlweKeySwitchKeyMutView<R::Elem>,
+    sk_from: &[T],
+    sk_to: RlweSecretKeyView<T>,
+    noise_distribution: NoiseDistribution,
+    mut scratch: Scratch,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) where
+    R: RingOps + ElemFrom<T>,
+    T: Copy,
+{
+    let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
+    izip_eq!(ks_key.ct_iter_mut(), decomposer.gadget_iter()).for_each(|(mut ks_key_i, beta_i)| {
+        // a*s_to + e
+        ring.sample_uniform_into(ks_key_i.b_mut(), rng.a());
+        ring.poly_mul_assign_elem_from(ks_key_i.b_mut(), sk_to.as_ref(), scratch.reborrow());
+        let e = ring.sample_iter::<f64>(noise_distribution, rng.noise());
+        ring.slice_add_assign_iter(ks_key_i.b_mut(), e);
+
+        // a*s_to + e + beta_i*s_from
+        ring.slice_scalar_fma_elem_from(ks_key_i.b_mut(), sk_from, &ring.neg(&beta_i));
+    });
+}
+
 pub fn key_switch_in_place<'a, 'b, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
@@ -244,8 +269,6 @@ pub fn auto_key_gen<'a, 'b, R, T>(
     ks_key_gen_inner(ring, ks_key, sk_auto, sk, noise_distribution, scratch, rng);
 }
 
-// TODO: seeded AUto key gen
-
 pub fn seeded_auto_key_gen<'a, 'b, R, T>(
     ring: &R,
     auto_key: impl Into<SeededRlweAutoKeyMutView<'a, R::Elem>>,
@@ -258,7 +281,9 @@ pub fn seeded_auto_key_gen<'a, 'b, R, T>(
     T: 'b + Copy + Neg<Output = T>,
 {
     let (mut auto_key, sk) = (auto_key.into(), sk.into());
-    
+    let (auto_map, ks_key) = auto_key.auto_map_and_ks_key_mut();
+    let sk_auto = scratch.copy_iter(auto_map.apply(sk.as_ref(), |&v| -v));
+    seeded_ks_key_gen_inner(ring, ks_key, &sk_auto, sk, noise_distribution, scratch, rng);
 }
 
 pub fn automorphism_in_place<'a, 'b, 'c, R: RingOps>(

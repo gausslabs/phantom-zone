@@ -88,7 +88,7 @@ pub fn seeded_ks_key_gen<'a, 'b, 'c, R, T>(
     sk_from: impl Into<LweSecretKeyView<'c, T>>,
     sk_to: impl Into<LweSecretKeyView<'a, T>>,
     noise_distribution: NoiseDistribution,
-    scratch: &mut Scratch,
+    mut scratch: Scratch<'b>,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,

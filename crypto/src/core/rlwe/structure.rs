@@ -422,19 +422,46 @@ impl<T: Default> RlweAutoKey<Vec<T>, Vec<usize>> {
 }
 
 #[derive(Clone, Copy, Debug, AsSliceWrapper)]
+pub struct SeededRlweCiphertext<S> {
+    #[as_slice]
+    data: S,
+}
+
+impl<S: AsSlice> SeededRlweCiphertext<S> {
+    fn new(data: S) -> Self {
+        Self { data }
+    }
+}
+
+impl<S: AsMutSlice> SeededRlweCiphertext<S> {
+    pub fn b_mut(&mut self) -> &mut [S::Elem] {
+        self.data.as_mut()
+    }
+}
+
+#[derive(Clone, Copy, Debug, AsSliceWrapper)]
 pub struct SeededRlweKeyCiphertextList<S> {
     #[as_slice]
     data: S,
     ring_size: usize,
 }
 
-impl<S> SeededRlweKeyCiphertextList<S> {
+impl<S: AsSlice> SeededRlweKeyCiphertextList<S> {
     pub fn new(data: S, ring_size: usize) -> Self {
         Self { data, ring_size }
     }
 
     fn ring_size(&self) -> usize {
         self.ring_size
+    }
+}
+
+impl<S: AsMutSlice> SeededRlweKeyCiphertextList<S> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = SeededRlweCiphertextMutView<S::Elem>> {
+        self.data
+            .as_mut()
+            .chunks_mut(self.ring_size)
+            .map(SeededRlweCiphertextMutView::new)
     }
 }
 
@@ -466,12 +493,18 @@ impl<S: AsSlice> SeededRlweKeySwitchKey<S> {
         }
     }
 
-    fn ring_size(&self) -> usize {
+    pub fn ring_size(&self) -> usize {
         self.cts.ring_size
     }
 
-    fn decomposition_param(&self) -> DecompositionParam {
+    pub fn decomposition_param(&self) -> DecompositionParam {
         self.decomposition_param
+    }
+}
+
+impl<S: AsMutSlice> SeededRlweKeySwitchKey<S> {
+    pub fn ct_iter_mut(&mut self) -> impl Iterator<Item = SeededRlweCiphertextMutView<S::Elem>> {
+        self.cts.iter_mut()
     }
 }
 
@@ -511,7 +544,17 @@ impl<S1: AsSlice, S2: AsSlice<Elem = usize>> SeededRlweAutoKey<S1, S2> {
     }
 }
 
-// TODO: impl MutSlice
+impl<S1: AsMutSlice, S2: AsSlice<Elem = usize>> SeededRlweAutoKey<S1, S2> {
+    pub fn auto_map_and_ks_key_mut(
+        &mut self,
+    ) -> (AutomorphismMapView, SeededRlweKeySwitchKeyMutView<S1::Elem>) {
+        (self.auto_map.as_view(), self.ks_key.as_mut_view())
+    }
+
+    pub fn as_ks_key_mut(&mut self) -> SeededRlweKeySwitchKeyMutView<S1::Elem> {
+        self.ks_key.as_mut_view()
+    }
+}
 
 impl<T: Default> SeededRlweAutoKey<Vec<T>, Vec<usize>> {
     pub fn allocate(ring_size: usize, decomposition_param: DecompositionParam, k: i64) -> Self {
