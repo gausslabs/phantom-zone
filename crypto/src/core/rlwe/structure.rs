@@ -35,11 +35,7 @@ impl<T: Default> RlweSecretKey<Vec<T>> {
         Self::new(repeat_with(T::default).take(ring_size).collect(), ring_size)
     }
 
-    pub fn sample(
-        ring_size: usize,
-        sk_distribution: SecretDistribution,
-        rng: impl RngCore,
-    ) -> Self
+    pub fn sample(ring_size: usize, sk_distribution: SecretDistribution, rng: impl RngCore) -> Self
     where
         T: Signed + FromPrimitive,
     {
