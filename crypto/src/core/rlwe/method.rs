@@ -9,7 +9,7 @@ use crate::{
         },
     },
     util::{
-        distribution::{NoiseDistribution, SecretKeyDistribution},
+        distribution::{NoiseDistribution, SecretDistribution},
         rng::LweRng,
     },
 };
@@ -74,9 +74,9 @@ pub(crate) fn sk_encrypt_zero<'a, 'b, R, T>(
 {
     let mut ct = ct.into();
     let (a, b) = ct.a_b_mut();
-    ring.sample_uniform_into(a, rng.a());
+    ring.sample_uniform_into(a, rng.seedable());
     ring.poly_mul_elem_from(b, a, sk.into().as_ref(), scratch);
-    let e = ring.sample_iter::<i64>(noise_distribution, rng.noise());
+    let e = ring.sample_iter::<i64>(noise_distribution, rng);
     ring.slice_add_assign_iter(b, e);
 }
 
@@ -85,7 +85,7 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
     pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
-    u_distribution: SecretKeyDistribution,
+    u_distribution: SecretDistribution,
     noise_distribution: NoiseDistribution,
     scratch: Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
@@ -107,28 +107,29 @@ pub fn pk_encrypt_zero<'a, 'b, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
-    u_distribution: SecretKeyDistribution,
+    u_distribution: SecretDistribution,
     noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) {
     let (mut ct, pk) = (ct.into(), pk.into());
 
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
     let t0 = ring.take_eval(&mut scratch);
     let u = ring.take_poly(&mut scratch.reborrow());
-    ring.sample_into::<i64>(u, u_distribution, rng.noise());
-    ring.forward(t0, u);
+    ring.sample_into::<i64>(u, u_distribution, &mut *rng);
+    ring.forward(t0, u, eval_scratch);
 
     let t1 = ring.take_eval(&mut scratch);
-    ring.forward(t1, pk.a());
+    ring.forward(t1, pk.a(), eval_scratch);
     ring.eval_mul_assign(t1, t0);
-    ring.sample_into::<i64>(ct.a_mut(), noise_distribution, rng.noise());
-    ring.add_backward_normalized(ct.a_mut(), t1);
+    ring.sample_into::<i64>(ct.a_mut(), noise_distribution, &mut *rng);
+    ring.add_backward_normalized(ct.a_mut(), t1, eval_scratch);
 
-    ring.forward(t1, pk.b());
+    ring.forward(t1, pk.b(), eval_scratch);
     ring.eval_mul_assign(t1, t0);
-    ring.sample_into::<i64>(ct.b_mut(), noise_distribution, rng.noise());
-    ring.add_backward_normalized(ct.b_mut(), t1);
+    ring.sample_into::<i64>(ct.b_mut(), noise_distribution, &mut *rng);
+    ring.add_backward_normalized(ct.b_mut(), t1, eval_scratch);
 }
 
 pub fn decrypt<'a, 'b, 'c, R, T>(
@@ -221,8 +222,9 @@ pub fn key_switch_in_place<'a, 'b, R: RingOps>(
         ks_key.ct_iter(),
         scratch.reborrow(),
     );
-    ring.backward_normalized(ct.a_mut(), ct_eval.a_mut());
-    ring.add_backward_normalized(ct.b_mut(), ct_eval.b_mut());
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
+    ring.backward_normalized(ct.a_mut(), ct_eval.a_mut(), eval_scratch);
+    ring.add_backward_normalized(ct.b_mut(), ct_eval.b_mut(), eval_scratch);
 }
 
 pub fn auto_key_gen<'a, 'b, R, T>(
@@ -260,8 +262,9 @@ pub fn automorphism_in_place<'a, 'b, R: RingOps>(
         scratch.reborrow(),
     );
     let b = scratch.copy_slice(ct.b());
-    ring.backward_normalized(ct.a_mut(), ct_eval.a_mut());
-    ring.backward_normalized(ct.b_mut(), ct_eval.b_mut());
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
+    ring.backward_normalized(ct.a_mut(), ct_eval.a_mut(), eval_scratch);
+    ring.backward_normalized(ct.b_mut(), ct_eval.b_mut(), eval_scratch);
     ring.poly_add_auto(ct.b_mut(), b, auto_map);
 }
 
@@ -273,10 +276,11 @@ pub fn prepare_ks_key<'a, 'b, R: RingOps>(
 ) {
     let (mut ks_key_prep, ks_key) = (ks_key_prep.into(), ks_key.into());
     let eval = ring.take_eval(&mut scratch);
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
     izip_eq!(ks_key_prep.ct_iter_mut(), ks_key.ct_iter()).for_each(|(mut ct_prep, ct)| {
-        ring.forward_normalized(eval, ct.a());
+        ring.forward_normalized(eval, ct.a(), eval_scratch);
         ring.eval_prepare(ct_prep.a_mut(), eval);
-        ring.forward_normalized(eval, ct.b());
+        ring.forward_normalized(eval, ct.b(), eval_scratch);
         ring.eval_prepare(ct_prep.b_mut(), eval);
     });
 }
@@ -311,8 +315,9 @@ pub fn key_switch_prep_in_place<'a, 'b, R: RingOps>(
         ks_key.ct_iter(),
         scratch.reborrow(),
     );
-    ring.backward(ct.a_mut(), ct_eval.a_mut());
-    ring.add_backward(ct.b_mut(), ct_eval.b_mut());
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
+    ring.backward(ct.a_mut(), ct_eval.a_mut(), eval_scratch);
+    ring.add_backward(ct.b_mut(), ct_eval.b_mut(), eval_scratch);
 }
 
 pub fn automorphism_prep_in_place<'a, 'b, R: RingOps>(
@@ -333,8 +338,9 @@ pub fn automorphism_prep_in_place<'a, 'b, R: RingOps>(
         scratch.reborrow(),
     );
     let b = scratch.copy_slice(ct.b());
-    ring.backward(ct.a_mut(), ct_eval.a_mut());
-    ring.backward(ct.b_mut(), ct_eval.b_mut());
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
+    ring.backward(ct.a_mut(), ct_eval.a_mut(), eval_scratch);
+    ring.backward(ct.b_mut(), ct_eval.b_mut(), eval_scratch);
     ring.poly_add_auto(ct.b_mut(), b, auto_map);
 }
 
@@ -349,16 +355,17 @@ pub(crate) fn decomposed_fma<'a, 'b, R: RingOps, const DIRTY: bool>(
     let mut ct_eval = ct_eval.into();
     let decomposer = R::Decomposer::new(ring.modulus(), decomposition_param);
     let [t0, t1] = ring.take_evals(&mut scratch);
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
     decomposer.slice_decompose_zip_for_each(a, b, scratch, |i, a_i, b_i| {
         let eval_fma = if DIRTY && i == 0 {
             R::eval_mul
         } else {
             R::eval_fma
         };
-        ring.forward(t0, a_i);
-        ring.forward(t1, b_i.a());
+        ring.forward(t0, a_i, eval_scratch);
+        ring.forward(t1, b_i.a(), eval_scratch);
         eval_fma(ring, ct_eval.a_mut(), t0, t1);
-        ring.forward(t1, b_i.b());
+        ring.forward(t1, b_i.b(), eval_scratch);
         eval_fma(ring, ct_eval.b_mut(), t0, t1);
     });
 }
@@ -374,13 +381,14 @@ pub(crate) fn decomposed_fma_prep<'a, 'b, R: RingOps, const DIRTY: bool>(
     let mut ct_eval = ct_eval.into();
     let decomposer = R::Decomposer::new(ring.modulus(), decomposition_param);
     let t0 = ring.take_eval(&mut scratch);
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
     decomposer.slice_decompose_zip_for_each(a, b, scratch, |i, a_i, b_i| {
         let eval_fma_prep = if DIRTY && i == 0 {
             R::eval_mul_prep
         } else {
             R::eval_fma_prep
         };
-        ring.forward(t0, a_i);
+        ring.forward(t0, a_i, eval_scratch);
         eval_fma_prep(ring, ct_eval.a_mut(), t0, b_i.a());
         eval_fma_prep(ring, ct_eval.b_mut(), t0, b_i.b());
     });

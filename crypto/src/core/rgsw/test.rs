@@ -21,7 +21,7 @@ use phantom_zone_math::{
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
 };
-use rand::RngCore;
+use rand::{RngCore, SeedableRng};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RgswParam {
@@ -215,8 +215,8 @@ fn rlwe_by_rgsw() {
         let sk = rlwe.sk_gen();
         let pk = rlwe.pk_gen(&sk, &mut rng);
         for _ in 0..100 {
-            let m_rlwe = rgsw.message_ring().sample_uniform_poly(rng.noise());
-            let m_rgsw = rgsw.message_ring().sample_uniform_poly(rng.noise());
+            let m_rlwe = rgsw.message_ring().sample_uniform_poly(&mut rng);
+            let m_rgsw = rgsw.message_ring().sample_uniform_poly(&mut rng);
             let m = rgsw.message_poly_mul(&m_rlwe, &m_rgsw);
             // sk
             let ct_rlwe = rlwe.sk_encrypt(&sk, &rlwe.encode(&m_rlwe), &mut rng);
@@ -253,8 +253,8 @@ fn rgsw_by_rgsw() {
         let rlwe = &rgsw.rlwe;
         let sk = rlwe.sk_gen();
         for _ in 0..100 {
-            let m_a = rgsw.message_ring().sample_uniform_poly(rng.noise());
-            let m_b = rgsw.message_ring().sample_uniform_poly(rng.noise());
+            let m_a = rgsw.message_ring().sample_uniform_poly(&mut rng);
+            let m_b = rgsw.message_ring().sample_uniform_poly(&mut rng);
             let m_c = rgsw.message_poly_mul(&m_a, &m_b);
             let ct_a = rgsw.sk_encrypt(&sk, &rgsw.encode(&m_a), &mut rng);
             let ct_b = rgsw.sk_encrypt(&sk, &rgsw.encode(&m_b), &mut rng);

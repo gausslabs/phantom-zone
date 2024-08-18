@@ -35,9 +35,9 @@ fn sk_encrypt_zero<'a, 'b, R, T>(
     T: 'b + Copy,
 {
     let mut ct = ct.into();
-    ring.sample_uniform_into(ct.a_mut(), rng.a());
+    ring.sample_uniform_into(ct.a_mut(), rng.seedable());
     let a_sk = ring.slice_dot_elem_from(ct.a(), sk.into().as_ref());
-    let e = ring.sample::<i64>(&noise_distribution, rng.noise());
+    let e = ring.sample::<i64>(&noise_distribution, rng);
     *ct.b_mut() = ring.add(&a_sk, &e);
 }
 

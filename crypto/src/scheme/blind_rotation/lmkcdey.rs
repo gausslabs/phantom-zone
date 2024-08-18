@@ -3,18 +3,20 @@ use crate::core::{
     rgsw::{self, RgswCiphertextOwned},
     rlwe::{self, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextMutView, RlwePlaintextView},
 };
-use core::{cmp::Reverse, iter::successors, mem::size_of};
+use core::{cmp::Reverse, iter::successors};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
     izip_eq, modulus::NonNativePowerOfTwo, ring::RingOps, util::scratch::Scratch,
 };
 
 pub fn bootstrap_scratch_bytes<R: RingOps>(ring: &R, lwe_dimension: usize) -> usize {
-    // 2 (acc) + 2 (automorphism/rlwe_by_rgsw) + ceil(5 * lwe_dimension / ring_size) (ct_ks_mod_switch + i_n_i_p).
-    let poly = 2 + 2 + ((1 + 4) * lwe_dimension).div_ceil(ring.ring_size());
-    // 3 (automorphism/rlwe_by_rgsw)
-    let eval = 3;
-    size_of::<R::Elem>() * ring.ring_size() * poly + size_of::<R::Eval>() * ring.eval_size() * eval
+    ring.scratch_bytes(
+        // 2 (acc) + 2 (automorphism/rlwe_by_rgsw) + ceil(5 * lwe_dimension / ring_size) (ct_ks_mod_switch + i_n_i_p).
+        2 + 2 + ((1 + 4) * lwe_dimension).div_ceil(ring.ring_size()),
+        // 3 (automorphism/rlwe_by_rgsw)
+        3,
+        0,
+    )
 }
 
 /// Implementation of Figure 2 + Algorithm 7 in 2022/198.
@@ -205,6 +207,7 @@ mod test {
         },
         util::scratch::ScratchOwned,
     };
+    use rand::SeedableRng;
 
     #[derive(Clone, Copy, Debug)]
     struct BootstrappingParam {

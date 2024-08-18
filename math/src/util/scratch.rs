@@ -48,7 +48,7 @@ impl<'a> Scratch<'a> {
         let taken_len = count * size_of::<T>();
         let Some(remaining_len) = aligned_len.checked_sub(taken_len) else {
             panic!(
-                "{count} {} ({taken_len} bytes) taken from sractch with remaining {len} bytes",
+                "{count} {} ({taken_len} bytes) taken from sractch with remaining aligned {aligned_len} bytes",
                 type_name::<T>()
             )
         };

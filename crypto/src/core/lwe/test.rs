@@ -4,7 +4,7 @@ use crate::{
         LwePlaintext, LweSecretKey, LweSecretKeyOwned,
     },
     util::{
-        distribution::{NoiseDistribution, SecretKeyDistribution},
+        distribution::{NoiseDistribution, SecretDistribution},
         rng::{LweRng, StdLweRng},
     },
 };
@@ -17,14 +17,14 @@ use phantom_zone_math::{
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
 };
-use rand::{thread_rng, RngCore};
+use rand::{thread_rng, RngCore, SeedableRng};
 
 #[derive(Clone, Copy, Debug)]
 pub struct LweParam {
     pub message_modulus: u64,
     pub ciphertext_modulus: Modulus,
     pub dimension: usize,
-    pub sk_distribution: SecretKeyDistribution,
+    pub sk_distribution: SecretDistribution,
     pub noise_distribution: NoiseDistribution,
     pub ks_decomposition_param: DecompositionParam,
 }

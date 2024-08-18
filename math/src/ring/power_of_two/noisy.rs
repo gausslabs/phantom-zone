@@ -1,16 +1,16 @@
 use crate::{
     decomposer::PowerOfTwoDecomposer,
-    modulus::{power_of_two::f64_mod_u64, Modulus},
+    modulus::{power_of_two::f64_mod_u64, Modulus, ModulusOps},
     poly::ffnt::Ffnt,
-    ring::{power_of_two, ElemFrom, ElemTo, RingOps},
+    ring::{power_of_two, ElemFrom, RingOps},
 };
 use num_complex::Complex64;
-
-pub type NoisyPowerOfTwoRing<const NATIVE: bool> = power_of_two::PowerOfTwoRing<Ffnt, NATIVE>;
 
 pub type NoisyNativeRing = NoisyPowerOfTwoRing<true>;
 
 pub type NoisyNonNativePowerOfTwoRing = NoisyPowerOfTwoRing<false>;
+
+pub type NoisyPowerOfTwoRing<const NATIVE: bool> = power_of_two::PowerOfTwoRing<NATIVE, 1>;
 
 impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
     type Eval = Complex64;
@@ -29,43 +29,59 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
         self.fft.fft_size()
     }
 
-    fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
-        self.fft.forward(b, a, |a| self.q.center(*a) as _);
+    fn eval_scratch_size(&self) -> usize {
+        self.fft.fft_scratch_size()
     }
 
-    fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T])
+    fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem], scratch: &mut [Self::Eval]) {
+        self.fft.forward(b, a, |a| self.q.center(*a) as _, scratch);
+    }
+
+    fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T], scratch: &mut [Self::Eval])
     where
         Self: ElemFrom<T>,
     {
-        self.fft.forward(b, a, |a| {
-            let a: i64 = self.elem_to(self.elem_from(*a));
-            a as _
-        });
+        let to_f64 = |a: &_| self.to_i64(self.elem_from(*a)) as _;
+        self.fft.forward(b, a, to_f64, scratch);
     }
 
-    fn forward_normalized(&self, b: &mut [Self::Eval], a: &[Self::Elem]) {
+    fn forward_normalized(
+        &self,
+        b: &mut [Self::Eval],
+        a: &[Self::Elem],
+        scratch: &mut [Self::Eval],
+    ) {
+        let to_f64 = |a: &_| self.q.center(*a) as _;
+        self.fft.forward_normalized(b, a, to_f64, scratch);
+    }
+
+    fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], scratch: &mut [Self::Eval]) {
+        self.fft.backward(b, a, |a| self.elem_from(a), scratch);
+    }
+
+    fn backward_normalized(
+        &self,
+        b: &mut [Self::Elem],
+        a: &mut [Self::Eval],
+        scratch: &mut [Self::Eval],
+    ) {
         self.fft
-            .forward_normalized(b, a, |a| self.q.center(*a) as _);
+            .backward_normalized(b, a, |a| self.elem_from(a), scratch);
     }
 
-    fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft.backward(b, a, |a| self.elem_from(a));
+    fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], scratch: &mut [Self::Eval]) {
+        let add_from_f64 = |b: &mut u64, a| *b = self.q.reduce(b.wrapping_add(f64_mod_u64(a)));
+        self.fft.add_backward(b, a, add_from_f64, scratch);
     }
 
-    fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft.backward_normalized(b, a, |a| self.elem_from(a));
-    }
-
-    fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft.add_backward(b, a, |b, a| {
-            *b = self.q.reduce(b.wrapping_add(f64_mod_u64(a)))
-        });
-    }
-
-    fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]) {
-        self.fft.add_backward_normalized(b, a, |b, a| {
-            *b = self.q.reduce(b.wrapping_add(f64_mod_u64(a)))
-        });
+    fn add_backward_normalized(
+        &self,
+        b: &mut [Self::Elem],
+        a: &mut [Self::Eval],
+        scratch: &mut [Self::Eval],
+    ) {
+        self.fft.normalize(a);
+        self.add_backward(b, a, scratch);
     }
 
     fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]) {

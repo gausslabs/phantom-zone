@@ -8,7 +8,7 @@ use crate::{
         },
     },
     util::{
-        distribution::{NoiseDistribution, SecretKeyDistribution},
+        distribution::{NoiseDistribution, SecretDistribution},
         rng::{LweRng, StdLweRng},
     },
 };
@@ -22,15 +22,15 @@ use phantom_zone_math::{
         NonNativePowerOfTwoRing, PrimeRing, RingOps, SliceOps,
     },
 };
-use rand::{thread_rng, RngCore};
+use rand::{thread_rng, RngCore, SeedableRng};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RlweParam {
     pub message_modulus: u64,
     pub ciphertext_modulus: Modulus,
     pub ring_size: usize,
-    pub sk_distribution: SecretKeyDistribution,
-    pub u_distribution: SecretKeyDistribution,
+    pub sk_distribution: SecretDistribution,
+    pub u_distribution: SecretDistribution,
     pub noise_distribution: NoiseDistribution,
     pub ks_decomposition_param: DecompositionParam,
 }
@@ -335,7 +335,7 @@ fn encrypt_decrypt() {
         let sk = rlwe.sk_gen();
         let pk = rlwe.pk_gen(&sk, &mut rng);
         for _ in 0..100 {
-            let m = rlwe.message_ring.sample_uniform_poly(rng.noise());
+            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let pt = rlwe.encode(&m);
             let ct_sk = rlwe.sk_encrypt(&sk, &pt, &mut rng);
             let ct_pk = rlwe.pk_encrypt(&pk, &pt, &mut rng);
@@ -359,7 +359,7 @@ fn sample_extract() {
         let mut rng = StdLweRng::from_entropy();
         let rlwe = param.build::<R>();
         let sk = rlwe.sk_gen();
-        let m = rlwe.message_ring.sample_uniform_poly(rng.noise());
+        let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
         let pt = rlwe.encode(&m);
         let ct_rlwe = rlwe.sk_encrypt(&sk, &pt, &mut rng);
         for (idx, m) in m.iter().enumerate() {
@@ -386,7 +386,7 @@ fn key_switch() {
         let ks_key = rlwe.ks_key_gen(&sk_from, &sk_to, &mut rng);
         let ks_key_prep = rlwe.prepare_ks_key(&ks_key);
         for _ in 0..100 {
-            let m = rlwe.message_ring.sample_uniform_poly(rng.noise());
+            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let pt = rlwe.encode(&m);
             let ct_from = rlwe.sk_encrypt(&sk_from, &pt, &mut rng);
             let ct_to = rlwe.key_switch(&ks_key, &ct_from);
@@ -413,7 +413,7 @@ fn automorphism() {
         for k in (1..rlwe.ring_size()).step_by(2) {
             let auto_key = rlwe.auto_key_gen(&sk, k as _, &mut rng);
             let auto_key_prep = rlwe.prepare_auto_key(&auto_key);
-            let m = rlwe.message_ring.sample_uniform_poly(rng.noise());
+            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let ct = rlwe.sk_encrypt(&sk, &rlwe.encode(&m), &mut rng);
             let m_auto = {
                 let neg = |v: &_| rlwe.message_ring.neg(v);

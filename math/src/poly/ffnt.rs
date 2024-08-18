@@ -16,6 +16,7 @@ use std::sync::Arc;
 pub struct Ffnt {
     ring_size: usize,
     fft_size: usize,
+    fft_scratch_size: usize,
     fft_size_inv: f64,
     twiddle: Vec<Complex64>,
     twiddle_inv: Vec<Complex64>,
@@ -35,10 +36,13 @@ impl Ffnt {
         let fft_size = (ring_size / 2).max(1);
         let fft = FftPlanner::new().plan_fft_forward(fft_size);
         let ifft = FftPlanner::new().plan_fft_inverse(fft_size);
+        let fft_scratch_size = fft.get_inplace_scratch_len();
+        debug_assert_eq!(fft_scratch_size, ifft.get_inplace_scratch_len());
 
         Self {
             ring_size,
             fft_size,
+            fft_scratch_size,
             fft_size_inv: 1f64 / fft_size as f64,
             twiddle,
             twiddle_inv,
@@ -55,18 +59,40 @@ impl Ffnt {
         self.fft_size
     }
 
-    pub fn forward<T>(&self, b: &mut [Complex64], a: &[T], to_f64: impl Fn(&T) -> f64) {
-        self.fold_twist(b, a, to_f64);
-        self.fft.process(b);
+    pub fn fft_scratch_size(&self) -> usize {
+        self.fft_scratch_size
     }
 
-    pub fn forward_normalized<T>(&self, b: &mut [Complex64], a: &[T], to_f64: impl Fn(&T) -> f64) {
-        self.forward(b, a, to_f64);
+    pub fn forward<T>(
+        &self,
+        b: &mut [Complex64],
+        a: &[T],
+        to_f64: impl Fn(&T) -> f64,
+        scratch: &mut [Complex64],
+    ) {
+        self.fold_twist(b, a, to_f64);
+        self.fft.process_with_scratch(b, scratch);
+    }
+
+    pub fn forward_normalized<T>(
+        &self,
+        b: &mut [Complex64],
+        a: &[T],
+        to_f64: impl Fn(&T) -> f64,
+        scratch: &mut [Complex64],
+    ) {
+        self.forward(b, a, to_f64, scratch);
         self.normalize(b);
     }
 
-    pub fn backward<T>(&self, b: &mut [T], a: &mut [Complex64], from_f64: impl Fn(f64) -> T) {
-        self.ifft.process(a);
+    pub fn backward<T>(
+        &self,
+        b: &mut [T],
+        a: &mut [Complex64],
+        from_f64: impl Fn(f64) -> T,
+        scratch: &mut [Complex64],
+    ) {
+        self.ifft.process_with_scratch(a, scratch);
         self.unfold_untwist(b, a, from_f64);
     }
 
@@ -75,9 +101,10 @@ impl Ffnt {
         b: &mut [T],
         a: &mut [Complex64],
         from_f64: impl Fn(f64) -> T,
+        scratch: &mut [Complex64],
     ) {
         self.normalize(a);
-        self.backward(b, a, from_f64);
+        self.backward(b, a, from_f64, scratch);
     }
 
     pub fn add_backward<T>(
@@ -85,8 +112,9 @@ impl Ffnt {
         b: &mut [T],
         a: &mut [Complex64],
         add_from_f64: impl Fn(&mut T, f64),
+        scratch: &mut [Complex64],
     ) {
-        self.ifft.process(a);
+        self.ifft.process_with_scratch(a, scratch);
         self.add_unfold_untwist(b, a, add_from_f64);
     }
 
@@ -95,12 +123,13 @@ impl Ffnt {
         b: &mut [T],
         a: &mut [Complex64],
         add_from_f64: impl Fn(&mut T, f64),
+        scratch: &mut [Complex64],
     ) {
         self.normalize(a);
-        self.add_backward(b, a, add_from_f64)
+        self.add_backward(b, a, add_from_f64, scratch)
     }
 
-    fn normalize(&self, a: &mut [Complex64]) {
+    pub fn normalize(&self, a: &mut [Complex64]) {
         a.iter_mut().for_each(|a| *a *= self.fft_size_inv);
     }
 

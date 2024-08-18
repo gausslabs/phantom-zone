@@ -7,7 +7,7 @@ use crate::{
         },
     },
     util::{
-        distribution::{NoiseDistribution, SecretKeyDistribution},
+        distribution::{NoiseDistribution, SecretDistribution},
         rng::LweRng,
     },
 };
@@ -48,7 +48,7 @@ pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
     ct: impl Into<RgswCiphertextMutView<'a, R::Elem>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
     pt: impl Into<RlwePlaintextView<'c, R::Elem>>,
-    u_distribution: SecretKeyDistribution,
+    u_distribution: SecretDistribution,
     noise_distribution: NoiseDistribution,
     mut scratch: Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
@@ -108,8 +108,9 @@ pub fn rlwe_by_rgsw_in_place<'a, 'b, R: RingOps>(
         ct_rgsw.b_ct_iter(),
         scratch.reborrow(),
     );
-    ring.backward_normalized(ct_rlwe.a_mut(), ct_eval.a_mut());
-    ring.backward_normalized(ct_rlwe.b_mut(), ct_eval.b_mut());
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
+    ring.backward_normalized(ct_rlwe.a_mut(), ct_eval.a_mut(), eval_scratch);
+    ring.backward_normalized(ct_rlwe.b_mut(), ct_eval.b_mut(), eval_scratch);
 }
 
 pub fn prepare_rgsw<'a, 'b, R: RingOps>(
@@ -120,10 +121,11 @@ pub fn prepare_rgsw<'a, 'b, R: RingOps>(
 ) {
     let (mut ct_prep, ct) = (ct_prep.into(), ct.into());
     let eval = ring.take_eval(&mut scratch);
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
     izip_eq!(ct_prep.ct_iter_mut(), ct.ct_iter()).for_each(|(mut ct_prep, ct)| {
-        ring.forward_normalized(eval, ct.a());
+        ring.forward_normalized(eval, ct.a(), eval_scratch);
         ring.eval_prepare(ct_prep.a_mut(), eval);
-        ring.forward_normalized(eval, ct.b());
+        ring.forward_normalized(eval, ct.b(), eval_scratch);
         ring.eval_prepare(ct_prep.b_mut(), eval);
     });
 }
@@ -152,8 +154,9 @@ pub fn rlwe_by_rgsw_prep_in_place<'a, 'b, R: RingOps>(
         ct_rgsw.b_ct_iter(),
         scratch.reborrow(),
     );
-    ring.backward(ct_rlwe.a_mut(), ct_eval.a_mut());
-    ring.backward(ct_rlwe.b_mut(), ct_eval.b_mut());
+    let eval_scratch = ring.take_eval_scratch(&mut scratch);
+    ring.backward(ct_rlwe.a_mut(), ct_eval.a_mut(), eval_scratch);
+    ring.backward(ct_rlwe.b_mut(), ct_eval.b_mut(), eval_scratch);
 }
 
 pub fn rgsw_by_rgsw_in_place<'a, 'b, R: RingOps>(

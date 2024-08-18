@@ -225,23 +225,94 @@ impl<R1: RingOps, R2: RingOps> BoolEvaluator for FhewBoolEvaluator<R1, R2> {
     }
 }
 
+#[cfg(any(test, feature = "dev"))]
+mod dev {
+    use crate::boolean::evaluator::fhew::{FhewBoolEvaluator, FhewBoolParam};
+    use itertools::izip;
+    use phantom_zone_crypto::{
+        core::{
+            lwe::{self, LweSecretKeyOwned},
+            rgsw::{self, RgswCiphertext},
+            rlwe::{self, RlweAutoKey, RlwePlaintext},
+        },
+        util::rng::StdLweRng,
+    };
+    use phantom_zone_math::{distribution::Gaussian, ring::RingOps};
+    use rand::{RngCore, SeedableRng};
+
+    impl<R1: RingOps, R2: RingOps> FhewBoolEvaluator<R1, R2> {
+        pub fn sample(
+            param: FhewBoolParam,
+            sk: &LweSecretKeyOwned<i32>,
+            rng: impl RngCore,
+        ) -> Self {
+            let mut evaluator = Self::allocate(param);
+            let mut rng = StdLweRng::from_rng(rng).unwrap();
+            let mut scratch = evaluator.ring.allocate_scratch(0, 3, 0);
+            let mut scratch = scratch.borrow_mut();
+            let sk_ks = LweSecretKeyOwned::<i32>::sample(
+                evaluator.param.lwe_dimension,
+                Gaussian(3.2).into(),
+                &mut rng,
+            );
+            lwe::ks_key_gen(
+                &evaluator.ring_ks,
+                &mut evaluator.ks_key,
+                sk,
+                &sk_ks,
+                Gaussian(3.2).into(),
+                &mut rng,
+            );
+            izip!(&mut evaluator.brk, sk_ks.as_ref()).for_each(|(brk_prep, sk_ks_i)| {
+                let mut brk =
+                    RgswCiphertext::allocate(brk_prep.ring_size(), brk_prep.decomposition_param());
+                let mut pt = RlwePlaintext::allocate(brk_prep.ring_size());
+                let exp = evaluator.param.embedding_factor() as i32 * sk_ks_i;
+                evaluator.ring.poly_set_monomial(pt.as_mut(), exp as _);
+                rgsw::sk_encrypt(
+                    &evaluator.ring,
+                    &mut brk,
+                    sk.as_view(),
+                    &pt,
+                    Gaussian(3.2).into(),
+                    scratch.reborrow(),
+                    &mut rng,
+                );
+                rgsw::prepare_rgsw(&evaluator.ring, brk_prep, &brk, scratch.reborrow());
+            });
+            evaluator.ak.iter_mut().for_each(|ak_prep| {
+                let mut ak = RlweAutoKey::allocate(
+                    ak_prep.ring_size(),
+                    ak_prep.decomposition_param(),
+                    ak_prep.k() as _,
+                );
+                rlwe::auto_key_gen(
+                    &evaluator.ring,
+                    &mut ak,
+                    sk.as_view(),
+                    Gaussian(3.2).into(),
+                    scratch.reborrow(),
+                    &mut rng,
+                );
+                rlwe::prepare_auto_key(&evaluator.ring, ak_prep, &ak, scratch.reborrow());
+            });
+            evaluator
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::boolean::{
         evaluator::{
-            fhew::{FhewBoolCiphertext, FhewBoolEvaluator, FhewBoolParam},
+            fhew::{self, FhewBoolCiphertext, FhewBoolParam},
             BoolEvaluator,
         },
         test::tt,
     };
     use core::array::from_fn;
-    use itertools::izip;
     use phantom_zone_crypto::{
-        core::{
-            lwe::{self, LweSecretKeyOwned},
-            rgsw::{self, RgswCiphertext, RgswDecompositionParam},
-            rlwe::{self, RlweAutoKey, RlwePlaintext},
-        },
+        core::{lwe::LweSecretKeyOwned, rgsw::RgswDecompositionParam},
         util::rng::StdLweRng,
     };
     use phantom_zone_math::{
@@ -253,7 +324,9 @@ mod test {
             NonNativePowerOfTwoRing, PrimeRing, RingOps,
         },
     };
-    use rand::thread_rng;
+    use rand::{thread_rng, SeedableRng};
+
+    type FhewBoolEvaluator<R> = fhew::FhewBoolEvaluator<R, NonNativePowerOfTwoRing>;
 
     fn test_param(big_q: impl Into<Modulus>) -> FhewBoolParam {
         let ring_size = 1024;
@@ -279,63 +352,6 @@ mod test {
             g: 5,
             w: 10,
         }
-    }
-
-    fn evaluator_gen<R: RingOps>(
-        param: FhewBoolParam,
-        sk: &LweSecretKeyOwned<i32>,
-    ) -> FhewBoolEvaluator<R, NonNativePowerOfTwoRing> {
-        let mut rng = StdLweRng::from_entropy();
-        let mut evaluator = FhewBoolEvaluator::<R, NonNativePowerOfTwoRing>::allocate(param);
-        let mut scratch = evaluator.ring.allocate_scratch(0, 3, 0);
-        let mut scratch = scratch.borrow_mut();
-        let sk_ks = LweSecretKeyOwned::<i32>::sample(
-            evaluator.param.lwe_dimension,
-            Gaussian(3.2).into(),
-            thread_rng(),
-        );
-        lwe::ks_key_gen(
-            &evaluator.ring_ks,
-            &mut evaluator.ks_key,
-            sk,
-            &sk_ks,
-            Gaussian(3.2).into(),
-            &mut rng,
-        );
-        izip!(&mut evaluator.brk, sk_ks.as_ref()).for_each(|(brk_prep, sk_ks_i)| {
-            let mut brk =
-                RgswCiphertext::allocate(brk_prep.ring_size(), brk_prep.decomposition_param());
-            let mut pt = RlwePlaintext::allocate(brk_prep.ring_size());
-            let exp = evaluator.param.embedding_factor() as i32 * sk_ks_i;
-            evaluator.ring.poly_set_monomial(pt.as_mut(), exp as _);
-            rgsw::sk_encrypt(
-                &evaluator.ring,
-                &mut brk,
-                sk.as_view(),
-                &pt,
-                Gaussian(3.2).into(),
-                scratch.reborrow(),
-                &mut rng,
-            );
-            rgsw::prepare_rgsw(&evaluator.ring, brk_prep, &brk, scratch.reborrow());
-        });
-        evaluator.ak.iter_mut().for_each(|ak_prep| {
-            let mut ak = RlweAutoKey::allocate(
-                ak_prep.ring_size(),
-                ak_prep.decomposition_param(),
-                ak_prep.k() as _,
-            );
-            rlwe::auto_key_gen(
-                &evaluator.ring,
-                &mut ak,
-                sk.as_view(),
-                Gaussian(3.2).into(),
-                scratch.reborrow(),
-                &mut rng,
-            );
-            rlwe::prepare_auto_key(&evaluator.ring, ak_prep, &ak, scratch.reborrow());
-        });
-        evaluator
     }
 
     fn sk_gen(ring_size: usize) -> LweSecretKeyOwned<i32> {
@@ -376,7 +392,7 @@ mod test {
     fn bit_op() {
         fn run<R: RingOps>(param: FhewBoolParam) {
             let sk = sk_gen(param.ring_size);
-            let evaluator = evaluator_gen::<R>(param, &sk);
+            let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, thread_rng());
             let encrypt = |m| encrypt(&evaluator.ring, &sk, m);
             macro_rules! assert_decrypted_to {
                 ($ct_a:ident.$op:ident($($ct_b:ident)?), $c:expr) => {
@@ -416,7 +432,7 @@ mod test {
     fn add_sub() {
         fn run<R: RingOps>(param: FhewBoolParam) {
             let sk = sk_gen(param.ring_size);
-            let evaluator = evaluator_gen::<R>(param, &sk);
+            let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, thread_rng());
             let encrypt = |m| encrypt(&evaluator.ring, &sk, m);
             macro_rules! assert_decrypted_to {
                 ($ct_a:ident.$op:ident($ct_b:ident $(, $ct_c:ident)?), $c:expr) => {

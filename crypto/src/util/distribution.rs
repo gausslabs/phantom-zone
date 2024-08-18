@@ -3,24 +3,24 @@ use phantom_zone_math::distribution::{DistributionSized, Gaussian, Ternary};
 use rand::{distributions::Distribution, Rng};
 
 #[derive(Clone, Copy, Debug)]
-pub enum SecretKeyDistribution {
+pub enum SecretDistribution {
     Gaussian(Gaussian),
     Ternary(Ternary),
 }
 
-impl From<Gaussian> for SecretKeyDistribution {
+impl From<Gaussian> for SecretDistribution {
     fn from(inner: Gaussian) -> Self {
         Self::Gaussian(inner)
     }
 }
 
-impl From<Ternary> for SecretKeyDistribution {
+impl From<Ternary> for SecretDistribution {
     fn from(inner: Ternary) -> Self {
         Self::Ternary(inner)
     }
 }
 
-impl<T> DistributionSized<T> for SecretKeyDistribution
+impl<T> DistributionSized<T> for SecretDistribution
 where
     Gaussian: DistributionSized<T>,
     Ternary: DistributionSized<T>,

@@ -262,6 +262,8 @@ pub trait RingOps:
 
     fn eval_size(&self) -> usize;
 
+    fn eval_scratch_size(&self) -> usize;
+
     fn allocate_poly(&self) -> Vec<Self::Elem> {
         vec![Default::default(); self.ring_size()]
     }
@@ -270,11 +272,19 @@ pub trait RingOps:
         vec![Default::default(); self.eval_size()]
     }
 
+    fn scratch_bytes(&self, poly: usize, eval: usize, eval_prep: usize) -> usize {
+        let mut bytes;
+        bytes = size_of::<Self::Elem>() * self.ring_size() * poly;
+        bytes = bytes.next_multiple_of(size_of::<Self::Eval>());
+        bytes += size_of::<Self::Eval>() * self.eval_size() * eval;
+        bytes += size_of::<Self::Eval>() * self.eval_scratch_size();
+        bytes = bytes.next_multiple_of(size_of::<Self::EvalPrep>());
+        bytes += size_of::<Self::EvalPrep>() * self.eval_size() * eval_prep;
+        bytes
+    }
+
     fn allocate_scratch(&self, poly: usize, eval: usize, eval_prep: usize) -> ScratchOwned {
-        let poly_bytes = size_of::<Self::Elem>() * self.ring_size() * poly;
-        let eval_bytes = size_of::<Self::Eval>() * self.eval_size() * eval;
-        let eval_prep_bytes = size_of::<Self::EvalPrep>() * self.eval_size() * eval_prep;
-        ScratchOwned::allocate(poly_bytes + eval_bytes + eval_prep_bytes)
+        ScratchOwned::allocate(self.scratch_bytes(poly, eval, eval_prep))
     }
 
     fn take_poly<'a>(&self, scratch: &mut Scratch<'a>) -> &'a mut [Self::Elem] {
@@ -299,21 +309,49 @@ pub trait RingOps:
         scratch.take_slice_array(self.eval_size())
     }
 
-    fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem]);
+    fn take_eval_scratch<'a>(&self, scratch: &mut Scratch<'a>) -> &'a mut [Self::Eval] {
+        scratch.take_slice(self.eval_scratch_size())
+    }
 
-    fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T])
-    where
+    fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem], eval_scratch: &mut [Self::Eval]);
+
+    fn forward_elem_from<T: Copy>(
+        &self,
+        b: &mut [Self::Eval],
+        a: &[T],
+        eval_scratch: &mut [Self::Eval],
+    ) where
         Self: ElemFrom<T>;
 
-    fn forward_normalized(&self, b: &mut [Self::Eval], a: &[Self::Elem]);
+    fn forward_normalized(
+        &self,
+        b: &mut [Self::Eval],
+        a: &[Self::Elem],
+        eval_scratch: &mut [Self::Eval],
+    );
 
-    fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]);
+    fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], eval_scratch: &mut [Self::Eval]);
 
-    fn backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]);
+    fn backward_normalized(
+        &self,
+        b: &mut [Self::Elem],
+        a: &mut [Self::Eval],
+        eval_scratch: &mut [Self::Eval],
+    );
 
-    fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]);
+    fn add_backward(
+        &self,
+        b: &mut [Self::Elem],
+        a: &mut [Self::Eval],
+        eval_scratch: &mut [Self::Eval],
+    );
 
-    fn add_backward_normalized(&self, b: &mut [Self::Elem], a: &mut [Self::Eval]);
+    fn add_backward_normalized(
+        &self,
+        b: &mut [Self::Elem],
+        a: &mut [Self::Eval],
+        eval_scratch: &mut [Self::Eval],
+    );
 
     fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]);
 
@@ -338,19 +376,21 @@ pub trait RingOps:
     ) {
         let a_eval = self.take_eval(&mut scratch);
         let b_eval = self.take_eval(&mut scratch);
-        self.forward(a_eval, a);
-        self.forward(b_eval, b);
+        let eval_scratch = self.take_eval_scratch(&mut scratch);
+        self.forward(a_eval, a, eval_scratch);
+        self.forward(b_eval, b, eval_scratch);
         self.eval_mul_assign(a_eval, b_eval);
-        self.backward_normalized(c, a_eval);
+        self.backward_normalized(c, a_eval, eval_scratch);
     }
 
     fn poly_mul_assign(&self, b: &mut [Self::Elem], a: &[Self::Elem], mut scratch: Scratch) {
         let a_eval = self.take_eval(&mut scratch);
         let b_eval = self.take_eval(&mut scratch);
-        self.forward(a_eval, a);
-        self.forward(b_eval, b);
+        let eval_scratch = self.take_eval_scratch(&mut scratch);
+        self.forward(a_eval, a, eval_scratch);
+        self.forward(b_eval, b, eval_scratch);
         self.eval_mul_assign(a_eval, b_eval);
-        self.backward_normalized(b, a_eval);
+        self.backward_normalized(b, a_eval, eval_scratch);
     }
 
     fn poly_mul_elem_from<T: Copy>(
@@ -364,10 +404,11 @@ pub trait RingOps:
     {
         let a_eval = self.take_eval(&mut scratch);
         let b_eval = self.take_eval(&mut scratch);
-        self.forward(a_eval, a);
-        self.forward_elem_from(b_eval, b);
+        let eval_scratch = self.take_eval_scratch(&mut scratch);
+        self.forward(a_eval, a, eval_scratch);
+        self.forward_elem_from(b_eval, b, eval_scratch);
         self.eval_mul_assign(a_eval, b_eval);
-        self.backward_normalized(c, a_eval)
+        self.backward_normalized(c, a_eval, eval_scratch)
     }
 
     fn poly_mul_assign_elem_from<T: Copy>(
@@ -380,10 +421,11 @@ pub trait RingOps:
     {
         let a_eval = self.take_eval(&mut scratch);
         let b_eval = self.take_eval(&mut scratch);
-        self.forward_elem_from(a_eval, a);
-        self.forward(b_eval, b);
+        let eval_scratch = self.take_eval_scratch(&mut scratch);
+        self.forward_elem_from(a_eval, a, eval_scratch);
+        self.forward(b_eval, b, eval_scratch);
         self.eval_mul_assign(a_eval, b_eval);
-        self.backward_normalized(b, a_eval);
+        self.backward_normalized(b, a_eval, eval_scratch);
     }
 
     fn poly_fma(
@@ -395,10 +437,11 @@ pub trait RingOps:
     ) {
         let a_eval = self.take_eval(&mut scratch);
         let b_eval = self.take_eval(&mut scratch);
-        self.forward(a_eval, a);
-        self.forward(b_eval, b);
+        let eval_scratch = self.take_eval_scratch(&mut scratch);
+        self.forward(a_eval, a, eval_scratch);
+        self.forward(b_eval, b, eval_scratch);
         self.eval_mul_assign(a_eval, b_eval);
-        self.add_backward_normalized(c, a_eval)
+        self.add_backward_normalized(c, a_eval, eval_scratch)
     }
 
     fn poly_fma_elem_from<T: Copy>(
@@ -412,10 +455,11 @@ pub trait RingOps:
     {
         let a_eval = self.take_eval(&mut scratch);
         let b_eval = self.take_eval(&mut scratch);
-        self.forward(a_eval, a);
-        self.forward_elem_from(b_eval, b);
+        let eval_scratch = self.take_eval_scratch(&mut scratch);
+        self.forward(a_eval, a, eval_scratch);
+        self.forward_elem_from(b_eval, b, eval_scratch);
         self.eval_mul_assign(a_eval, b_eval);
-        self.add_backward_normalized(c, a_eval)
+        self.add_backward_normalized(c, a_eval, eval_scratch)
     }
 
     fn poly_set_monomial(&self, a: &mut [Self::Elem], exp: i64) {
@@ -458,20 +502,24 @@ mod test {
         a: &[R::Elem],
         assert_fn: impl Fn(&R::Elem, &R::Elem),
     ) {
-        let b = &mut ring.allocate_eval();
-        let c = &mut ring.allocate_poly();
+        let mut scratch = ring.allocate_scratch(1, 1, 0);
+        let mut scratch = scratch.borrow_mut();
 
-        ring.forward(b, a);
-        ring.backward_normalized(c, b);
+        let b = ring.take_eval(&mut scratch);
+        let c = ring.take_poly(&mut scratch);
+        let eval_scratch = ring.take_eval_scratch(&mut scratch);
+
+        ring.forward(b, a, eval_scratch);
+        ring.backward_normalized(c, b, eval_scratch);
         izip_eq!(a, &*c).for_each(|(a, c)| assert_fn(a, c));
 
-        ring.forward_normalized(b, a);
-        ring.backward(c, b);
+        ring.forward_normalized(b, a, eval_scratch);
+        ring.backward(c, b, eval_scratch);
         izip_eq!(a, &*c).for_each(|(a, c)| assert_fn(a, c));
 
         c.fill_with(Default::default);
-        ring.forward_normalized(b, a);
-        ring.add_backward(c, b);
+        ring.forward_normalized(b, a, eval_scratch);
+        ring.add_backward(c, b, eval_scratch);
         izip_eq!(a, &*c).for_each(|(a, c)| assert_fn(a, c));
     }
 
@@ -482,30 +530,31 @@ mod test {
         assert_fn: impl Fn(&R::Elem, &R::Elem),
     ) {
         let mut scratch = ring.allocate_scratch(2, 3, 0);
-        let scratch = &mut scratch.borrow_mut();
+        let mut scratch = scratch.borrow_mut();
 
-        let c = ring.take_poly(scratch);
+        let c = ring.take_poly(&mut scratch);
         nega_cyclic_schoolbook_mul(ring, c, a, b);
 
-        let d = ring.take_poly(scratch);
+        let d = ring.take_poly(&mut scratch);
         ring.poly_mul(d, a, b, scratch.reborrow());
         izip_eq!(&*c, &*d).for_each(|(a, b)| assert_fn(a, b));
 
-        let [a_eval, b_eval] = ring.take_evals(scratch);
-        ring.forward(a_eval, a);
-        ring.forward(b_eval, b);
+        let [a_eval, b_eval, d_eval] = ring.take_evals(&mut scratch);
+        let eval_scratch = ring.take_eval_scratch(&mut scratch);
+        ring.forward(a_eval, a, eval_scratch);
+        ring.forward(b_eval, b, eval_scratch);
 
-        let d_eval = ring.take_eval(scratch);
+        d_eval.fill_with(Default::default);
         ring.eval_fma(d_eval, a_eval, b_eval);
-        ring.backward_normalized(d, d_eval);
+        ring.backward_normalized(d, d_eval, eval_scratch);
         izip_eq!(&*c, &*d).for_each(|(a, b)| assert_fn(a, b));
 
         ring.eval_mul(d_eval, a_eval, b_eval);
-        ring.backward_normalized(d, d_eval);
+        ring.backward_normalized(d, d_eval, eval_scratch);
         izip_eq!(&*c, &*d).for_each(|(a, b)| assert_fn(a, b));
 
         ring.eval_mul_assign(a_eval, b_eval);
-        ring.backward_normalized(d, a_eval);
+        ring.backward_normalized(d, a_eval, eval_scratch);
         izip_eq!(&*c, &*d).for_each(|(a, b)| assert_fn(a, b));
     }
 }

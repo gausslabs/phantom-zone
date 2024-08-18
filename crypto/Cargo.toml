@@ -12,6 +12,12 @@ phantom-zone-math = { path = "../math" }
 
 [dev-dependencies]
 criterion = { workspace = true }
+phantom-zone-math = { path = "../math", features = ["dev"] }
+
+[features]
+default = []
+dev = ["getrandom", "phantom-zone-math/dev"]
+getrandom = ["phantom-zone-math/getrandom"]
 
 [[bench]]
 name = "rlwe"

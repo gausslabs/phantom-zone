@@ -295,7 +295,6 @@ dependencies = [
  "num-iter",
  "num-traits",
  "rand",
- "serde",
  "smallvec",
 ]
 
@@ -381,6 +380,7 @@ dependencies = [
 name = "phantom-zone-evaluator"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "itertools 0.13.0",
  "paste",
  "phantom-zone-crypto",
