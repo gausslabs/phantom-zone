@@ -26,6 +26,7 @@ pub fn bootstrap_scratch_bytes<R: RingOps>(ring: &R, lwe_dimension: usize) -> us
 pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     ring: &R1,
     ring_ks: &R2,
+    log_g_map: &LogGMap,
     ct: impl Into<LweCiphertextMutView<'a, R1::Elem>>,
     ks_key: impl Into<LweKeySwitchKeyView<'b, R2::Elem>>,
     brk: &[RgswCiphertextOwned<R1::EvalPrep>],
@@ -33,24 +34,23 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     f_auto_neg_g: impl Into<RlwePlaintextView<'c, R1::Elem>>,
     mut scratch: Scratch,
 ) {
+    debug_assert_eq!((2 * ring.ring_size()) % log_g_map.q(), 0);
     let (ct, ks_key, f_auto_neg_g) = (ct.into(), ks_key.into(), f_auto_neg_g.into());
-    let q = 2 * f_auto_neg_g.ring_size();
-    let embedding_factor = 2 * ring.ring_size() / q;
-    debug_assert_eq!(q * embedding_factor, 2 * ring.ring_size());
 
     let mut ct_ks_mod_switch = LweCiphertext::scratch(ks_key.to_dimension(), &mut scratch);
     key_switch_mod_switch_odd(
         ring,
         ring_ks,
+        log_g_map.q(),
         ct_ks_mod_switch.as_mut_view(),
         ct.as_view(),
         ks_key.as_view(),
-        q,
         scratch.reborrow(),
     );
 
     let mut acc = RlweCiphertext::scratch(ring.ring_size(), ring.ring_size(), &mut scratch);
     acc.a_mut().fill(ring.zero());
+    let embedding_factor = 2 * ring.ring_size() / log_g_map.q();
     if embedding_factor == 1 {
         acc.b_mut().copy_from_slice(f_auto_neg_g.as_ref());
     } else {
@@ -60,7 +60,15 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     let gb = ak[1].k() * *ct_ks_mod_switch.b() as usize;
     ring.poly_mul_monomial(acc.b_mut(), (embedding_factor * gb) as _);
 
-    blind_rotate_core(ring, &mut acc, q, brk, ak, ct_ks_mod_switch.a(), scratch);
+    blind_rotate_core(
+        ring,
+        log_g_map,
+        &mut acc,
+        brk,
+        ak,
+        ct_ks_mod_switch.a(),
+        scratch,
+    );
 
     rlwe::sample_extract(ring, ct, &acc, 0);
 }
@@ -68,10 +76,10 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
 fn key_switch_mod_switch_odd<R1: RingOps, R2: RingOps>(
     ring: &R1,
     ring_ks: &R2,
+    q: usize,
     mut ct_ks_mod_switch: LweCiphertextMutView<u64>,
     ct: LweCiphertextView<R1::Elem>,
     ks_key: LweKeySwitchKeyView<R2::Elem>,
-    q: usize,
     mut scratch: Scratch,
 ) {
     let mut ct_mod_switch = LweCiphertext::scratch(ks_key.from_dimension(), &mut scratch);
@@ -90,17 +98,17 @@ fn key_switch_mod_switch_odd<R1: RingOps, R2: RingOps>(
 /// `ak[0]` from argument.
 pub fn blind_rotate_core<'a, R: RingOps>(
     ring: &R,
+    log_g_map: &LogGMap,
     acc: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
-    q: usize,
     brk: &[RgswCiphertextOwned<R::EvalPrep>],
     ak: &[RlweAutoKeyOwned<R::EvalPrep>],
     a: &[u64],
     mut scratch: Scratch,
 ) {
-    let [i_n, i_p] = &mut i_n_i_p(q, ak[1].k(), a, &mut scratch).map(|i| i.iter().peekable());
+    let [i_n, i_p] = &mut i_n_i_p(log_g_map, a, &mut scratch).map(|i| i.iter().peekable());
     let mut acc = acc.into();
     let mut v = 0;
-    for l in (1..q / 4).rev() {
+    for l in (1..log_g_map.q() / 4).rev() {
         for (_, j) in i_n.take_while_ref(|(log, _)| *log == l) {
             rgsw::rlwe_by_rgsw_prep_in_place(ring, &mut acc, &brk[*j], scratch.reborrow());
         }
@@ -115,7 +123,7 @@ pub fn blind_rotate_core<'a, R: RingOps>(
         rgsw::rlwe_by_rgsw_prep_in_place(ring, &mut acc, &brk[*j], scratch.reborrow());
     }
     rlwe::automorphism_prep_in_place(ring, &mut acc, &ak[0], scratch.reborrow());
-    for l in (1..q / 4).rev() {
+    for l in (1..log_g_map.q() / 4).rev() {
         for (_, j) in i_p.take_while_ref(|(log, _)| *log == l) {
             rgsw::rlwe_by_rgsw_prep_in_place(ring, &mut acc, &brk[*j], scratch.reborrow());
         }
@@ -134,24 +142,21 @@ pub fn blind_rotate_core<'a, R: RingOps>(
 /// Returns negative and positive sets of indices `j` (of `a_j`) where
 /// `a_j = -g^log` and `a_j = g^log`, and sets are sorted by `log` descendingly.
 fn i_n_i_p<'a>(
-    q: usize,
-    g: usize,
+    log_g_map: &LogGMap,
     a: &[u64],
     scratch: &mut Scratch<'a>,
 ) -> [&'a [(usize, usize)]; 2] {
     let [i_n, i_p] = scratch.take_slice_array::<(usize, usize), 2>(a.len());
     let mut i_n_count = 0;
     let mut i_p_count = 0;
-    let log_g_map = log_g_map(q, g, scratch.reborrow());
     izip!(0.., a).for_each(|(j, a_j)| {
         if *a_j != 0 {
-            let log = log_g_map[*a_j as usize];
-            debug_assert_ne!(log, usize::MAX);
-            if log & 1 == 1 {
-                i_n[i_n_count] = (log >> 1, j);
+            let (sign, log) = log_g_map.index(*a_j as usize);
+            if sign {
+                i_n[i_n_count] = (log, j);
                 i_n_count += 1
             } else {
-                i_p[i_p_count] = (log >> 1, j);
+                i_p[i_p_count] = (log, j);
                 i_p_count += 1
             }
         }
@@ -161,17 +166,50 @@ fn i_n_i_p<'a>(
     [&i_n[..i_n_count], &i_p[..i_p_count]]
 }
 
-/// Returns map for both `v` to `log_g(v) % q` and `-v` to `log_g(v)`. The slice
-/// contains `sign` bit and `log` encoded as `log << 1 | sign`.
-fn log_g_map(q: usize, g: usize, mut scratch: Scratch) -> &mut [usize] {
-    let log_g_map = scratch.take_slice(q);
-    #[cfg(debug_assertions)]
-    log_g_map.fill(usize::MAX);
-    izip!(power_g_mod_q(g, q), 0..q / 4).for_each(|(v, log)| {
-        log_g_map[v] = log << 1;
-        log_g_map[q - v] = log << 1 | 1;
-    });
-    log_g_map
+/// Map for both `v` to `log_g(v) mod q` and `-v` to `log_g(v) mod q`, where
+/// `q` is power of two and `g` is odd.
+///
+/// The `map` contains `sign` bit and `log` encoded as `log << 1 | sign`.
+/// Also because `g` is odd, `v` will only be odd, the `map` stores the output
+/// of `v` in index `v >> 1` to make use of all space.
+#[derive(Clone, Debug)]
+pub struct LogGMap {
+    g: usize,
+    q: usize,
+    map: Vec<usize>,
+}
+
+impl LogGMap {
+    /// Returns `LogGMap`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `q` is not power of two or `g` is not odd.
+    pub fn new(g: usize, q: usize) -> Self {
+        debug_assert!(q.is_power_of_two());
+        debug_assert_eq!(g & 1, 1);
+        let mut map = vec![0; q / 2];
+        izip!(power_g_mod_q(g, q), 0..q / 4).for_each(|(v, log)| {
+            map[(v) >> 1] = log << 1;
+            map[(q - v) >> 1] = log << 1 | 1;
+        });
+        Self { g, q, map }
+    }
+
+    pub fn g(&self) -> usize {
+        self.g
+    }
+
+    pub fn q(&self) -> usize {
+        self.q
+    }
+
+    #[inline(always)]
+    pub fn index(&self, v: usize) -> (bool, usize) {
+        debug_assert_eq!(v & 1, 1);
+        let l = self.map[v >> 1];
+        (l & 1 == 1, l >> 1)
+    }
 }
 
 pub fn power_g_mod_q(g: usize, q: usize) -> impl Iterator<Item = usize> {
@@ -191,7 +229,9 @@ mod test {
             },
             rlwe::{test::RlweParam, RlwePlaintext},
         },
-        scheme::blind_rotation::lmkcdey::{bootstrap, bootstrap_scratch_bytes, power_g_mod_q},
+        scheme::blind_rotation::lmkcdey::{
+            bootstrap, bootstrap_scratch_bytes, power_g_mod_q, LogGMap,
+        },
         util::rng::StdLweRng,
     };
     use core::{array::from_fn, iter::repeat};
@@ -277,6 +317,7 @@ mod test {
             let rlwe = rgsw.rlwe();
             let ring = rlwe.ring();
             let ring_ks = lwe_ks.ring();
+            let log_g_map = LogGMap::new(param.g, param.q);
             let mut scratch =
                 ScratchOwned::allocate(bootstrap_scratch_bytes(ring, lwe_ks.dimension()));
 
@@ -323,6 +364,7 @@ mod test {
                 bootstrap(
                     ring,
                     ring_ks,
+                    &log_g_map,
                     &mut ct,
                     &ks_key,
                     &brk,
