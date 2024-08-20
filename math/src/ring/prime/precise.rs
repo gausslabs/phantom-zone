@@ -56,7 +56,6 @@ impl RingOps for PrimeRing {
     fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], _: &mut [Self::Eval]) {
         b.copy_from_slice(a);
         self.fft.backward(b);
-        b.iter_mut().for_each(|b| self.q.reduce_once_assign(b));
     }
 
     fn backward_normalized(
@@ -72,10 +71,7 @@ impl RingOps for PrimeRing {
 
     fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], _: &mut [Self::Eval]) {
         self.fft.backward(a);
-        izip_eq!(b, a).for_each(|(b, a)| {
-            self.q.reduce_once_assign(a);
-            *b = self.add(a, b);
-        })
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.add(a, b))
     }
 
     fn add_backward_normalized(

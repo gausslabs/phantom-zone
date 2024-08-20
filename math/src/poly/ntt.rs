@@ -54,14 +54,17 @@ impl Ntt {
         let log_n = a.len().ilog2();
         for layer in 0..log_n {
             let (m, size) = (1 << layer, 1 << (log_n - layer - 1));
-            izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo[m..]).for_each(|(a, t)| {
-                let (a, b) = a.split_at_mid_mut();
-                if layer == log_n - 1 {
-                    izip!(a, b).for_each(|(a, b)| self.dit(a, b, t));
-                } else {
-                    izip!(a, b).for_each(|(a, b)| self.dit_lazy(a, b, t));
-                }
-            });
+            if layer == log_n - 1 {
+                izip!(a.chunks_exact_mut(2), &self.twiddle_bo[m..]).for_each(|(a, t)| {
+                    let (a, b) = a.split_at_mid_mut();
+                    self.dit::<false>(&mut a[0], &mut b[0], t)
+                });
+            } else {
+                izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo[m..]).for_each(|(a, t)| {
+                    let (a, b) = a.split_at_mid_mut();
+                    izip!(a, b).for_each(|(a, b)| self.dit::<true>(a, b, t));
+                });
+            }
         }
     }
 
@@ -70,10 +73,21 @@ impl Ntt {
         let log_n = a.len().ilog2();
         for layer in (0..log_n).rev() {
             let (m, size) = (1 << layer, 1 << (log_n - layer - 1));
-            izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo_inv[m..]).for_each(|(a, t)| {
-                let (a, b) = a.split_at_mid_mut();
-                izip!(a, b).for_each(|(a, b)| self.dif(a, b, t));
-            });
+            if layer == 0 {
+                izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo_inv[m..]).for_each(
+                    |(a, t)| {
+                        let (a, b) = a.split_at_mid_mut();
+                        izip!(a, b).for_each(|(a, b)| self.dif::<false>(a, b, t));
+                    },
+                );
+            } else {
+                izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo_inv[m..]).for_each(
+                    |(a, t)| {
+                        let (a, b) = a.split_at_mid_mut();
+                        izip!(a, b).for_each(|(a, b)| self.dif::<true>(a, b, t));
+                    },
+                );
+            }
         }
     }
 
@@ -90,37 +104,35 @@ impl Ntt {
     }
 
     #[inline(always)]
-    fn dit_lazy(&self, a: &mut u64, b: &mut u64, t: &Shoup) {
-        debug_assert!(*a < self.q_quart);
-        debug_assert!(*b < self.q_quart);
-        self.reduce_twice_assign(a);
-        let bt = self.q.mul_prep(b, t);
-        let c = *a + bt;
-        let d = *a + self.q_twice - bt;
-        *a = c;
-        *b = d;
-    }
-
-    #[inline(always)]
-    fn dit(&self, a: &mut u64, b: &mut u64, t: &Shoup) {
+    fn dit<const LAZY: bool>(&self, a: &mut u64, b: &mut u64, t: &Shoup) {
         debug_assert!(*a < self.q_quart);
         debug_assert!(*b < self.q_quart);
         self.reduce_twice_assign(a);
         let bt = self.q.mul_prep(b, t);
         let c = a.wrapping_add(bt);
         let d = a.wrapping_sub(bt);
-        *a = (c).min(c.wrapping_sub(self.q_twice));
-        *b = (d).min(d.wrapping_add(self.q_twice));
+        if LAZY {
+            *a = c;
+            *b = d.wrapping_add(self.q_twice);
+        } else {
+            *a = (c).min(c.wrapping_sub(self.q_twice));
+            *b = (d).min(d.wrapping_add(self.q_twice));
+        }
     }
 
     #[inline(always)]
-    fn dif(&self, a: &mut u64, b: &mut u64, t: &Shoup) {
+    fn dif<const LAZY: bool>(&self, a: &mut u64, b: &mut u64, t: &Shoup) {
         debug_assert!(*a < self.q_twice);
         debug_assert!(*b < self.q_twice);
         let mut c = *a + *b;
         self.reduce_twice_assign(&mut c);
         let d = self.q.mul_prep(&(*a + self.q_twice - *b), t);
-        *a = c;
-        *b = d;
+        if LAZY {
+            *a = c;
+            *b = d;
+        } else {
+            *a = c.min(c.wrapping_sub(*self.q));
+            *b = d.min(d.wrapping_sub(*self.q));
+        }
     }
 }
