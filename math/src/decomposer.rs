@@ -205,8 +205,7 @@ impl Decomposer<u64> for PrimeDecomposer {
     fn round(&self, a: &u64) -> u64 {
         let mut a = *a;
         if a >= self.q.half() {
-            // 2's complement to get -ve in u64
-            a = !(*self.q - a) + 1;
+            a = a.wrapping_sub(*self.q)
         }
         a.wrapping_add(self.ignored_half) >> self.ignored_bits
     }
@@ -218,17 +217,10 @@ impl Decomposer<u64> for PrimeDecomposer {
     #[inline(always)]
     fn decompose_next(&self, a: &mut u64) -> u64 {
         let limb = *a & self.base_mask;
-        *a = (*a - limb) >> self.log_base;
-
-        let bby2 = 1 << (self.log_base - 1);
-        let carry = (limb > bby2) || (limb == bby2 && (*a & 1u64 == 1u64));
-
-        if carry {
-            *a += 1;
-            *self.q + limb - (1u64 << self.log_base)
-        } else {
-            limb
-        }
+        *a >>= self.log_base;
+        let carry = ((limb.wrapping_sub(1) | *a) & limb) >> (self.log_base - 1);
+        *a += carry;
+        (carry.wrapping_neg() & *self.q).wrapping_add(limb.wrapping_sub(carry << self.log_base))
     }
 
     fn recompose(&self, a: impl IntoIterator<Item = u64>) -> u64 {
