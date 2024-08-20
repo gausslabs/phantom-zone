@@ -8,7 +8,7 @@ use phantom_zone_math::{
     },
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct RgswDecompositionParam {
     pub log_base: usize,
     pub level_a: usize,

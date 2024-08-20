@@ -1,10 +1,15 @@
-use crate::{core::rlwe::RlweSecretKey, util::distribution::SecretKeyDistribution};
+use crate::{
+    core::rlwe::RlweSecretKey, mpc::interactive::KeyShareAggregator,
+    util::distribution::SecretKeyDistribution,
+};
 use core::iter::repeat_with;
 use num_traits::{FromPrimitive, Signed};
 use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::DistributionSized,
+    izip_eq,
+    ring::RingOps,
     util::{
         as_slice::{AsMutSlice, AsSlice},
         scratch::Scratch,
@@ -278,5 +283,22 @@ impl<T: Default> SeededLweKeySwitchKey<Vec<T>> {
             decomposition_param,
             to_dimension,
         )
+    }
+}
+
+impl<S: Clone + AsMutSlice> KeyShareAggregator for SeededLweKeySwitchKey<S> {
+    type Key = Self;
+    type Elem = S::Elem;
+    fn aggregate<R>(ring: &R, values: &[&Self::Key]) -> Self::Key
+    where
+        R: RingOps<Elem = Self::Elem>,
+    {
+        let mut out = values[0].cts.clone();
+        for v in values.iter().skip(1) {
+            izip_eq!(out.as_mut(), v.cts.as_ref()).for_each(|(out, v)| {
+                ring.add_assign(out, v);
+            });
+        }
+        SeededLweKeySwitchKey::new(out, values[0].decomposition_param, values[0].to_dimension)
     }
 }

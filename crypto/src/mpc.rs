@@ -3,4 +3,4 @@
 // 3. Collective public key generation
 // 4. RGSW encryption using public key
 
-mod interactive;
+pub mod interactive;

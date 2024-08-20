@@ -1,23 +1,29 @@
 use std::ops::Neg;
 
-use itertools::{chain, Itertools};
+use itertools::Itertools;
 use num_traits::AsPrimitive;
 use phantom_zone_math::{
     modulus::ElemFrom,
     ring::RingOps,
-    util::{as_slice::AsMutSlice, scratch::Scratch},
+    util::{
+        as_slice::{AsMutSlice, AsSlice},
+        scratch::Scratch,
+    },
 };
 use rand::{RngCore, SeedableRng};
 use structure::{
-    split_lwe_dimension_for_rgsws, CommonReferenceSeededServerKeyShare, InteractiveMpcParameters,
-    RlwePublicKeyShareMutView,
+    split_lwe_dimension_for_rgsws, CommonReferenceSeededInteractiveServerKeyShare,
+    InteractiveMpcParameters, RlwePublicKeyShareMutView,
 };
 
 use crate::{
     core::{
-        lwe::{seeded_ks_key_gen, LweSecretKey, LweSecretKeyView},
+        lwe::{seeded_ks_key_gen, LweSecretKey, LweSecretKeyView, SeededLweKeySwitchKey},
         rgsw::pk_encrypt,
-        rlwe::{seeded_auto_key_gen, RlwePlaintext, RlwePublicKeyView, RlweSecretKeyView},
+        rlwe::{
+            seeded_auto_key_gen, RlwePlaintext, RlwePublicKeyView, RlweSecretKeyView,
+            SeededRlweAutoKey,
+        },
     },
     scheme::blind_rotation::lmkcdey::power_g_mod_q,
     util::{distribution::NoiseDistribution, rng::LweRng},
@@ -64,7 +70,7 @@ pub fn crs_server_key_share<
     secret_noise_rng: &mut Rng,
     user_id: usize,
     total_users: usize,
-    key: &mut CommonReferenceSeededServerKeyShare<S1, S2, Seed>,
+    key: &mut CommonReferenceSeededInteractiveServerKeyShare<S1, S2, Seed>,
     mut scratch: Scratch,
 ) where
     R: RingOps + ElemFrom<T>,
@@ -153,8 +159,77 @@ pub fn crs_server_key_share<
         });
 }
 
-fn aggregate_common_reference_seeded_server_key_shares() {
-    // sum all the values for LWE ksk
-    // summ all the values for autos
-    // RGSW x RGSW products 
+fn aggregate_common_reference_seeded_server_key_shares<
+    R,
+    S1: AsMutSlice + Clone,
+    S2: AsSlice<Elem = usize> + Clone,
+    Seed: Clone,
+>(
+    parameters: InteractiveMpcParameters,
+    shares: &[CommonReferenceSeededInteractiveServerKeyShare<S1, S2, Seed>],
+    total_users: usize,
+) where
+    R: RingOps<Elem = S1::Elem>,
+{
+    // TODO(Jay): Make sure passed in shares are in order
+
+    let rlwe_ring = R::new(parameters.rlwe_q(), parameters.rlwe_n());
+    let lwe_ring = R::new(parameters.lwe_q(), parameters.lwe_n());
+
+    let agg_seeded_lwe_ksk = SeededLweKeySwitchKey::aggregate(
+        &lwe_ring,
+        shares
+            .iter()
+            .map(|k| k.seeded_lwe_ksk())
+            .collect_vec()
+            .as_slice(),
+    );
+
+    let agg_auto_keys = ([(parameters.br_q() - parameters.g())].into_iter())
+        .chain(
+            power_g_mod_q(parameters.g(), parameters.br_q())
+                .take(parameters.w() + 1)
+                .skip(1)
+                .map(|k| k),
+        )
+        .enumerate()
+        .map(|(index, k)| {
+            let auto_k_shares = shares
+                .iter()
+                .map(|s| {
+                    let key = &s.seeded_auto_keys()[index];
+                    assert!(key.auto_map().k() == k as usize);
+                    key
+                })
+                .collect_vec();
+            SeededRlweAutoKey::aggregate(&rlwe_ring, auto_k_shares.as_ref())
+        })
+        .collect_vec();
+
+    for user_id in 0..total_users {
+        let (self_indices, _) =
+            split_lwe_dimension_for_rgsws(parameters.lwe_n(), user_id, total_users);
+
+        self_indices.iter().for_each(|lwe_index| {
+            let rgsw_acc = shares[user_id].rgsw_ciphertext_at_index(*lwe_index).clone();
+            assert!(rgsw_acc.decomposition_param() == parameters.rlwe_x_rgsw_decomposer());
+
+            for other_user_id in 0..total_users {
+                if other_user_id == user_id {
+                    continue;
+                }
+
+                let other_rgsw_ct = shares[other_user_id].rgsw_ciphertext_at_index(*lwe_index);
+                assert!(other_rgsw_ct.decomposition_param() == parameters.rgsw_x_rgsw_decomposer());
+
+                // multiply and accumulate
+            }
+        });
+    }
+}
+
+pub trait KeyShareAggregator {
+    type Key;
+    type Elem;
+    fn aggregate<R: RingOps<Elem = Self::Elem>>(ring: &R, values: &[&Self::Key]) -> Self::Key;
 }

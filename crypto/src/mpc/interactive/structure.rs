@@ -3,7 +3,7 @@ use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     modulus::Modulus,
-    util::as_slice::{self, AsMutSlice, AsSlice},
+    util::as_slice::{AsMutSlice, AsSlice},
 };
 use rand::{RngCore, SeedableRng};
 use std::iter::repeat_with;
@@ -11,8 +11,8 @@ use std::iter::repeat_with;
 use crate::{
     core::{
         lwe::{SeededLweKeySwitchKey, SeededLweKeySwitchKeyMutView},
-        rgsw::{RgswCiphertext, RgswCiphertextMutView, RgswDecompositionParam},
-        rlwe::{RlweAutoKey, SeededRlweAutoKey, SeededRlweAutoKeyMutView},
+        rgsw::{RgswCiphertext, RgswCiphertextMutView, RgswCiphertextView, RgswDecompositionParam},
+        rlwe::{SeededRlweAutoKey, SeededRlweAutoKeyMutView},
     },
     scheme::blind_rotation::lmkcdey::power_g_mod_q,
     util::{
@@ -32,6 +32,7 @@ use crate::{
 //     fn w(&self) -> usize;
 // }
 
+#[derive(Clone, Debug)]
 pub struct InteractiveMpcParameters {
     lwe_n: usize,
     rlwe_n: usize,
@@ -198,22 +199,28 @@ impl<S: Copy + Default + AsMut<[u8]>> InteractiveCrs<S> {
 }
 
 #[derive(Clone, Debug)]
-pub struct CommonReferenceSeededServerKeyShare<S1, S2: AsSlice<Elem = usize>, Seed> {
+pub struct CommonReferenceSeededInteractiveServerKeyShare<S1, S2: AsSlice<Elem = usize>, Seed> {
     seeded_lwe_ksk: SeededLweKeySwitchKey<S1>,
     seeded_auto_keys: Vec<SeededRlweAutoKey<S1, S2>>,
     self_rgsw_cts: Vec<RgswCiphertext<S1>>,
     not_self_rgsw_cts: Vec<RgswCiphertext<S1>>,
+    parameters: InteractiveMpcParameters,
+    user_id: usize,
+    total_users: usize,
     crs: InteractiveCrs<Seed>,
 }
 
 impl<S1: AsSlice, S2: AsSlice<Elem = usize>, Seed: Clone>
-    CommonReferenceSeededServerKeyShare<S1, S2, Seed>
+    CommonReferenceSeededInteractiveServerKeyShare<S1, S2, Seed>
 {
     pub fn new(
         lwe_ksk: SeededLweKeySwitchKey<S1>,
         auto_keys: Vec<SeededRlweAutoKey<S1, S2>>,
         self_rgsw_cts: Vec<RgswCiphertext<S1>>,
         not_self_rgsw_cts: Vec<RgswCiphertext<S1>>,
+        parameters: InteractiveMpcParameters,
+        user_id: usize,
+        total_users: usize,
         crs: InteractiveCrs<Seed>,
     ) -> Self {
         Self {
@@ -221,6 +228,9 @@ impl<S1: AsSlice, S2: AsSlice<Elem = usize>, Seed: Clone>
             seeded_auto_keys: auto_keys,
             self_rgsw_cts,
             not_self_rgsw_cts,
+            parameters,
+            user_id,
+            total_users,
             crs,
         }
     }
@@ -228,10 +238,36 @@ impl<S1: AsSlice, S2: AsSlice<Elem = usize>, Seed: Clone>
     pub fn crs(&self) -> InteractiveCrs<Seed> {
         self.crs.clone()
     }
+
+    pub fn seeded_lwe_ksk(&self) -> &SeededLweKeySwitchKey<S1> {
+        &self.seeded_lwe_ksk
+    }
+
+    pub fn seeded_auto_keys(&self) -> &[SeededRlweAutoKey<S1, S2>] {
+        &self.seeded_auto_keys
+    }
+
+    pub fn rgsw_ciphertext_at_index(&self, index: usize) -> RgswCiphertextView<S1::Elem> {
+        let (self_indices, _) =
+            split_lwe_dimension_for_rgsws(self.parameters.lwe_n(), self.user_id, self.total_users);
+        if self_indices.contains(&index) {
+            self.self_rgsw_cts[index - self_indices[0]].as_view()
+        } else {
+            if index < self_indices[0] {
+                self.not_self_rgsw_cts[index].as_view()
+            } else {
+                self.not_self_rgsw_cts[index - self_indices.len()].as_view()
+            }
+        }
+    }
+
+    pub fn self_rgsw_cts_iter(&self) -> impl Iterator<Item = RgswCiphertextView<S1::Elem>> {
+        self.self_rgsw_cts.iter().map(|ct| ct.as_view())
+    }
 }
 
 impl<S1: AsMutSlice, S2: AsMutSlice<Elem = usize>, Seed>
-    CommonReferenceSeededServerKeyShare<S1, S2, Seed>
+    CommonReferenceSeededInteractiveServerKeyShare<S1, S2, Seed>
 {
     pub fn as_mut_lwe_ksk(&mut self) -> SeededLweKeySwitchKeyMutView<S1::Elem> {
         self.seeded_lwe_ksk.as_mut_view()
@@ -258,7 +294,9 @@ impl<S1: AsMutSlice, S2: AsMutSlice<Elem = usize>, Seed>
     }
 }
 
-impl<T: Default, Seed: Clone> CommonReferenceSeededServerKeyShare<Vec<T>, Vec<usize>, Seed> {
+impl<T: Default, Seed: Clone>
+    CommonReferenceSeededInteractiveServerKeyShare<Vec<T>, Vec<usize>, Seed>
+{
     pub fn allocate(
         parameters: InteractiveMpcParameters,
         user_id: usize,
@@ -301,12 +339,15 @@ impl<T: Default, Seed: Clone> CommonReferenceSeededServerKeyShare<Vec<T>, Vec<us
                     )
                 })
                 .collect_vec(),
+            parameters.clone(),
+            user_id,
+            total_users,
             crs,
         )
     }
 }
 
-pub struct CommonReferenceSeededServerKey {
+pub struct CommonReferenceSeededInteractiveServerKey {
     seeded_lwe_ksk: SeededLweKeySwitchKey<Vec<u8>>,
     seeded_auto_keys: Vec<SeededRlweAutoKey<Vec<u8>, Vec<usize>>>,
     rgsw_cts: Vec<RgswCiphertext<Vec<u8>>>,

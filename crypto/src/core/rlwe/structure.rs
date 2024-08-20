@@ -1,11 +1,16 @@
-use crate::{core::lwe::LweSecretKey, util::distribution::SecretKeyDistribution};
+use crate::{
+    core::lwe::LweSecretKey, mpc::interactive::KeyShareAggregator,
+    util::distribution::SecretKeyDistribution,
+};
 use core::iter::repeat_with;
+use itertools::izip;
 use num_traits::{FromPrimitive, Signed};
 use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::DistributionSized,
     poly::automorphism::{AutomorphismMap, AutomorphismMapView},
+    ring::RingOps,
     util::{
         as_slice::{AsMutSlice, AsSlice},
         scratch::Scratch,
@@ -561,6 +566,50 @@ impl<T: Default> SeededRlweAutoKey<Vec<T>, Vec<usize>> {
         Self::new(
             SeededRlweKeySwitchKey::allocate(ring_size, decomposition_param),
             AutomorphismMap::new(ring_size, k),
+        )
+    }
+}
+
+impl<S: AsMutSlice + Clone> KeyShareAggregator for SeededRlweKeySwitchKey<S> {
+    type Key = Self;
+    type Elem = S::Elem;
+    fn aggregate<R>(ring: &R, values: &[&Self::Key]) -> Self::Key
+    where
+        R: RingOps<Elem = Self::Elem>,
+    {
+        let mut out_cts = values[0].cts.clone();
+
+        for v in values.iter().skip(1) {
+            izip!(out_cts.data.as_mut(), v.cts.data.as_ref()).for_each(|(out, ith)| {
+                ring.add_assign(out, ith);
+            });
+        }
+
+        SeededRlweKeySwitchKey::new(out_cts, values[0].decomposition_param)
+    }
+}
+
+impl<S1: Clone + AsMutSlice, S2: AsSlice<Elem = usize> + Clone> KeyShareAggregator
+    for SeededRlweAutoKey<S1, S2>
+{
+    type Key = Self;
+    type Elem = S1::Elem;
+    fn aggregate<R>(ring: &R, values: &[&Self::Key]) -> Self::Key
+    where
+        R: RingOps<Elem = Self::Elem>,
+    {
+        // TODO(Jay): Check Key switching keys have same decomposition parameters. Check keys have same automorphism map. If not, throw error.
+
+        let mut out_cts = values[0].ks_key.cts.clone();
+        for v in values.iter().skip(1) {
+            izip!(out_cts.data.as_mut(), v.ks_key.cts.data.as_ref()).for_each(|(out, ith)| {
+                ring.add_assign(out, ith);
+            });
+        }
+
+        SeededRlweAutoKey::new(
+            SeededRlweKeySwitchKey::new(out_cts, values[0].decomposition_param()),
+            values[0].auto_map.clone(),
         )
     }
 }
