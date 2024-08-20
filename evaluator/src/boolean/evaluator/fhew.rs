@@ -162,6 +162,10 @@ impl<R1: RingOps, R2: RingOps> FhewBoolEvaluator<R1, R2> {
         self.param
     }
 
+    pub fn ring(&self) -> &R1 {
+        &self.ring
+    }
+
     fn bitop_assign<const XOR: bool>(
         &self,
         lut_idx: usize,

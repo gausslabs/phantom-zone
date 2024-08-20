@@ -16,8 +16,8 @@ pub enum Modulus {
 }
 
 impl Modulus {
-    pub fn native() -> Self {
-        Native::native().into()
+    pub const fn native() -> Self {
+        Self::Native(Native::native())
     }
 
     pub fn bits(&self) -> usize {

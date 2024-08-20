@@ -51,7 +51,7 @@ fn fhew(c: &mut Criterion) {
                 level_b: 1,
             },
             lwe_modulus: NonNativePowerOfTwo::new(16).into(),
-            lwe_dimension: 600,
+            lwe_dimension: 620,
             lwe_ks_decomposition_param: DecompositionParam {
                 log_base: 1,
                 level: 13,

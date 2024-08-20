@@ -18,8 +18,7 @@ pub struct Prime {
 }
 
 impl Prime {
-    pub fn new(q: u64) -> Self {
-        assert!(is_prime(q));
+    pub const fn new(q: u64) -> Self {
         let log_q = q.next_power_of_two().ilog2() as usize;
         let barrett_mu = (1u128 << (log_q * 2 + 3)) / (q as u128);
         let barrett_alpha = log_q + 3;
@@ -81,6 +80,7 @@ impl Prime {
     }
 
     pub fn multiplicative_generator(&self) -> u64 {
+        assert!(is_prime(self.q));
         let order = self.q - 1;
         (1..order)
             .find(|g| self.pow(*g, order >> 1) == order)

@@ -15,9 +15,9 @@ pub struct PowerOfTwo<const NATIVE: bool> {
 
 impl<const NATIVE: bool> PowerOfTwo<NATIVE> {
     #[inline(always)]
-    pub fn new(bits: usize) -> Self {
+    pub const fn new(bits: usize) -> Self {
         if NATIVE {
-            debug_assert_eq!(bits, 64);
+            debug_assert!(bits == 64);
         } else {
             debug_assert!(bits < 64);
         }
@@ -70,7 +70,7 @@ impl<const NATIVE: bool> PowerOfTwo<NATIVE> {
 
 impl Native {
     #[inline(always)]
-    pub fn native() -> Self {
+    pub const fn native() -> Self {
         Self::new(64)
     }
 }
