@@ -1,5 +1,5 @@
 use crate::{
-    modulus::{ElemFrom, ModulusOps},
+    modulus::{ElemFrom, ElemOps, ModulusOps},
     ring::RingOps,
 };
 use core::{convert::identity, iter::repeat_with};
@@ -11,7 +11,7 @@ use rand::{
 };
 use rand_distr::StandardNormal;
 
-pub trait Sampler: ModulusOps {
+pub trait Sampler: ElemOps {
     fn sample<T>(&self, dist: impl Distribution<T>, mut rng: impl RngCore) -> Self::Elem
     where
         Self: ElemFrom<T>,
@@ -55,19 +55,31 @@ pub trait Sampler: ModulusOps {
         out
     }
 
-    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem {
+    fn sample_uniform(&self, mut rng: impl RngCore) -> Self::Elem
+    where
+        Self: ModulusOps,
+    {
         self.uniform_distribution().sample(&mut rng)
     }
 
-    fn sample_uniform_iter(&self, rng: impl RngCore) -> impl Iterator<Item = Self::Elem> {
+    fn sample_uniform_iter(&self, rng: impl RngCore) -> impl Iterator<Item = Self::Elem>
+    where
+        Self: ModulusOps,
+    {
         self.uniform_distribution().sample_iter(rng)
     }
 
-    fn sample_uniform_into(&self, out: &mut [Self::Elem], rng: impl RngCore) {
+    fn sample_uniform_into(&self, out: &mut [Self::Elem], rng: impl RngCore)
+    where
+        Self: ModulusOps,
+    {
         self.uniform_distribution().sample_into(out, rng)
     }
 
-    fn sample_uniform_vec(&self, n: usize, rng: impl RngCore) -> Vec<Self::Elem> {
+    fn sample_uniform_vec(&self, n: usize, rng: impl RngCore) -> Vec<Self::Elem>
+    where
+        Self: ModulusOps,
+    {
         self.uniform_distribution().sample_vec(n, rng)
     }
 

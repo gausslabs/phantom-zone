@@ -6,7 +6,10 @@ use crate::core::{
 use core::{cmp::Reverse, iter::successors};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
-    izip_eq, modulus::NonNativePowerOfTwo, ring::RingOps, util::scratch::Scratch,
+    izip_eq,
+    modulus::{ModulusOps, NonNativePowerOfTwo},
+    ring::RingOps,
+    util::scratch::Scratch,
 };
 
 pub fn bootstrap_scratch_bytes<R: RingOps>(ring: &R, lwe_dimension: usize) -> usize {
@@ -23,15 +26,15 @@ pub fn bootstrap_scratch_bytes<R: RingOps>(ring: &R, lwe_dimension: usize) -> us
 ///
 /// Because we don't need `ak_{g^0}`, `ak_{-g}` is assumed to be stored in
 /// `ak[0]` from argument.
-pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
-    ring: &R1,
-    ring_ks: &R2,
+pub fn bootstrap<'a, 'b, 'c, R: RingOps, M: ModulusOps>(
+    ring: &R,
+    mod_ks: &M,
     log_g_map: &LogGMap,
-    ct: impl Into<LweCiphertextMutView<'a, R1::Elem>>,
-    ks_key: impl Into<LweKeySwitchKeyView<'b, R2::Elem>>,
-    brk: &[RgswCiphertextOwned<R1::EvalPrep>],
-    ak: &[RlweAutoKeyOwned<R1::EvalPrep>],
-    f_auto_neg_g: impl Into<RlwePlaintextView<'c, R1::Elem>>,
+    ct: impl Into<LweCiphertextMutView<'a, R::Elem>>,
+    ks_key: impl Into<LweKeySwitchKeyView<'b, M::Elem>>,
+    brk: &[RgswCiphertextOwned<R::EvalPrep>],
+    ak: &[RlweAutoKeyOwned<R::EvalPrep>],
+    f_auto_neg_g: impl Into<RlwePlaintextView<'c, R::Elem>>,
     mut scratch: Scratch,
 ) {
     debug_assert_eq!((2 * ring.ring_size()) % log_g_map.q(), 0);
@@ -40,7 +43,7 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     let mut ct_ks_mod_switch = LweCiphertext::scratch(ks_key.to_dimension(), &mut scratch);
     key_switch_mod_switch_odd(
         ring,
-        ring_ks,
+        mod_ks,
         log_g_map.q(),
         ct_ks_mod_switch.as_mut_view(),
         ct.as_view(),
@@ -73,23 +76,23 @@ pub fn bootstrap<'a, 'b, 'c, R1: RingOps, R2: RingOps>(
     rlwe::sample_extract(ring, ct, &acc, 0);
 }
 
-fn key_switch_mod_switch_odd<R1: RingOps, R2: RingOps>(
-    ring: &R1,
-    ring_ks: &R2,
+fn key_switch_mod_switch_odd<R: RingOps, M: ModulusOps>(
+    ring: &R,
+    mod_ks: &M,
     q: usize,
     mut ct_ks_mod_switch: LweCiphertextMutView<u64>,
-    ct: LweCiphertextView<R1::Elem>,
-    ks_key: LweKeySwitchKeyView<R2::Elem>,
+    ct: LweCiphertextView<R::Elem>,
+    ks_key: LweKeySwitchKeyView<M::Elem>,
     mut scratch: Scratch,
 ) {
     let mut ct_mod_switch = LweCiphertext::scratch(ks_key.from_dimension(), &mut scratch);
-    ring.slice_mod_switch(ct_mod_switch.as_mut(), ct.as_ref(), ring_ks);
+    ring.slice_mod_switch(ct_mod_switch.as_mut(), ct.as_ref(), mod_ks);
 
     let mut ct_ks = LweCiphertext::scratch(ks_key.to_dimension(), &mut scratch);
-    lwe::key_switch(ring_ks, &mut ct_ks, ks_key, &ct_mod_switch);
+    lwe::key_switch(mod_ks, &mut ct_ks, ks_key, &ct_mod_switch);
 
     let mod_q = NonNativePowerOfTwo::new(q.ilog2() as _);
-    ring_ks.slice_mod_switch_odd(ct_ks_mod_switch.as_mut(), ct_ks.as_ref(), &mod_q);
+    mod_ks.slice_mod_switch_odd(ct_ks_mod_switch.as_mut(), ct_ks.as_ref(), &mod_q);
 }
 
 /// Implementation of Algorithm 3 in 2022/198.
@@ -316,7 +319,7 @@ mod test {
             let (rgsw, lwe, lwe_ks) = param.build::<R>();
             let rlwe = rgsw.rlwe();
             let ring = rlwe.ring();
-            let ring_ks = lwe_ks.ring();
+            let mod_ks = lwe_ks.modulus();
             let log_g_map = LogGMap::new(param.g, param.q);
             let mut scratch =
                 ScratchOwned::allocate(bootstrap_scratch_bytes(ring, lwe_ks.dimension()));
@@ -363,7 +366,7 @@ mod test {
                 let mut ct = lwe.add(&ct_a, &ct_b);
                 bootstrap(
                     ring,
-                    ring_ks,
+                    mod_ks,
                     &log_g_map,
                     &mut ct,
                     &ks_key,

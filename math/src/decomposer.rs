@@ -202,6 +202,7 @@ impl Decomposer<u64> for PrimeDecomposer {
         self.ignored_bits
     }
 
+    #[inline(always)]
     fn round(&self, a: &u64) -> u64 {
         let mut a = *a;
         if a >= self.q.half() {
@@ -238,14 +239,11 @@ mod test {
             Decomposer, DecompositionParam, NativeDecomposer, NonNativePowerOfTwoDecomposer,
             PrimeDecomposer,
         },
-        modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
+        modulus::{ModulusOps, Native, NonNativePowerOfTwo, Prime},
     };
     use core::iter::Sum;
     use num_traits::{Signed, ToPrimitive};
-    use rand::{
-        distributions::{Distribution, Uniform},
-        thread_rng,
-    };
+    use rand::thread_rng;
 
     #[derive(Clone)]
     struct Stats<T> {
@@ -292,14 +290,12 @@ mod test {
 
     #[test]
     fn decompose() {
-        fn run_po2<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
-            let modulus = modulus.into();
+        fn run_po2<D: Decomposer<u64>>(modulus: impl ModulusOps<Elem = u64>) {
             let param = DecompositionParam {
                 log_base: 8,
                 level: 4,
             };
-            let decomposer = D::new(modulus, param);
-            let neg = |a: u64| if a == 0 { 0 } else { modulus.max() - a + 1 };
+            let decomposer = D::new(modulus.modulus(), param);
             for (a, b) in [
                 (0, [0, 0, 0, 0]),
                 (
@@ -312,7 +308,7 @@ mod test {
                 ),
                 (
                     0b_01111111_10000000_10000000_10000000 << decomposer.ignored_bits(),
-                    [neg(128), neg(127), neg(127), 128],
+                    [modulus.neg(&128), modulus.neg(&127), modulus.neg(&127), 128],
                 ),
                 (
                     0b_01111111_10000000_01111111_10000000 << decomposer.ignored_bits(),
@@ -327,17 +323,13 @@ mod test {
                 );
             }
         }
-        fn run_common<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
-            let modulus = modulus.into();
+        fn run_common<D: Decomposer<u64>>(modulus: impl ModulusOps<Elem = u64>) {
             let param = DecompositionParam {
                 log_base: 8,
                 level: 4,
             };
-            let decomposer = D::new(modulus, param);
-            for a in Uniform::new_inclusive(0, modulus.max())
-                .sample_iter(thread_rng())
-                .take(10000)
-            {
+            let decomposer = D::new(modulus.modulus(), param);
+            for a in modulus.sample_uniform_iter(thread_rng()).take(10000) {
                 assert_eq!(
                     decomposer.round(&decomposer.recompose(decomposer.decompose_iter(&a))),
                     decomposer.round(&a),
@@ -355,20 +347,16 @@ mod test {
 
     #[test]
     fn decompose_stats() {
-        fn run<D: Decomposer<u64>>(modulus: impl Into<Modulus>) {
+        fn run<D: Decomposer<u64>>(modulus: impl ModulusOps<Elem = u64>) {
             let mut stats = Stats::default();
 
-            let modulus = modulus.into();
             let param = DecompositionParam {
                 log_base: 10,
                 level: 5,
             };
-            let decomposer = D::new(modulus, param);
+            let decomposer = D::new(modulus.modulus(), param);
 
-            for a in Uniform::new_inclusive(0, modulus.max())
-                .sample_iter(thread_rng())
-                .take(10000000)
-            {
+            for a in modulus.sample_uniform_iter(thread_rng()).take(10000000) {
                 stats.add_many_samples(decomposer.decompose_iter(&a).map(|v| modulus.to_i64(v)));
             }
 

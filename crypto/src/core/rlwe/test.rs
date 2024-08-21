@@ -19,7 +19,7 @@ use phantom_zone_math::{
     modulus::{Modulus, ModulusOps, NonNativePowerOfTwo, Prime},
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
-        NonNativePowerOfTwoRing, PrimeRing, RingOps, SliceOps,
+        NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
 };
 use rand::{thread_rng, RngCore, SeedableRng};
@@ -48,8 +48,8 @@ impl RlweParam {
     }
 
     pub fn build<R: RingOps>(self) -> Rlwe<R> {
-        let ring = R::new(self.ciphertext_modulus, self.ring_size);
-        let message_ring = NonNativePowerOfTwoRing::new(
+        let ring = RingOps::new(self.ciphertext_modulus, self.ring_size);
+        let message_ring = RingOps::new(
             NonNativePowerOfTwo::new(self.message_modulus.ilog2() as _).into(),
             self.ring_size,
         );

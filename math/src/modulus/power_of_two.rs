@@ -1,6 +1,7 @@
 use crate::{
-    distribution::DistributionSized,
-    modulus::{ElemFrom, ElemTo, Modulus, ModulusOps},
+    decomposer::PowerOfTwoDecomposer,
+    distribution::{DistributionSized, Sampler},
+    modulus::{ElemFrom, ElemOps, ElemTo, Modulus, ModulusOps},
 };
 use rand::distributions::{Distribution, Uniform};
 
@@ -75,9 +76,17 @@ impl Native {
     }
 }
 
-impl<const NATIVE: bool> ModulusOps for PowerOfTwo<NATIVE> {
+impl<const NATIVE: bool> ElemOps for PowerOfTwo<NATIVE> {
     type Elem = u64;
-    type Prep = u64;
+}
+
+impl<const NATIVE: bool> ModulusOps for PowerOfTwo<NATIVE> {
+    type ElemPrep = u64;
+    type Decomposer = PowerOfTwoDecomposer<NATIVE>;
+
+    fn new(modulus: Modulus) -> Self {
+        modulus.try_into().unwrap()
+    }
 
     #[inline(always)]
     fn modulus(&self) -> Modulus {
@@ -127,12 +136,12 @@ impl<const NATIVE: bool> ModulusOps for PowerOfTwo<NATIVE> {
     }
 
     #[inline(always)]
-    fn prepare(&self, a: &Self::Elem) -> Self::Prep {
+    fn prepare(&self, a: &Self::Elem) -> Self::ElemPrep {
         *a
     }
 
     #[inline(always)]
-    fn mul_prep(&self, a: &Self::Elem, b: &Self::Prep) -> Self::Elem {
+    fn mul_prep(&self, a: &Self::Elem, b: &Self::ElemPrep) -> Self::Elem {
         self.mul(a, b)
     }
 }
@@ -192,6 +201,8 @@ impl<const NATIVE: bool> ElemTo<f64> for PowerOfTwo<NATIVE> {
         self.center(v) as f64
     }
 }
+
+impl<const NATIVE: bool> Sampler for PowerOfTwo<NATIVE> {}
 
 impl<const NATIVE: bool> From<PowerOfTwo<NATIVE>> for Modulus {
     fn from(value: PowerOfTwo<NATIVE>) -> Self {

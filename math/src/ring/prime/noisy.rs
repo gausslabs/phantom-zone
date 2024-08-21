@@ -1,8 +1,7 @@
 use crate::{
-    decomposer::PrimeDecomposer,
-    modulus::Modulus,
+    modulus::{ElemFrom, Modulus},
     poly::ffnt::Ffnt,
-    ring::{prime, ElemFrom, RingOps},
+    ring::{prime, RingOps},
 };
 use num_complex::Complex64;
 
@@ -11,7 +10,6 @@ pub type NoisyPrimeRing = prime::PrimeRing<Ffnt>;
 impl RingOps for NoisyPrimeRing {
     type Eval = Complex64;
     type EvalPrep = Complex64;
-    type Decomposer = PrimeDecomposer;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self {
         let q = modulus.try_into().unwrap();

@@ -1,6 +1,7 @@
 use crate::{
-    distribution::DistributionSized,
-    modulus::{ElemFrom, ElemTo, Modulus, ModulusOps},
+    decomposer::PrimeDecomposer,
+    distribution::{DistributionSized, Sampler},
+    modulus::{ElemFrom, ElemOps, ElemTo, Modulus, ModulusOps},
 };
 use core::ops::Deref;
 use num_bigint_dig::{prime::probably_prime, BigUint};
@@ -143,9 +144,17 @@ impl Deref for Prime {
     }
 }
 
-impl ModulusOps for Prime {
+impl ElemOps for Prime {
     type Elem = u64;
-    type Prep = Shoup;
+}
+
+impl ModulusOps for Prime {
+    type ElemPrep = Shoup;
+    type Decomposer = PrimeDecomposer;
+
+    fn new(modulus: Modulus) -> Self {
+        modulus.try_into().unwrap()
+    }
 
     #[inline(always)]
     fn modulus(&self) -> Modulus {
@@ -217,12 +226,12 @@ impl ModulusOps for Prime {
     }
 
     #[inline(always)]
-    fn prepare(&self, a: &Self::Elem) -> Self::Prep {
+    fn prepare(&self, a: &Self::Elem) -> Self::ElemPrep {
         Shoup::new(*a, self.q)
     }
 
     #[inline(always)]
-    fn mul_prep(&self, a: &Self::Elem, b: &Self::Prep) -> Self::Elem {
+    fn mul_prep(&self, a: &Self::Elem, b: &Self::ElemPrep) -> Self::Elem {
         b.mul(*a, self.q)
     }
 }
@@ -282,6 +291,8 @@ impl ElemTo<f64> for Prime {
         self.center(v) as f64
     }
 }
+
+impl Sampler for Prime {}
 
 impl From<Prime> for Modulus {
     fn from(value: Prime) -> Self {

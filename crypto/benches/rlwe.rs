@@ -22,7 +22,7 @@ fn automorphism(c: &mut Criterion) {
         ring_size: usize,
         decomposition_param: DecompositionParam,
     ) -> Box<dyn FnMut()> {
-        let ring = R::new(modulus, ring_size);
+        let ring = <R as RingOps>::new(modulus, ring_size);
         let mut rng = StdLweRng::from_entropy();
         let mut scratch = ring.allocate_scratch(2, 3, 0);
         let mut auto_key = RlweAutoKey::allocate(ring.ring_size(), decomposition_param, 5);
@@ -86,7 +86,7 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
         ring_size: usize,
         decomposition_param: RgswDecompositionParam,
     ) -> Box<dyn FnMut()> {
-        let ring = R::new(modulus, ring_size);
+        let ring = <R as RingOps>::new(modulus, ring_size);
         let mut rng = StdLweRng::from_entropy();
         let mut scratch = ring.allocate_scratch(2, 3, 0);
         let mut ct_rgsw = RgswCiphertext::allocate(ring.ring_size(), decomposition_param);

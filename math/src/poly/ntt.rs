@@ -11,6 +11,7 @@ pub struct Ntt {
     q_twice: u64,
     q_quart: u64,
     ring_size: usize,
+    log_ring_size: usize,
     twiddle_bo: Vec<Shoup>,
     twiddle_bo_inv: Vec<Shoup>,
     n_inv: Shoup,
@@ -19,18 +20,20 @@ pub struct Ntt {
 impl Ntt {
     pub fn new(q: Prime, ring_size: usize) -> Self {
         assert!(ring_size.is_power_of_two());
-
-        let g = q.two_adic_generator(ring_size.ilog2() as usize + 1);
+        let log_ring_size = ring_size.ilog2() as usize;
+        let g = (log_ring_size > 0)
+            .then(|| q.two_adic_generator(log_ring_size + 1))
+            .unwrap_or(1);
         let [twiddle_bo, twiddle_bo_inv] = [g, q.inv(&g).unwrap()]
             .map(|b| Vec::from_iter(q.powers(&b).take(ring_size).map(|v| Shoup::new(v, *q))))
             .map(bit_reverse);
         let n_inv = Shoup::new(q.inv(&(ring_size as u64)).unwrap(), *q);
-
         Self {
             q,
             q_twice: *q << 1,
             q_quart: *q << 2,
             ring_size,
+            log_ring_size,
             twiddle_bo,
             twiddle_bo_inv,
             n_inv,
@@ -45,19 +48,18 @@ impl Ntt {
         self.ring_size
     }
 
-    pub fn n_inv(&self) -> &Shoup {
-        &self.n_inv
-    }
-
-    pub fn forward(&self, a: &mut [u64]) {
+    pub fn forward<const NORMALIZE: bool>(&self, a: &mut [u64]) {
         debug_assert_eq!(a.len(), self.ring_size);
-        let log_n = a.len().ilog2();
-        for layer in 0..log_n {
-            let (m, size) = (1 << layer, 1 << (log_n - layer - 1));
-            if layer == log_n - 1 {
+        for layer in 0..self.log_ring_size {
+            let (m, size) = (1 << layer, 1 << (self.log_ring_size - layer - 1));
+            if layer == self.log_ring_size - 1 {
                 izip!(a.chunks_exact_mut(2), &self.twiddle_bo[m..]).for_each(|(a, t)| {
                     let (a, b) = a.split_at_mid_mut();
-                    self.dit::<false>(&mut a[0], &mut b[0], t)
+                    self.dit::<false>(&mut a[0], &mut b[0], t);
+                    if NORMALIZE {
+                        self.normalize::<true>(&mut a[0]);
+                        self.normalize::<true>(&mut b[0]);
+                    }
                 });
             } else {
                 izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo[m..]).for_each(|(a, t)| {
@@ -68,16 +70,23 @@ impl Ntt {
         }
     }
 
-    pub fn backward(&self, a: &mut [u64]) {
+    pub fn backward<const NORMALIZE: bool>(&self, a: &mut [u64]) {
         debug_assert_eq!(a.len(), self.ring_size);
-        let log_n = a.len().ilog2();
-        for layer in (0..log_n).rev() {
-            let (m, size) = (1 << layer, 1 << (log_n - layer - 1));
+        for layer in (0..self.log_ring_size).rev() {
+            let (m, size) = (1 << layer, 1 << (self.log_ring_size - layer - 1));
             if layer == 0 {
                 izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo_inv[m..]).for_each(
                     |(a, t)| {
                         let (a, b) = a.split_at_mid_mut();
-                        izip!(a, b).for_each(|(a, b)| self.dif::<false>(a, b, t));
+                        izip!(a, b).for_each(|(a, b)| {
+                            if NORMALIZE {
+                                self.dif::<true>(a, b, t);
+                                self.normalize::<false>(a);
+                                self.normalize::<false>(b);
+                            } else {
+                                self.dif::<false>(a, b, t);
+                            }
+                        });
                     },
                 );
             } else {
@@ -89,11 +98,6 @@ impl Ntt {
                 );
             }
         }
-    }
-
-    pub fn normalize(&self, a: &mut [u64]) {
-        a.iter_mut()
-            .for_each(|a| *a = self.q.mul_prep(a, self.n_inv()));
     }
 
     #[inline(always)]
@@ -115,8 +119,8 @@ impl Ntt {
             *a = c;
             *b = d.wrapping_add(self.q_twice);
         } else {
-            *a = (c).min(c.wrapping_sub(self.q_twice));
-            *b = (d).min(d.wrapping_add(self.q_twice));
+            *a = c.min(c.wrapping_sub(self.q_twice));
+            *b = d.min(d.wrapping_add(self.q_twice));
         }
     }
 
@@ -134,5 +138,19 @@ impl Ntt {
             *a = c.min(c.wrapping_sub(*self.q));
             *b = d.min(d.wrapping_sub(*self.q));
         }
+    }
+
+    #[inline(always)]
+    fn normalize<const LAZY: bool>(&self, a: &mut u64) {
+        *a = self.q.mul_prep(a, &self.n_inv);
+        if !LAZY {
+            *a = (*a).min(a.wrapping_sub(*self.q));
+        }
+    }
+}
+
+impl Default for Ntt {
+    fn default() -> Self {
+        Self::new(Prime::new(2), 1)
     }
 }

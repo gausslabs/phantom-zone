@@ -1,7 +1,6 @@
 use crate::{
     distribution::{DistributionSized, Sampler},
-    modulus::{Modulus, Prime},
-    ring::{ElemFrom, ElemTo, ModulusOps, SliceOps},
+    modulus::{ElemFrom, ElemOps, ElemTo, Modulus, ModulusOps, Prime},
 };
 use core::fmt::Debug;
 use rand::distributions::Distribution;
@@ -21,9 +20,17 @@ impl<T> PrimeRing<T> {
     }
 }
 
-impl<T: Clone + Debug + Send + Sync> ModulusOps for PrimeRing<T> {
-    type Elem = <Prime as ModulusOps>::Elem;
-    type Prep = <Prime as ModulusOps>::Prep;
+impl<T: Clone + Debug + Send + Sync> ElemOps for PrimeRing<T> {
+    type Elem = <Prime as ElemOps>::Elem;
+}
+
+impl<T: Clone + Debug + Default + Send + Sync> ModulusOps for PrimeRing<T> {
+    type ElemPrep = <Prime as ModulusOps>::ElemPrep;
+    type Decomposer = <Prime as ModulusOps>::Decomposer;
+
+    fn new(modulus: Modulus) -> Self {
+        Self::new(modulus.try_into().unwrap(), T::default())
+    }
 
     #[inline(always)]
     fn modulus(&self) -> Modulus {
@@ -82,12 +89,12 @@ impl<T: Clone + Debug + Send + Sync> ModulusOps for PrimeRing<T> {
     }
 
     #[inline(always)]
-    fn prepare(&self, a: &Self::Elem) -> Self::Prep {
+    fn prepare(&self, a: &Self::Elem) -> Self::ElemPrep {
         self.q.prepare(a)
     }
 
     #[inline(always)]
-    fn mul_prep(&self, a: &Self::Elem, b: &Self::Prep) -> Self::Elem {
+    fn mul_prep(&self, a: &Self::Elem, b: &Self::ElemPrep) -> Self::Elem {
         self.q.mul_prep(a, b)
     }
 }
@@ -147,7 +154,5 @@ impl<T: Clone + Debug + Send + Sync> ElemTo<f64> for PrimeRing<T> {
         self.q.elem_to(v)
     }
 }
-
-impl<T: Clone + Debug + Send + Sync> SliceOps for PrimeRing<T> {}
 
 impl<T: Clone + Debug + Send + Sync> Sampler for PrimeRing<T> {}
