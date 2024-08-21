@@ -13,7 +13,7 @@ pub(crate) mod prime;
 pub use power_of_two::{Native, NonNativePowerOfTwo};
 pub use prime::Prime;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Modulus {
     Native(Native),
     NonNativePowerOfTwo(NonNativePowerOfTwo),

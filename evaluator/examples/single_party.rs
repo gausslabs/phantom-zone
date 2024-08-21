@@ -24,17 +24,20 @@ type Evaluator = FhewBoolEvaluator<NoisyNativeRing, NonNativePowerOfTwoRing>;
 const PARAM: FhewBoolParam = FhewBoolParam {
     modulus: Modulus::native(),
     ring_size: 2048,
+    sk_distribution: Gaussian(3.2).into(),
+    noise_distribution: Gaussian(3.2).into(),
     auto_decomposition_param: DecompositionParam {
         log_base: 24,
         level: 1,
     },
-    rgsw_decomposition_param: RgswDecompositionParam {
+    rlwe_by_rgsw_decomposition_param: RgswDecompositionParam {
         log_base: 17,
         level_a: 1,
         level_b: 1,
     },
     lwe_modulus: Modulus::NonNativePowerOfTwo(NonNativePowerOfTwo::new(16)),
     lwe_dimension: 620,
+    lwe_sk_distribution: Gaussian(3.2).into(),
     lwe_ks_decomposition_param: DecompositionParam {
         log_base: 1,
         level: 13,
@@ -52,7 +55,13 @@ fn encrypt<'a>(
 ) -> FheU8<'a, Evaluator> {
     let cts = from_fn(|idx| {
         let m = (m >> idx) & 1 == 1;
-        FhewBoolCiphertext::encrypt(evaluator.ring(), sk, m, Gaussian(3.2).into(), rng)
+        FhewBoolCiphertext::encrypt(
+            evaluator.ring(),
+            sk,
+            m,
+            evaluator.param().noise_distribution,
+            rng,
+        )
     });
     FheU8::from_cts(evaluator, cts)
 }
@@ -75,7 +84,7 @@ where
 
 fn main() {
     let mut rng = StdLweRng::from_entropy();
-    let sk = LweSecretKey::sample(PARAM.ring_size, Gaussian(3.2).into(), &mut rng);
+    let sk = LweSecretKey::sample(PARAM.ring_size, PARAM.sk_distribution, &mut rng);
     let evaluator = Evaluator::sample(PARAM, &sk, &mut rng);
 
     let m = from_fn(|_| rng.next_u64() as u8);

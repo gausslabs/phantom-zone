@@ -25,12 +25,12 @@ fn fhew(c: &mut Criterion) {
     fn runner<R: RingOps + 'static>(param: FhewBoolParam) -> Box<dyn FnMut()> {
         let mut rng = StdLweRng::from_entropy();
         let ring = <R as RingOps>::new(param.modulus, param.ring_size);
-        let sk = LweSecretKey::sample(param.ring_size, Gaussian(3.2).into(), &mut rng);
+        let sk = LweSecretKey::sample(param.ring_size, param.sk_distribution, &mut rng);
         let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, &mut rng);
         let cts = (0..2000)
             .map(|_| {
                 let m = rng.gen_bool(0.5);
-                FhewBoolCiphertext::encrypt(&ring, &sk, m, Gaussian(3.2).into(), &mut rng)
+                FhewBoolCiphertext::encrypt(&ring, &sk, m, param.noise_distribution, &mut rng)
             })
             .collect_vec();
         let mut cts = cts.into_iter();
@@ -41,17 +41,20 @@ fn fhew(c: &mut Criterion) {
         FhewBoolParam {
             modulus: big_q.into(),
             ring_size,
+            sk_distribution: Gaussian(3.2).into(),
+            noise_distribution: Gaussian(3.2).into(),
             auto_decomposition_param: DecompositionParam {
                 log_base: 24,
                 level: 1,
             },
-            rgsw_decomposition_param: RgswDecompositionParam {
+            rlwe_by_rgsw_decomposition_param: RgswDecompositionParam {
                 log_base: 17,
                 level_a: 1,
                 level_b: 1,
             },
             lwe_modulus: NonNativePowerOfTwo::new(16).into(),
             lwe_dimension: 620,
+            lwe_sk_distribution: Gaussian(3.2).into(),
             lwe_ks_decomposition_param: DecompositionParam {
                 log_base: 1,
                 level: 13,

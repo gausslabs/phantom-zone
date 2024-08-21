@@ -2,7 +2,7 @@ use num_traits::FromPrimitive;
 use phantom_zone_math::distribution::{DistributionSized, Gaussian, Ternary};
 use rand::{distributions::Distribution, Rng};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SecretDistribution {
     Gaussian(Gaussian),
     Ternary(Ternary),
@@ -40,7 +40,7 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NoiseDistribution {
     Gaussian(Gaussian),
 }

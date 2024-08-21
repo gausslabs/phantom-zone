@@ -104,7 +104,7 @@ pub trait DistributionSized<T> {
     fn sample_vec<R: Rng>(self, n: usize, rng: R) -> Vec<T>;
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Gaussian(pub f64);
 
 impl Gaussian {
@@ -120,7 +120,7 @@ impl<T: FromPrimitive> Distribution<T> for Gaussian {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ternary(pub usize);
 
 impl Ternary {

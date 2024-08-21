@@ -5,7 +5,7 @@ use crate::{
 };
 use core::{borrow::Borrow, fmt::Debug};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DecompositionParam {
     pub log_base: usize,
     pub level: usize,

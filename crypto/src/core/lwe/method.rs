@@ -1,7 +1,8 @@
 use crate::{
     core::lwe::structure::{
-        LweCiphertextMutView, LweCiphertextView, LweKeySwitchKeyMutView, LweKeySwitchKeyView,
-        LwePlaintext, LweSecretKeyView,
+        LweCiphertext, LweCiphertextMutView, LweCiphertextView, LweKeySwitchKeyMutView,
+        LweKeySwitchKeyView, LwePlaintext, LweSecretKeyView, SeededLweKeySwitchKeyMutView,
+        SeededLweKeySwitchKeyView,
     },
     util::{distribution::NoiseDistribution, rng::LweRng},
 };
@@ -9,6 +10,7 @@ use phantom_zone_math::{
     decomposer::Decomposer,
     izip_eq,
     modulus::{ElemFrom, ModulusOps},
+    util::scratch::Scratch,
 };
 use rand::RngCore;
 
@@ -110,4 +112,47 @@ pub fn key_switch<'a, 'b, 'c, M: ModulusOps>(
                 })
         });
     *ct_to.b_mut() = modulus.add(ct_to.b(), ct_from.b());
+}
+
+pub fn seeded_ks_key_gen<'a, 'b, 'c, M, T>(
+    modulus: &M,
+    ks_key_seeded: impl Into<SeededLweKeySwitchKeyMutView<'a, M::Elem>>,
+    sk_from: impl Into<LweSecretKeyView<'b, T>>,
+    sk_to: impl Into<LweSecretKeyView<'c, T>>,
+    noise_distribution: NoiseDistribution,
+    mut scratch: Scratch<'a>,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) where
+    M: ModulusOps + ElemFrom<T>,
+    T: 'b + 'c + Copy,
+{
+    let (mut ks_key_seeded, sk_to) = (ks_key_seeded.into(), sk_to.into());
+    let decomposer = M::Decomposer::new(modulus.modulus(), ks_key_seeded.decomposition_param());
+    let mut t = LweCiphertext::scratch(ks_key_seeded.to_dimension(), &mut scratch);
+    izip_eq!(ks_key_seeded.cts_iter_mut(), sk_from.into().as_ref()).for_each(
+        |(mut ks_key_i, sk_from_i)| {
+            izip_eq!(ks_key_i.iter_mut(), decomposer.gadget_iter()).for_each(
+                |(mut ks_key_i_j, beta_j)| {
+                    sk_encrypt_zero(modulus, &mut t, sk_to, noise_distribution, rng);
+                    *ks_key_i_j.b_mut() =
+                        modulus.sub(t.b(), &modulus.mul_elem_from(&beta_j, sk_from_i));
+                },
+            )
+        },
+    );
+}
+
+pub fn unseed_ks_key<'a, 'b, M: ModulusOps>(
+    modulus: &M,
+    ks_key: impl Into<LweKeySwitchKeyMutView<'a, M::Elem>>,
+    ks_key_seeded: impl Into<SeededLweKeySwitchKeyView<'b, M::Elem>>,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) {
+    let (mut ks_key, ks_key_seeded) = (ks_key.into(), ks_key_seeded.into());
+    izip_eq!(ks_key.cts_iter_mut(), ks_key_seeded.cts_iter()).for_each(|(mut cts, cts_seeded)| {
+        izip_eq!(cts.iter_mut(), cts_seeded.iter()).for_each(|(mut ct, ct_seeded)| {
+            modulus.sample_uniform_into(ct.a_mut(), rng.seedable());
+            *ct.b_mut() = *ct_seeded.b();
+        })
+    });
 }

@@ -5,6 +5,7 @@ use crate::{
             self, RlweAutoKey, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextOwned,
             RlweKeySwitchKey, RlweKeySwitchKeyOwned, RlwePlaintext, RlwePlaintextOwned,
             RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey, RlweSecretKeyOwned,
+            SeededRlwePublicKey, SeededRlwePublicKeyOwned,
         },
     },
     util::{
@@ -111,6 +112,24 @@ impl<R: RingOps> Rlwe<R> {
         let mut pk = RlwePublicKey::allocate(self.ring_size());
         let mut scratch = self.ring().allocate_scratch(0, 2, 0);
         rlwe::pk_gen(
+            self.ring(),
+            &mut pk,
+            sk,
+            self.param.noise_distribution,
+            scratch.borrow_mut(),
+            rng,
+        );
+        pk
+    }
+
+    pub fn seeded_pk_gen(
+        &self,
+        sk: &RlweSecretKeyOwned<i32>,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
+    ) -> SeededRlwePublicKeyOwned<R::Elem> {
+        let mut pk = SeededRlwePublicKey::allocate(self.ring_size());
+        let mut scratch = self.ring().allocate_scratch(2, 2, 0);
+        rlwe::seeded_pk_gen(
             self.ring(),
             &mut pk,
             sk,
