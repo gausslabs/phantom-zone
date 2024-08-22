@@ -1,14 +1,11 @@
 use crate::{
     core::{
-        lwe::{
-            test::{Lwe, LweParam},
-            LweSecretKey,
+        lwe::{test::LweParam, LweSecretKey, LweSecretKeyOwned},
+        rgsw::{test::RgswParam, RgswDecompositionParam},
+        rlwe::{
+            test::RlweParam, RlwePlaintext, RlwePlaintextOwned, RlwePublicKey, RlwePublicKeyOwned,
+            RlweSecretKey,
         },
-        rgsw::{
-            test::{Rgsw, RgswParam},
-            RgswDecompositionParam,
-        },
-        rlwe::{test::RlweParam, RlwePlaintextOwned, RlwePublicKey},
     },
     scheme::blind_rotation::lmkcdey::{
         self, LmkcdeyInteractiveParam, LmkcdeyKey, LmkcdeyKeyShare, LmkcdeyParam,
@@ -19,123 +16,103 @@ use core::{array::from_fn, iter::repeat_with};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    distribution::{Gaussian, Ternary},
+    distribution::{DistributionVariance, Gaussian, Ternary},
     izip_eq,
-    modulus::{Modulus, NonNativePowerOfTwo, Prime},
+    modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
     poly::automorphism::AutomorphismMap,
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
-    util::scratch::ScratchOwned,
+    util::{dev::Stats, scratch::ScratchOwned},
 };
 use rand::{thread_rng, RngCore, SeedableRng};
 
-#[derive(Clone, Copy, Debug)]
-struct FhewBootstrappingParam {
-    rgsw: RgswParam,
-    lwe_ks: LweParam,
-    q: usize,
-    g: usize,
-    w: usize,
-    rgsw_by_rgsw_decomposition_param: RgswDecompositionParam,
-}
-
-impl FhewBootstrappingParam {
-    fn build<R: RingOps>(&self) -> (Rgsw<R>, Lwe<R>, Lwe<NonNativePowerOfTwoRing>) {
-        (
-            self.rgsw.build(),
-            self.rgsw.rlwe.to_lwe().build(),
-            self.lwe_ks.build(),
-        )
-    }
-
-    fn lmkcdey(&self) -> LmkcdeyParam {
-        LmkcdeyParam {
-            modulus: self.rgsw.rlwe.ciphertext_modulus,
-            ring_size: self.rgsw.rlwe.ring_size,
-            sk_distribution: self.rgsw.rlwe.sk_distribution,
-            noise_distribution: self.rgsw.rlwe.noise_distribution,
-            auto_decomposition_param: self.rgsw.rlwe.ks_decomposition_param,
-            rlwe_by_rgsw_decomposition_param: self.rgsw.decomposition_param,
-            lwe_modulus: self.lwe_ks.ciphertext_modulus,
-            lwe_dimension: self.lwe_ks.dimension,
-            lwe_sk_distribution: self.lwe_ks.sk_distribution,
-            lwe_ks_decomposition_param: self.lwe_ks.ks_decomposition_param,
-            q: self.q,
-            g: self.g,
-            w: self.w,
-        }
-    }
-
-    fn lmkcdey_interactive(&self) -> LmkcdeyInteractiveParam {
-        LmkcdeyInteractiveParam {
-            param: self.lmkcdey(),
-            rgsw_by_rgsw_decomposition_param: self.rgsw_by_rgsw_decomposition_param,
-        }
-    }
-}
-
-fn testing_param(big_q: impl Into<Modulus>, embedding_factor: usize) -> FhewBootstrappingParam {
-    let message_modulus = 4;
-    let ring_size = 1024;
-    FhewBootstrappingParam {
-        rgsw: RgswParam {
+impl From<LmkcdeyParam> for RgswParam {
+    fn from(param: LmkcdeyParam) -> Self {
+        RgswParam {
             rlwe: RlweParam {
-                message_modulus,
-                ciphertext_modulus: big_q.into(),
-                ring_size,
-                sk_distribution: Gaussian(3.2).into(),
-                noise_distribution: Gaussian(3.2).into(),
-                u_distribution: Ternary(ring_size / 2).into(),
-                ks_decomposition_param: DecompositionParam {
-                    log_base: 24,
-                    level: 1,
-                },
+                message_modulus: 4,
+                ciphertext_modulus: param.modulus,
+                ring_size: param.ring_size,
+                sk_distribution: param.sk_distribution,
+                noise_distribution: param.noise_distribution,
+                u_distribution: Ternary.into(),
+                ks_decomposition_param: param.auto_decomposition_param,
             },
-            decomposition_param: RgswDecompositionParam {
-                log_base: 17,
-                level_a: 1,
-                level_b: 1,
-            },
+            decomposition_param: param.rlwe_by_rgsw_decomposition_param,
+        }
+    }
+}
+
+impl From<LmkcdeyParam> for LweParam {
+    fn from(param: LmkcdeyParam) -> Self {
+        LweParam {
+            message_modulus: 4,
+            ciphertext_modulus: param.lwe_modulus,
+            dimension: param.lwe_dimension,
+            sk_distribution: param.lwe_sk_distribution,
+            noise_distribution: param.lwe_noise_distribution,
+            ks_decomposition_param: param.lwe_ks_decomposition_param,
+        }
+    }
+}
+
+fn test_param(modulus: impl Into<Modulus>, embedding_factor: usize) -> LmkcdeyParam {
+    let ring_size = 1024;
+    LmkcdeyParam {
+        modulus: modulus.into(),
+        ring_size,
+        sk_distribution: Gaussian(3.19).into(),
+        noise_distribution: Gaussian(3.19).into(),
+        auto_decomposition_param: DecompositionParam {
+            log_base: 24,
+            level: 1,
         },
-        lwe_ks: LweParam {
-            message_modulus,
-            ciphertext_modulus: NonNativePowerOfTwo::new(16).into(),
-            dimension: 100,
-            sk_distribution: Gaussian(3.2).into(),
-            noise_distribution: Gaussian(3.2).into(),
-            ks_decomposition_param: DecompositionParam {
-                log_base: 1,
-                level: 13,
-            },
+        rlwe_by_rgsw_decomposition_param: RgswDecompositionParam {
+            log_base: 17,
+            level_a: 1,
+            level_b: 1,
+        },
+        lwe_modulus: NonNativePowerOfTwo::new(16).into(),
+        lwe_dimension: 100,
+        lwe_sk_distribution: Gaussian(3.19).into(),
+        lwe_noise_distribution: Gaussian(3.19).into(),
+        lwe_ks_decomposition_param: DecompositionParam {
+            log_base: 1,
+            level: 13,
         },
         q: 2 * ring_size / embedding_factor,
         g: 5,
         w: 10,
-        rgsw_by_rgsw_decomposition_param: RgswDecompositionParam {
-            log_base: 6,
-            level_a: 7,
-            level_b: 6,
-        },
     }
+}
+
+fn nand_lut<R: RingOps>(ring: &R, q: usize, g: usize) -> RlwePlaintextOwned<R::Elem> {
+    let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
+    let auto_map = AutomorphismMap::new(q / 2, -(g as i64));
+    let lut_value = [big_q_by_8, ring.neg(&big_q_by_8)];
+    let log_q_by_8 = (q / 8).ilog2() as usize;
+    let f = |(sign, idx)| lut_value[sign as usize ^ [0, 0, 0, 1][idx >> log_q_by_8]];
+    RlwePlaintext::new(auto_map.iter().map(f).collect(), q / 2)
 }
 
 #[test]
 fn bootstrap() {
-    fn run<R: RingOps>(big_q: impl Into<Modulus>, embedding_factor: usize) {
+    fn run<R: RingOps>(modulus: impl Into<Modulus>, embedding_factor: usize) {
         let mut rng = StdLweRng::from_entropy();
-        let param = testing_param(big_q, embedding_factor);
-        let (rgsw, lwe, lwe_ks) = param.build::<R>();
-        let rlwe = rgsw.rlwe();
-        let ring = rlwe.ring();
+        let param = test_param(modulus, embedding_factor);
+        let rgsw = RgswParam::from(param).build::<R>();
+        let lwe = RgswParam::from(param).rlwe.to_lwe().build::<R>();
+        let lwe_ks = LweParam::from(param).build::<NonNativePowerOfTwoRing>();
+        let ring = rgsw.ring();
         let mod_ks = lwe_ks.modulus();
 
-        let sk = rlwe.sk_gen();
+        let sk = rgsw.rlwe().sk_gen();
         let sk_ks = lwe_ks.sk_gen();
         let bs_key = {
             let mut scratch = ring.allocate_scratch(0, 3, 0);
-            let mut bs_key = LmkcdeyKey::allocate(param.lmkcdey());
+            let mut bs_key = LmkcdeyKey::allocate(param);
             lmkcdey::bs_key_gen(
                 ring,
                 mod_ks,
@@ -151,17 +128,9 @@ fn bootstrap() {
         };
         let sk = sk.into();
 
-        let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
-        let nand_lut = {
-            let auto_map = AutomorphismMap::new(param.q / 2, -(param.g as i64));
-            let lut = [0, 0, 0, 1];
-            let lut_value = [big_q_by_8, ring.neg(&big_q_by_8)];
-            let log_q_by_8 = (param.q / 8).ilog2() as usize;
-            let f = |(sign, idx)| lut_value[sign as usize ^ lut[idx >> log_q_by_8]];
-            RlwePlaintextOwned::new(auto_map.iter().map(f).collect(), param.q / 2)
-        };
-
         let mut scratch = ScratchOwned::allocate(bs_key.param().scratch_bytes(ring, mod_ks));
+        let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
+        let nand_lut = nand_lut(ring, param.q, param.g);
         for m in 0..1 << 2 {
             let [a, b] = from_fn(|i| (m >> i) & 1 == 1);
             let ct_a = lwe.sk_encrypt(&sk, lwe.encode(a as _), &mut rng);
@@ -181,98 +150,165 @@ fn bootstrap() {
     }
 
     for embedding_factor in [1, 2] {
-        run::<NoisyNativeRing>(Modulus::native(), embedding_factor);
+        run::<NoisyNativeRing>(Native::native(), embedding_factor);
         run::<NoisyNonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(50), embedding_factor);
-        run::<NativeRing>(Modulus::native(), embedding_factor);
+        run::<NativeRing>(Native::native(), embedding_factor);
         run::<NonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(50), embedding_factor);
         run::<NoisyPrimeRing>(Prime::gen(50, 12), embedding_factor);
         run::<PrimeRing>(Prime::gen(50, 12), embedding_factor);
     }
 }
 
-#[test]
-fn interactive() {
-    fn run<R: RingOps>(big_q: impl Into<Modulus>) {
-        let param = testing_param(big_q, 1);
-        let (rgsw, lwe, lwe_ks) = param.build::<R>();
-        let rlwe = rgsw.rlwe();
-        let ring = rlwe.ring();
-        let mod_ks = lwe_ks.modulus();
-        let seed = from_fn(|_| thread_rng().next_u64() as u8);
-        let total_shares = 3;
+fn test_interactive_param(
+    modulus: impl Into<Modulus>,
+    embedding_factor: usize,
+) -> LmkcdeyInteractiveParam {
+    let ring_size = 2048;
+    LmkcdeyInteractiveParam {
+        param: LmkcdeyParam {
+            modulus: modulus.into(),
+            ring_size,
+            sk_distribution: Ternary.into(),
+            noise_distribution: Gaussian(3.19).into(),
+            auto_decomposition_param: DecompositionParam {
+                log_base: 24,
+                level: 1,
+            },
+            rlwe_by_rgsw_decomposition_param: RgswDecompositionParam {
+                log_base: 17,
+                level_a: 1,
+                level_b: 1,
+            },
+            lwe_modulus: NonNativePowerOfTwo::new(16).into(),
+            lwe_dimension: 620,
+            lwe_sk_distribution: Ternary.into(),
+            lwe_noise_distribution: Gaussian(3.19).into(),
+            lwe_ks_decomposition_param: DecompositionParam {
+                log_base: 1,
+                level: 13,
+            },
+            q: 2 * ring_size / embedding_factor,
+            g: 5,
+            w: 10,
+        },
+        u_distribution: Ternary.into(),
+        rgsw_by_rgsw_decomposition_param: RgswDecompositionParam {
+            log_base: 6,
+            level_a: 7,
+            level_b: 6,
+        },
+    }
+}
 
-        let mut rngs = repeat_with(|| StdLweRng::from_seed(seed))
-            .take(total_shares + 1)
-            .collect_vec();
-        let sk_shares = repeat_with(|| rlwe.sk_gen())
-            .take(total_shares)
-            .collect_vec();
-        let pk_shares = izip!(&sk_shares, &mut rngs)
-            .map(|(sk, rng)| rlwe.seeded_pk_gen(sk, rng))
-            .collect_vec();
-        let pk = {
-            let mut pk = RlwePublicKey::allocate(ring.ring_size());
-            lmkcdey::aggregate_pk_shares(ring, &mut pk, &pk_shares, rngs.last_mut().unwrap());
-            pk
-        };
-        let bs_key_shares = izip!(0.., &sk_shares, &mut rngs)
-            .map(|(share_idx, sk, rng)| {
-                let sk_ks = lwe_ks.sk_gen();
-                let mut bs_key_share =
-                    LmkcdeyKeyShare::allocate(param.lmkcdey_interactive(), share_idx, total_shares);
-                let mut scratch = ring.allocate_scratch(2, 3, 0);
-                lmkcdey::bs_key_share_gen(
-                    ring,
-                    mod_ks,
-                    &mut bs_key_share,
-                    sk,
-                    &pk,
-                    &sk_ks,
-                    scratch.borrow_mut(),
-                    rng,
-                );
-                bs_key_share
-            })
-            .collect_vec();
-        let bs_key = {
-            let mut bs_key = LmkcdeyKey::allocate(param.lmkcdey());
-            let mut scratch = ring.allocate_scratch(
-                2,
-                3,
-                2 * (param.rgsw_by_rgsw_decomposition_param.level_a
-                    + param.rgsw_by_rgsw_decomposition_param.level_b),
-            );
-            lmkcdey::aggregate_bs_key_shares(
+#[allow(clippy::type_complexity)]
+fn interactive_bs_key_gen<R: RingOps>(
+    param: LmkcdeyInteractiveParam,
+    total_shares: usize,
+) -> (
+    LweSecretKeyOwned<i32>,
+    LweSecretKeyOwned<i32>,
+    RlwePublicKeyOwned<R::Elem>,
+    LmkcdeyKey<R::Elem, u64>,
+) {
+    let rgsw = RgswParam::from(*param).build::<R>();
+    let rlwe = rgsw.rlwe();
+    let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
+    let ring = rgsw.ring();
+    let mod_ks = lwe_ks.modulus();
+    let seed = from_fn(|_| thread_rng().next_u64() as u8);
+
+    let mut rngs = repeat_with(|| StdLweRng::from_seed(seed))
+        .take(total_shares + 1)
+        .collect_vec();
+    let sk_shares = repeat_with(|| rlwe.sk_gen())
+        .take(total_shares)
+        .collect_vec();
+    let sk_ks_shares = repeat_with(|| lwe_ks.sk_gen())
+        .take(total_shares)
+        .collect_vec();
+    let pk_shares = izip!(&sk_shares, &mut rngs)
+        .map(|(sk, rng)| rlwe.seeded_pk_gen(sk, rng))
+        .collect_vec();
+    let pk = {
+        let mut pk = RlwePublicKey::allocate(ring.ring_size());
+        lmkcdey::aggregate_pk_shares(ring, &mut pk, &pk_shares, rngs.last_mut().unwrap());
+        pk
+    };
+    let bs_key_shares = izip!(0.., &sk_shares, &sk_ks_shares, &mut rngs)
+        .map(|(share_idx, sk, sk_ks, rng)| {
+            let mut bs_key_share = LmkcdeyKeyShare::allocate(param, share_idx, total_shares);
+            let mut scratch = ring.allocate_scratch(2, 3, 0);
+            lmkcdey::bs_key_share_gen(
                 ring,
                 mod_ks,
-                &mut bs_key,
-                &bs_key_shares,
+                &mut bs_key_share,
+                sk,
+                &pk,
+                sk_ks,
                 scratch.borrow_mut(),
-                rngs.last_mut().unwrap(),
+                rng,
             );
+            bs_key_share
+        })
+        .collect_vec();
+    let bs_key = {
+        let mut bs_key = LmkcdeyKey::allocate(*param);
+        let mut scratch = ring.allocate_scratch(
+            2,
+            3,
+            2 * (param.rgsw_by_rgsw_decomposition_param.level_a
+                + param.rgsw_by_rgsw_decomposition_param.level_b),
+        );
+        lmkcdey::aggregate_bs_key_shares(
+            ring,
+            mod_ks,
+            &mut bs_key,
+            &bs_key_shares,
+            scratch.borrow_mut(),
+            rngs.last_mut().unwrap(),
+        );
+        bs_key
+    };
+    let sk = sk_shares
+        .into_iter()
+        .map(LweSecretKey::from)
+        .reduce(|mut sk, sk_share| {
+            izip_eq!(sk.as_mut(), sk_share.as_ref()).for_each(|(a, b)| *a += b);
+            sk
+        })
+        .unwrap();
+    let sk_ks = sk_ks_shares
+        .into_iter()
+        .reduce(|mut sk, sk_share| {
+            izip_eq!(sk.as_mut(), sk_share.as_ref()).for_each(|(a, b)| *a += b);
+            sk
+        })
+        .unwrap();
+    (sk, sk_ks, pk, bs_key)
+}
+
+#[test]
+fn interactive() {
+    fn run<R1: RingOps, R2: RingOps<Elem = R1::Elem>>(modulus: impl Into<Modulus>) {
+        let total_shares = 4;
+        let param = test_interactive_param(modulus, 1);
+        let rgsw = RgswParam::from(*param).build::<R2>();
+        let rlwe = rgsw.rlwe();
+        let lwe = RgswParam::from(*param).rlwe.to_lwe().build::<R2>();
+        let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
+        let ring = rgsw.ring();
+        let mod_ks = lwe_ks.modulus();
+
+        let (sk, _, pk, bs_key) = interactive_bs_key_gen::<R1>(param, total_shares);
+        let bs_key = {
+            let mut scratch = ring.allocate_scratch(0, 3, 0);
             let mut bs_key_prep = LmkcdeyKey::allocate_eval(*bs_key.param(), ring.eval_size());
             lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
             bs_key_prep
         };
-        let sk = sk_shares
-            .into_iter()
-            .map(LweSecretKey::from)
-            .reduce(|mut sk, sk_share| {
-                izip_eq!(sk.as_mut(), sk_share.as_ref()).for_each(|(a, b)| *a += b);
-                sk
-            })
-            .unwrap();
 
         let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
-        let nand_lut = {
-            let auto_map = AutomorphismMap::new(param.q / 2, -(param.g as i64));
-            let lut = [0, 0, 0, 1];
-            let lut_value = [big_q_by_8, ring.neg(&big_q_by_8)];
-            let log_q_by_8 = (param.q / 8).ilog2() as usize;
-            let f = |(sign, idx)| lut_value[sign as usize ^ lut[idx >> log_q_by_8]];
-            RlwePlaintextOwned::new(auto_map.iter().map(f).collect(), param.q / 2)
-        };
-
+        let nand_lut = nand_lut(ring, param.q, param.g);
         let mut scratch = ScratchOwned::allocate(bs_key.param().scratch_bytes(ring, mod_ks));
         let mut rng = StdLweRng::from_entropy();
         for m in 0..1 << 2 {
@@ -295,10 +331,50 @@ fn interactive() {
         }
     }
 
-    // run::<NoisyNativeRing>(Modulus::native());
-    // run::<NoisyNonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(54));
-    run::<NativeRing>(Modulus::native());
-    run::<NonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(54));
-    // run::<NoisyPrimeRing>(Prime::gen(54, 12));
+    run::<NativeRing, NoisyNativeRing>(Native::native());
+    run::<NonNativePowerOfTwoRing, NoisyNonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(54));
+    run::<PrimeRing, NoisyPrimeRing>(Prime::gen(54, 12));
+}
+
+#[test]
+fn interactive_key_gen_stats() {
+    fn run<R: RingOps>(modulus: impl Into<Modulus>) {
+        let total_shares = 4;
+        let param = test_interactive_param(modulus, 2);
+        let rgsw = RgswParam::from(*param).build::<R>();
+        let ring = rgsw.ring();
+
+        let embedding_factor = param.embedding_factor() as i64;
+        let (sk, sk_ks, _, bs_key) = interactive_bs_key_gen::<R>(param, total_shares);
+        let sk = RlweSecretKey::from(sk);
+        let mut noise = Stats::default();
+        izip_eq!(sk_ks.as_ref(), bs_key.brks()).for_each(|(sk_ks_i, brk_i)| {
+            let brk_i = brk_i.cloned();
+            let mut pt = RlwePlaintext::allocate(ring.ring_size());
+            ring.poly_set_monomial(pt.as_mut(), embedding_factor * *sk_ks_i as i64);
+            noise.extend(rgsw.noise(&sk, &pt, &brk_i).into_iter().flatten());
+        });
+
+        let ring_size = param.ring_size as f64;
+        let var_sk = total_shares as f64 * param.sk_distribution.variance();
+        let var_noise = param.noise_distribution.variance();
+        let var_noise_ct_pk =
+            ring_size * var_sk * var_noise + (ring_size * var_sk + 1.0) * var_noise;
+        let var_noise_brk = {
+            let log_base = param.rgsw_by_rgsw_decomposition_param.log_base;
+            let level_a = param.rgsw_by_rgsw_decomposition_param.level_a;
+            let level_b = param.rgsw_by_rgsw_decomposition_param.level_b;
+            let ignored_a = 1u64 << param.modulus.bits().saturating_sub(log_base * level_a);
+            let ignored_b = 1u64 << param.modulus.bits().saturating_sub(log_base * level_b);
+            let base = 1 << log_base;
+            let var_noise_a = ((level_a * base * base) as f64 * ring_size * var_noise_ct_pk) / 12.0;
+            let var_noise_b = ((level_b * base * base) as f64 * ring_size * var_noise_ct_pk) / 12.0;
+            let var_ignored_a = ((ignored_a * ignored_a) as f64 * ring_size * var_sk) / 12.0;
+            let var_ignored_b = ((ignored_b * ignored_b) as f64) / 12.0;
+            total_shares as f64 * (var_noise_a + var_noise_b + var_ignored_a + var_ignored_b)
+        };
+        assert!(noise.log2_std_dev() < var_noise_brk.sqrt().log2());
+    }
+
     run::<PrimeRing>(Prime::gen(54, 12));
 }

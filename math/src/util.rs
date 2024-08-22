@@ -40,6 +40,44 @@ macro_rules! izip_eq {
     }};
 }
 
+#[cfg(any(test, feature = "dev"))]
+pub mod dev {
+    use core::iter::Sum;
+    use num_traits::AsPrimitive;
+
+    #[derive(Clone, Default)]
+    pub struct Stats<T> {
+        samples: Vec<T>,
+    }
+
+    impl<T: AsPrimitive<f64> + for<'a> Sum<&'a T>> Stats<T> {
+        pub fn mean(&self) -> f64 {
+            T::sum(self.samples.iter()).as_() / self.samples.len() as f64
+        }
+
+        pub fn variance(&self) -> f64 {
+            let mean = self.mean();
+            let diff_sq = |v: &T| {
+                let diff = v.as_() - mean;
+                diff * diff
+            };
+            f64::sum(self.samples.iter().map(diff_sq)) / self.samples.len() as f64
+        }
+
+        pub fn std_dev(&self) -> f64 {
+            self.variance().sqrt()
+        }
+
+        pub fn log2_std_dev(&self) -> f64 {
+            self.std_dev().log2()
+        }
+
+        pub fn extend(&mut self, iter: impl IntoIterator<Item = T>) {
+            self.samples.extend(iter);
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod test {
     macro_rules! assert_precision {

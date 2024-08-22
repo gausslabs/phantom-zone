@@ -152,8 +152,8 @@ pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> LweParam {
         message_modulus: 1 << 6,
         ciphertext_modulus: ciphertext_modulus.into(),
         dimension: 256,
-        sk_distribution: Gaussian(3.2).into(),
-        noise_distribution: Gaussian(3.2).into(),
+        sk_distribution: Gaussian(3.19).into(),
+        noise_distribution: Gaussian(3.19).into(),
         ks_decomposition_param: DecompositionParam {
             log_base: 8,
             level: 6,

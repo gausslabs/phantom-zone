@@ -213,12 +213,15 @@ mod test {
     use core::array::from_fn;
     use phantom_zone_crypto::{
         core::{lwe::LweSecretKeyOwned, rgsw::RgswDecompositionParam},
-        util::rng::StdLweRng,
+        util::{
+            distribution::{NoiseDistribution, SecretDistribution},
+            rng::StdLweRng,
+        },
     };
     use phantom_zone_math::{
         decomposer::DecompositionParam,
         distribution::Gaussian,
-        modulus::{Modulus, NonNativePowerOfTwo, Prime},
+        modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
         ring::{
             NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
             NonNativePowerOfTwoRing, PrimeRing, RingOps,
@@ -233,8 +236,8 @@ mod test {
         LmkcdeyParam {
             modulus: big_q.into(),
             ring_size,
-            sk_distribution: Gaussian(3.2).into(),
-            noise_distribution: Gaussian(3.2).into(),
+            sk_distribution: Gaussian(3.19).into(),
+            noise_distribution: Gaussian(3.19).into(),
             auto_decomposition_param: DecompositionParam {
                 log_base: 24,
                 level: 1,
@@ -246,7 +249,8 @@ mod test {
             },
             lwe_modulus: NonNativePowerOfTwo::new(16).into(),
             lwe_dimension: 100,
-            lwe_sk_distribution: Gaussian(3.2).into(),
+            lwe_sk_distribution: Gaussian(3.19).into(),
+            lwe_noise_distribution: Gaussian(3.19).into(),
             lwe_ks_decomposition_param: DecompositionParam {
                 log_base: 1,
                 level: 13,
@@ -257,35 +261,36 @@ mod test {
         }
     }
 
-    fn sk_gen(ring_size: usize) -> LweSecretKeyOwned<i32> {
-        LweSecretKeyOwned::sample(ring_size, Gaussian(3.2).into(), thread_rng())
+    fn sk_gen(ring_size: usize, sk_distribution: SecretDistribution) -> LweSecretKeyOwned<i32> {
+        LweSecretKeyOwned::sample(ring_size, sk_distribution, thread_rng())
     }
 
     fn encrypt<R: RingOps>(
         ring: &R,
         sk: &LweSecretKeyOwned<i32>,
         m: bool,
+        noise_distribution: NoiseDistribution,
     ) -> FhewBoolCiphertext<R> {
         let mut rng = StdLweRng::from_entropy();
-        FhewBoolCiphertext::encrypt(ring, sk, m, Gaussian(3.2).into(), &mut rng)
+        FhewBoolCiphertext::encrypt(ring, sk, m, noise_distribution, &mut rng)
     }
 
     #[test]
     fn encrypt_decrypt() {
         fn run<R: RingOps>(param: LmkcdeyParam) {
             let ring = <R as RingOps>::new(param.modulus, param.ring_size);
-            let sk = sk_gen(ring.ring_size());
+            let sk = sk_gen(param.ring_size, param.sk_distribution);
             for _ in 0..100 {
                 for m in [false, true] {
-                    let ct = encrypt(&ring, &sk, m);
+                    let ct = encrypt(&ring, &sk, m, param.noise_distribution);
                     assert_eq!(m, ct.decrypt(&ring, &sk))
                 }
             }
         }
 
-        run::<NoisyNativeRing>(test_param(Modulus::native()));
+        run::<NoisyNativeRing>(test_param(Native::native()));
         run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
-        run::<NativeRing>(test_param(Modulus::native()));
+        run::<NativeRing>(test_param(Native::native()));
         run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
         run::<NoisyPrimeRing>(test_param(Prime::gen(50, 11)));
         run::<PrimeRing>(test_param(Prime::gen(50, 11)));
@@ -294,9 +299,9 @@ mod test {
     #[test]
     fn bit_op() {
         fn run<R: RingOps>(param: LmkcdeyParam) {
-            let sk = sk_gen(param.ring_size);
+            let sk = sk_gen(param.ring_size, param.sk_distribution);
             let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, thread_rng());
-            let encrypt = |m| encrypt(&evaluator.ring, &sk, m);
+            let encrypt = |m| encrypt(&evaluator.ring, &sk, m, param.noise_distribution);
             macro_rules! assert_decrypted_to {
                 ($ct_a:ident.$op:ident($($ct_b:ident)?), $c:expr) => {
                     paste::paste! {
@@ -323,9 +328,9 @@ mod test {
             }
         }
 
-        run::<NoisyNativeRing>(test_param(Modulus::native()));
+        run::<NoisyNativeRing>(test_param(Native::native()));
         run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
-        run::<NativeRing>(test_param(Modulus::native()));
+        run::<NativeRing>(test_param(Native::native()));
         run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
         run::<NoisyPrimeRing>(test_param(Prime::gen(50, 11)));
         run::<PrimeRing>(test_param(Prime::gen(50, 11)));
@@ -334,9 +339,9 @@ mod test {
     #[test]
     fn add_sub() {
         fn run<R: RingOps>(param: LmkcdeyParam) {
-            let sk = sk_gen(param.ring_size);
+            let sk = sk_gen(param.ring_size, param.sk_distribution);
             let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, thread_rng());
-            let encrypt = |m| encrypt(&evaluator.ring, &sk, m);
+            let encrypt = |m| encrypt(&evaluator.ring, &sk, m, param.noise_distribution);
             macro_rules! assert_decrypted_to {
                 ($ct_a:ident.$op:ident($ct_b:ident $(, $ct_c:ident)?), $c:expr) => {
                     paste::paste! {
@@ -366,9 +371,9 @@ mod test {
             }
         }
 
-        run::<NoisyNativeRing>(test_param(Modulus::native()));
+        run::<NoisyNativeRing>(test_param(Native::native()));
         run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
-        run::<NativeRing>(test_param(Modulus::native()));
+        run::<NativeRing>(test_param(Native::native()));
         run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
         run::<NoisyPrimeRing>(test_param(Prime::gen(50, 11)));
         run::<PrimeRing>(test_param(Prime::gen(50, 11)));

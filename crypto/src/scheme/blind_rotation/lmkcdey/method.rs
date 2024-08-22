@@ -36,6 +36,7 @@ pub fn bs_key_gen<'a, 'b, R, M, T>(
 {
     let (sk, sk_ks) = (sk.into(), sk_ks.into());
     let embedding_factor = bs_key.param().embedding_factor();
+    let lwe_noise_distribution = bs_key.param().lwe_noise_distribution;
     let noise_distribution = bs_key.param().noise_distribution;
 
     lwe::ks_key_gen(
@@ -43,7 +44,7 @@ pub fn bs_key_gen<'a, 'b, R, M, T>(
         bs_key.ks_key_mut(),
         sk,
         sk_ks,
-        noise_distribution,
+        lwe_noise_distribution,
         rng,
     );
 
@@ -225,7 +226,8 @@ pub fn bs_key_share_gen<'a, 'b, 'c, R, M, T>(
 {
     let (sk, pk, sk_ks) = (sk.into(), pk.into(), sk_ks.into());
     let embedding_factor = bs_key_share.param().embedding_factor();
-    let u_distribution = bs_key_share.param().sk_distribution;
+    let u_distribution = bs_key_share.param().u_distribution;
+    let lwe_noise_distribution = bs_key_share.param().lwe_noise_distribution;
     let noise_distribution = bs_key_share.param().noise_distribution;
 
     lwe::seeded_ks_key_gen(
@@ -233,7 +235,7 @@ pub fn bs_key_share_gen<'a, 'b, 'c, R, M, T>(
         bs_key_share.ks_key_mut(),
         sk,
         sk_ks,
-        noise_distribution,
+        lwe_noise_distribution,
         scratch.reborrow(),
         rng,
     );

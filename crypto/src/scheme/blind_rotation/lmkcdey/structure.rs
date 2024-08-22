@@ -40,6 +40,7 @@ pub struct LmkcdeyParam {
     pub lwe_modulus: Modulus,
     pub lwe_dimension: usize,
     pub lwe_sk_distribution: SecretDistribution,
+    pub lwe_noise_distribution: NoiseDistribution,
     pub lwe_ks_decomposition_param: DecompositionParam,
     // Blind rotation param
     pub q: usize,
@@ -260,6 +261,7 @@ impl<T1: Default + Clone, T2: Default> LmkcdeyKey<T1, T2> {
 #[derive(Clone, Copy, Debug)]
 pub struct LmkcdeyInteractiveParam {
     pub param: LmkcdeyParam,
+    pub u_distribution: SecretDistribution,
     pub rgsw_by_rgsw_decomposition_param: RgswDecompositionParam,
 }
 

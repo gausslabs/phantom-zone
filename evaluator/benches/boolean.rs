@@ -11,7 +11,7 @@ use phantom_zone_evaluator::boolean::evaluator::{
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::Gaussian,
-    modulus::{Modulus, NonNativePowerOfTwo, Prime},
+    modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
     ring::{
         NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing, NonNativePowerOfTwoRing,
         PrimeRing, RingOps,
@@ -41,8 +41,8 @@ fn fhew(c: &mut Criterion) {
         FhewBoolParam {
             modulus: big_q.into(),
             ring_size,
-            sk_distribution: Gaussian(3.2).into(),
-            noise_distribution: Gaussian(3.2).into(),
+            sk_distribution: Gaussian(3.19).into(),
+            noise_distribution: Gaussian(3.19).into(),
             auto_decomposition_param: DecompositionParam {
                 log_base: 24,
                 level: 1,
@@ -54,7 +54,8 @@ fn fhew(c: &mut Criterion) {
             },
             lwe_modulus: NonNativePowerOfTwo::new(16).into(),
             lwe_dimension: 620,
-            lwe_sk_distribution: Gaussian(3.2).into(),
+            lwe_sk_distribution: Gaussian(3.19).into(),
+            lwe_noise_distribution: Gaussian(3.19).into(),
             lwe_ks_decomposition_param: DecompositionParam {
                 log_base: 1,
                 level: 13,
@@ -71,7 +72,7 @@ fn fhew(c: &mut Criterion) {
         let q = 2 * ring_size / embedding_factor;
         let runners = [
             ("noisy_native", {
-                let modulus = Modulus::native();
+                let modulus = Native::native();
                 runner::<NoisyNativeRing>(test_param(modulus, ring_size, q))
             }),
             ("noisy_non_native_power_of_two", {

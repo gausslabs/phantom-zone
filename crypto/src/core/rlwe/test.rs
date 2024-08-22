@@ -16,12 +16,13 @@ use crate::{
 use itertools::Itertools;
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    distribution::{Gaussian, Sampler, Ternary},
-    modulus::{Modulus, ModulusOps, NonNativePowerOfTwo, Prime},
+    distribution::{DistributionVariance, Gaussian, Sampler, Ternary},
+    modulus::{Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
+    util::dev::Stats,
 };
 use rand::{thread_rng, RngCore, SeedableRng};
 
@@ -112,24 +113,6 @@ impl<R: RingOps> Rlwe<R> {
         let mut pk = RlwePublicKey::allocate(self.ring_size());
         let mut scratch = self.ring().allocate_scratch(0, 2, 0);
         rlwe::pk_gen(
-            self.ring(),
-            &mut pk,
-            sk,
-            self.param.noise_distribution,
-            scratch.borrow_mut(),
-            rng,
-        );
-        pk
-    }
-
-    pub fn seeded_pk_gen(
-        &self,
-        sk: &RlweSecretKeyOwned<i32>,
-        rng: &mut LweRng<impl RngCore, impl RngCore>,
-    ) -> SeededRlwePublicKeyOwned<R::Elem> {
-        let mut pk = SeededRlwePublicKey::allocate(self.ring_size());
-        let mut scratch = self.ring().allocate_scratch(2, 2, 0);
-        rlwe::seeded_pk_gen(
             self.ring(),
             &mut pk,
             sk,
@@ -328,6 +311,36 @@ impl<R: RingOps> Rlwe<R> {
         rlwe::automorphism_prep_in_place(self.ring(), &mut ct, auto_key_prep, scratch.borrow_mut());
         ct
     }
+
+    pub fn seeded_pk_gen(
+        &self,
+        sk: &RlweSecretKeyOwned<i32>,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
+    ) -> SeededRlwePublicKeyOwned<R::Elem> {
+        let mut pk = SeededRlwePublicKey::allocate(self.ring_size());
+        let mut scratch = self.ring().allocate_scratch(2, 2, 0);
+        rlwe::seeded_pk_gen(
+            self.ring(),
+            &mut pk,
+            sk,
+            self.param.noise_distribution,
+            scratch.borrow_mut(),
+            rng,
+        );
+        pk
+    }
+
+    pub fn noise(
+        &self,
+        sk: &RlweSecretKeyOwned<i32>,
+        pt: &RlwePlaintextOwned<R::Elem>,
+        ct: &RlweCiphertextOwned<R::Elem>,
+    ) -> Vec<i64> {
+        let mut pt_noisy = self.decrypt(sk, ct);
+        self.ring().slice_sub_assign(pt_noisy.as_mut(), pt.as_ref());
+        let to_i64 = |pt: &_| self.ring().to_i64(*pt);
+        pt_noisy.as_ref().iter().map(to_i64).collect()
+    }
 }
 
 pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RlweParam {
@@ -336,9 +349,9 @@ pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RlweParam {
         message_modulus: 1 << 6,
         ciphertext_modulus: ciphertext_modulus.into(),
         ring_size,
-        sk_distribution: Gaussian(3.2).into(),
-        u_distribution: Ternary(ring_size / 2).into(),
-        noise_distribution: Gaussian(3.2).into(),
+        sk_distribution: Gaussian(3.19).into(),
+        u_distribution: Ternary.into(),
+        noise_distribution: Gaussian(3.19).into(),
         ks_decomposition_param: DecompositionParam {
             log_base: 8,
             level: 6,
@@ -364,9 +377,9 @@ fn encrypt_decrypt() {
         }
     }
 
-    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNativeRing>(test_param(Native::native()));
     run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
-    run::<NativeRing>(test_param(Modulus::native()));
+    run::<NativeRing>(test_param(Native::native()));
     run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
@@ -387,9 +400,9 @@ fn sample_extract() {
         }
     }
 
-    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNativeRing>(test_param(Native::native()));
     run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
-    run::<NativeRing>(test_param(Modulus::native()));
+    run::<NativeRing>(test_param(Native::native()));
     run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
@@ -415,9 +428,9 @@ fn key_switch() {
         }
     }
 
-    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNativeRing>(test_param(Native::native()));
     run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
-    run::<NativeRing>(test_param(Modulus::native()));
+    run::<NativeRing>(test_param(Native::native()));
     run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
@@ -445,10 +458,44 @@ fn automorphism() {
         }
     }
 
-    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNativeRing>(test_param(Native::native()));
     run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
-    run::<NativeRing>(test_param(Modulus::native()));
+    run::<NativeRing>(test_param(Native::native()));
     run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
+    run::<PrimeRing>(test_param(Prime::gen(50, 9)));
+}
+
+#[test]
+fn noise_stats() {
+    fn run<R: RingOps>(param: RlweParam) {
+        let mut rng = StdLweRng::from_entropy();
+        let rlwe = param.build::<R>();
+        let sk = rlwe.sk_gen();
+        let pk = rlwe.pk_gen(&sk, &mut rng);
+        let mut noise_ct_sk = Stats::default();
+        let mut noise_ct_pk = Stats::default();
+        for _ in 0..10000 {
+            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
+            let pt = rlwe.encode(&m);
+            let ct_sk = rlwe.sk_encrypt(&sk, &pt, &mut rng);
+            let ct_pk = rlwe.pk_encrypt(&pk, &pt, &mut rng);
+            noise_ct_sk.extend(rlwe.noise(&sk, &pt, &ct_sk));
+            noise_ct_pk.extend(rlwe.noise(&sk, &pt, &ct_pk));
+        }
+
+        let ring_size = param.ring_size as f64;
+        let var_sk = param.sk_distribution.variance();
+        let var_noise = param.noise_distribution.variance();
+        let var_noise_ct_pk =
+            ring_size * var_sk * var_noise + (ring_size * var_sk + 1.0) * var_noise;
+        assert_eq!(noise_ct_sk.mean().round(), 0.0);
+        assert!((noise_ct_sk.log2_std_dev() - var_noise.sqrt().log2()).abs() < 0.01);
+        assert_eq!(noise_ct_pk.mean().round(), 0.0);
+        assert!(noise_ct_pk.log2_std_dev() < var_noise_ct_pk.sqrt().log2());
+    }
+
+    run::<NativeRing>(test_param(Native::native()));
+    run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
 }

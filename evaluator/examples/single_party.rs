@@ -5,7 +5,10 @@ use phantom_zone_crypto::{
         lwe::{LweSecretKey, LweSecretKeyOwned},
         rgsw::RgswDecompositionParam,
     },
-    util::rng::{LweRng, StdLweRng},
+    util::{
+        distribution::{NoiseDistribution, SecretDistribution},
+        rng::{LweRng, StdLweRng},
+    },
 };
 use phantom_zone_evaluator::boolean::{
     evaluator::fhew::{FhewBoolCiphertext, FhewBoolEvaluator, FhewBoolParam},
@@ -14,7 +17,7 @@ use phantom_zone_evaluator::boolean::{
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::Gaussian,
-    modulus::{Modulus, NonNativePowerOfTwo},
+    modulus::{Modulus, Native, NonNativePowerOfTwo},
     ring::{NoisyNativeRing, NonNativePowerOfTwoRing},
 };
 use rand::{RngCore, SeedableRng};
@@ -22,10 +25,10 @@ use rand::{RngCore, SeedableRng};
 type Evaluator = FhewBoolEvaluator<NoisyNativeRing, NonNativePowerOfTwoRing>;
 
 const PARAM: FhewBoolParam = FhewBoolParam {
-    modulus: Modulus::native(),
+    modulus: Native::native(),
     ring_size: 2048,
-    sk_distribution: Gaussian(3.2).into(),
-    noise_distribution: Gaussian(3.2).into(),
+    sk_distribution: SecretDistribution::Gaussian(Gaussian(3.19)),
+    noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
     auto_decomposition_param: DecompositionParam {
         log_base: 24,
         level: 1,
@@ -37,7 +40,8 @@ const PARAM: FhewBoolParam = FhewBoolParam {
     },
     lwe_modulus: Modulus::NonNativePowerOfTwo(NonNativePowerOfTwo::new(16)),
     lwe_dimension: 620,
-    lwe_sk_distribution: Gaussian(3.2).into(),
+    lwe_sk_distribution: SecretDistribution::Gaussian(Gaussian(3.19)),
+    lwe_noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
     lwe_ks_decomposition_param: DecompositionParam {
         log_base: 1,
         level: 13,

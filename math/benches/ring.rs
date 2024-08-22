@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use phantom_zone_math::{
-    modulus::{Modulus, NonNativePowerOfTwo, Prime},
+    modulus::{Native, NonNativePowerOfTwo, Prime},
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
@@ -26,7 +26,7 @@ fn forward(c: &mut Criterion) {
         let ring_size = 1 << log_ring_size;
         let runners = [
             ("noisy_native", {
-                let modulus = Modulus::native();
+                let modulus = Native::native().into();
                 runner(NoisyNativeRing::new(modulus, ring_size))
             }),
             ("noisy_non_native_power_of_two", {
@@ -34,7 +34,7 @@ fn forward(c: &mut Criterion) {
                 runner(NoisyNonNativePowerOfTwoRing::new(modulus, ring_size))
             }),
             ("native", {
-                let modulus = Modulus::native();
+                let modulus = Native::native().into();
                 runner(NativeRing::new(modulus, ring_size))
             }),
             ("non_native_power_of_two", {
@@ -75,7 +75,7 @@ fn poly_mul(c: &mut Criterion) {
         let ring_size = 1 << log_ring_size;
         let runners = [
             ("noisy_native", {
-                let modulus = Modulus::native();
+                let modulus = Native::native().into();
                 runner(NoisyNativeRing::new(modulus, ring_size))
             }),
             ("noisy_non_native_power_of_two", {
@@ -83,7 +83,7 @@ fn poly_mul(c: &mut Criterion) {
                 runner(NoisyNonNativePowerOfTwoRing::new(modulus, ring_size))
             }),
             ("native", {
-                let modulus = Modulus::native();
+                let modulus = Native::native().into();
                 runner(NativeRing::new(modulus, ring_size))
             }),
             ("non_native_power_of_two", {
