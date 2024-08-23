@@ -447,7 +447,7 @@ pub fn seeded_auto_key_gen<'a, 'b, R, T>(
     T: 'b + Copy + Neg<Output = T>,
 {
     let (mut auto_key_seeded, sk) = (auto_key_seeded.into(), sk.into());
-    let auto_map = AutomorphismMap::new(ring.ring_size(), auto_key_seeded.k() as _);
+    let auto_map = AutomorphismMap::new(ring.ring_size(), auto_key_seeded.k());
     let ks_key = auto_key_seeded.as_ks_key_mut();
     let sk_auto = scratch.copy_iter(auto_map.apply(sk.as_ref(), |&v| -v));
     seeded_ks_key_gen_inner(ring, ks_key, sk_auto, sk, noise_distribution, scratch, rng);

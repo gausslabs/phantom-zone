@@ -5,7 +5,6 @@ use crate::{
             self, RlweAutoKey, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextOwned,
             RlweKeySwitchKey, RlweKeySwitchKeyOwned, RlwePlaintext, RlwePlaintextOwned,
             RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey, RlweSecretKeyOwned,
-            SeededRlwePublicKey, SeededRlwePublicKeyOwned,
         },
     },
     util::{
@@ -228,7 +227,7 @@ impl<R: RingOps> Rlwe<R> {
     pub fn auto_key_gen(
         &self,
         sk: &RlweSecretKeyOwned<i32>,
-        k: i64,
+        k: usize,
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> RlweAutoKeyOwned<R::Elem> {
         let mut auto_key =
@@ -278,7 +277,7 @@ impl<R: RingOps> Rlwe<R> {
             self.ring_size(),
             self.ring().eval_size(),
             auto_key.decomposition_param(),
-            auto_key.k() as _,
+            auto_key.k(),
         );
         let mut scratch = self.ring().allocate_scratch(0, 1, 0);
         rlwe::prepare_auto_key(
@@ -310,24 +309,6 @@ impl<R: RingOps> Rlwe<R> {
         let mut scratch = self.ring().allocate_scratch(2, 3, 0);
         rlwe::automorphism_prep_in_place(self.ring(), &mut ct, auto_key_prep, scratch.borrow_mut());
         ct
-    }
-
-    pub fn seeded_pk_gen(
-        &self,
-        sk: &RlweSecretKeyOwned<i32>,
-        rng: &mut LweRng<impl RngCore, impl RngCore>,
-    ) -> SeededRlwePublicKeyOwned<R::Elem> {
-        let mut pk = SeededRlwePublicKey::allocate(self.ring_size());
-        let mut scratch = self.ring().allocate_scratch(2, 2, 0);
-        rlwe::seeded_pk_gen(
-            self.ring(),
-            &mut pk,
-            sk,
-            self.param.noise_distribution,
-            scratch.borrow_mut(),
-            rng,
-        );
-        pk
     }
 
     pub fn noise(
@@ -442,8 +423,8 @@ fn automorphism() {
         let mut rng = StdLweRng::from_entropy();
         let rlwe = param.build::<R>();
         let sk = rlwe.sk_gen(&mut rng);
-        for k in (1..rlwe.ring_size()).step_by(2) {
-            let auto_key = rlwe.auto_key_gen(&sk, k as _, &mut rng);
+        for k in (1..2 * rlwe.ring_size()).step_by(2) {
+            let auto_key = rlwe.auto_key_gen(&sk, k, &mut rng);
             let auto_key_prep = rlwe.prepare_auto_key(&auto_key);
             let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let ct = rlwe.sk_encrypt(&sk, &rlwe.encode(&m), &mut rng);

@@ -421,7 +421,7 @@ impl<S1: AsMutSlice, S2: AsSlice<Elem = usize>> RlweAutoKey<S1, S2> {
 }
 
 impl<T: Default> RlweAutoKey<Vec<T>, Vec<usize>> {
-    pub fn allocate(ring_size: usize, decomposition_param: DecompositionParam, k: i64) -> Self {
+    pub fn allocate(ring_size: usize, decomposition_param: DecompositionParam, k: usize) -> Self {
         Self::new(
             RlweKeySwitchKey::allocate(ring_size, decomposition_param),
             AutomorphismMap::new(ring_size, k),
@@ -432,7 +432,7 @@ impl<T: Default> RlweAutoKey<Vec<T>, Vec<usize>> {
         ring_size: usize,
         eval_size: usize,
         decomposition_param: DecompositionParam,
-        k: i64,
+        k: usize,
     ) -> Self {
         Self::new(
             RlweKeySwitchKey::allocate_eval(ring_size, eval_size, decomposition_param),

@@ -59,11 +59,11 @@ impl<S: AsSlice<Elem = usize>> AutomorphismMap<S> {
 }
 
 impl AutomorphismMapOwned {
-    pub fn new(ring_size: usize, k: i64) -> Self {
+    pub fn new(ring_size: usize, k: usize) -> Self {
         debug_assert!(ring_size.is_power_of_two());
+        debug_assert!(k < 2 * ring_size);
         let mask = ring_size - 1;
         let log_n = ring_size.ilog2();
-        let k = k.rem_euclid(2 * ring_size as i64) as usize;
         let mut map = vec![0; ring_size];
         (0..ring_size).for_each(|i| {
             let j = i * k;
@@ -86,10 +86,10 @@ mod test {
     use core::ops::Neg;
     use itertools::Itertools;
 
-    fn automorphism<T: Copy + Default + Neg<Output = T>>(input: &[T], k: i64) -> Vec<T> {
+    fn automorphism<T: Copy + Default + Neg<Output = T>>(input: &[T], k: usize) -> Vec<T> {
         assert!(input.len().is_power_of_two());
+        assert!(k < 2 * input.len());
         let n = input.len();
-        let k = k.rem_euclid(2 * n as i64) as usize;
         let mut out = vec![T::default(); n];
         (0..n)
             .map(|i| (i, (i * k) % (2 * n)))
@@ -102,11 +102,11 @@ mod test {
         for log_n in 0..10 {
             let n = 1 << log_n;
             let indices = (0..n as i64).collect_vec();
-            for k in (1..n).step_by(2) {
-                let auto_map = AutomorphismMap::new(n, k as _);
+            for k in (1..2 * n).step_by(2) {
+                let auto_map = AutomorphismMap::new(n, k);
                 assert_eq!(
                     auto_map.apply(&indices, |i| -i).collect_vec(),
-                    automorphism(&indices, k as _)
+                    automorphism(&indices, k)
                 );
             }
         }

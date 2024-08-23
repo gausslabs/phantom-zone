@@ -76,7 +76,7 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         let big_q_by_4 = ring.elem_from(param.modulus.as_f64() / 4f64);
         let big_q_by_8 = ring.elem_from(param.modulus.as_f64() / 8f64);
         let luts = {
-            let auto_map = AutomorphismMap::new(param.q / 2, -(param.g as i64));
+            let auto_map = AutomorphismMap::new(param.q / 2, param.q - param.g);
             let lut_value = [big_q_by_8, ring.neg(&big_q_by_8)];
             let log_q_by_8 = (param.q / 8).ilog2() as usize;
             [[1, 1, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 1, 1]].map(|lut| {
