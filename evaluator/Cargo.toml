@@ -7,10 +7,12 @@ edition = "2021"
 itertools = { workspace = true }
 paste = { workspace = true }
 rand = { workspace = true }
-serde = { workspace = true, optional = true, features = ["derive"] }
 phantom-zone-crypto = { path = "../crypto" }
 phantom-zone-derive = { path = "../derive" }
 phantom-zone-math = { path = "../math" }
+
+# serde
+serde = { workspace = true, optional = true, features = ["derive"] }
 
 [dev-dependencies]
 criterion = { workspace = true }

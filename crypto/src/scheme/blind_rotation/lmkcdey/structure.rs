@@ -242,7 +242,7 @@ impl<T1, T2> LmkcdeyKey<T1, T2> {
     }
 }
 
-impl<T1: Default + Clone, T2: Default> LmkcdeyKey<T1, T2> {
+impl<T1: Clone + Default, T2: Default> LmkcdeyKey<T1, T2> {
     pub fn allocate(param: LmkcdeyParam) -> Self {
         let ks_key = LweKeySwitchKey::allocate(
             param.ring_size,

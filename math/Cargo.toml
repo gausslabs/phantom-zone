@@ -11,8 +11,13 @@ num-traits = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 rustfft = { workspace = true }
-serde = { workspace = true, optional = true, features = ["derive"] }
 phantom-zone-derive = { path = "../derive" }
+
+# serde
+serde = { workspace = true, optional = true, features = ["derive"] }
+
+# dev
+bincode = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -21,9 +26,10 @@ rand = { workspace = true, features = ["std"] }
 
 [features]
 default = []
-serde = ["dep:serde"]
-dev = ["num-bigint-dig/prime", "rand/std"]
+serde = ["dep:serde", "num-complex/serde"]
+dev = ["dep:bincode", "num-bigint-dig/prime", "rand/std"]
 
 [[bench]]
 name = "ring"
 harness = false
+required-features = ["dev"]

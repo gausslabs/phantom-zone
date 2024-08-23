@@ -151,3 +151,48 @@ fn bootstrap() {
         run::<PrimeRing>(Prime::gen(50, 12), embedding_factor);
     }
 }
+
+#[cfg(feature = "serde")]
+#[test]
+fn serialize_deserialize() {
+    use phantom_zone_math::util::serde::dev::assert_serde_eq;
+
+    fn run<R: RingOps>(modulus: impl Into<Modulus>) {
+        let mut rng = StdLweRng::from_entropy();
+        let param = test_param(modulus, 1);
+        let rgsw = RgswParam::from(param).build::<R>();
+        let lwe_ks = LweParam::from(param).build::<NonNativePowerOfTwoRing>();
+        let ring = rgsw.ring();
+        let mod_ks = lwe_ks.modulus();
+
+        let sk = rgsw.rlwe().sk_gen(&mut rng);
+        let sk_ks = lwe_ks.sk_gen(&mut rng);
+        let (bs_key, bs_key_prep) = {
+            let mut scratch = ring.allocate_scratch(0, 3, 0);
+            let mut bs_key = LmkcdeyKey::allocate(param);
+            lmkcdey::bs_key_gen(
+                ring,
+                mod_ks,
+                &mut bs_key,
+                &sk,
+                &sk_ks,
+                scratch.borrow_mut(),
+                &mut rng,
+            );
+            let mut bs_key_prep = LmkcdeyKey::allocate_eval(*bs_key.param(), ring.eval_size());
+            lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
+            (bs_key, bs_key_prep)
+        };
+        assert_serde_eq(&sk);
+        assert_serde_eq(&sk_ks);
+        assert_serde_eq(&bs_key);
+        assert_serde_eq(&bs_key_prep);
+    }
+
+    run::<NoisyNativeRing>(Native::native());
+    run::<NoisyNonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(50));
+    run::<NativeRing>(Native::native());
+    run::<NonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(50));
+    run::<NoisyPrimeRing>(Prime::gen(50, 12));
+    run::<PrimeRing>(Prime::gen(50, 12));
+}

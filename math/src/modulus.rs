@@ -2,6 +2,7 @@ use crate::{
     decomposer::Decomposer,
     distribution::{DistributionSized, Sampler},
     izip_eq,
+    util::serde::Serde,
 };
 use core::{borrow::Borrow, fmt::Debug, hash::Hash, iter::successors};
 use itertools::izip;
@@ -40,20 +41,7 @@ impl Modulus {
 }
 
 pub trait ElemOps: Clone + Debug + Send + Sync {
-    #[cfg(not(feature = "serde"))]
-    type Elem: 'static + Copy + Debug + Default + Send + Sync + Eq + Ord + Hash;
-    #[cfg(feature = "serde")]
-    type Elem: 'static
-        + Copy
-        + Debug
-        + Default
-        + Send
-        + Sync
-        + Eq
-        + Ord
-        + Hash
-        + serde::Serialize
-        + serde::de::DeserializeOwned;
+    type Elem: 'static + Copy + Debug + Default + Eq + Ord + Hash + Send + Sync + Serde;
 }
 
 pub trait ElemFrom<T>: ElemOps {

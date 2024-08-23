@@ -1,12 +1,10 @@
 use core::fmt::Debug;
+use phantom_zone_math::util::serde::Serde;
 
 pub mod fhew;
 
 pub trait BoolEvaluator: Send + Sync {
-    #[cfg(not(feature = "serde"))]
-    type Ciphertext: Clone + Debug;
-    #[cfg(feature = "serde")]
-    type Ciphertext: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned;
+    type Ciphertext: Clone + Debug + Serde;
 
     fn bitnot_assign(&self, a: &mut Self::Ciphertext);
 

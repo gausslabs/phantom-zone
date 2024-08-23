@@ -91,7 +91,7 @@ fn bs_key_gen<R: RingOps>(
     let sk_shares = rngs.iter_mut().map(|rng| rlwe.sk_gen(rng)).collect_vec();
     let sk_ks_shares = rngs.iter_mut().map(|rng| lwe_ks.sk_gen(rng)).collect_vec();
     let pk_shares = izip!(&sk_shares, &mut rngs)
-        .map(|(sk, rng)| {
+        .map(|(sk_share, rng)| {
             let mut pk_share = SeededRlwePublicKey::allocate(param.ring_size);
             let mut scratch = ring.allocate_scratch(2, 2, 0);
             interactive::pk_share_gen(
@@ -99,7 +99,7 @@ fn bs_key_gen<R: RingOps>(
                 &mut pk_share,
                 &param,
                 &crs,
-                sk,
+                sk_share,
                 scratch.borrow_mut(),
                 rng,
             );
@@ -112,16 +112,16 @@ fn bs_key_gen<R: RingOps>(
         pk
     };
     let bs_key_shares = izip!(0.., &sk_shares, &sk_ks_shares, &mut rngs)
-        .map(|(share_idx, sk, sk_ks, rng)| {
+        .map(|(share_idx, sk_share, sk_ks_share, rng)| {
             let mut bs_key_share = LmkcdeyKeyShare::allocate(param, crs, share_idx);
             let mut scratch = ring.allocate_scratch(2, 3, 0);
             interactive::bs_key_share_gen(
                 ring,
                 mod_ks,
                 &mut bs_key_share,
-                sk,
+                sk_share,
                 &pk,
-                sk_ks,
+                sk_ks_share,
                 scratch.borrow_mut(),
                 rng,
             );
@@ -156,9 +156,9 @@ fn bs_key_gen<R: RingOps>(
         .unwrap();
     let sk_ks = sk_ks_shares
         .into_iter()
-        .reduce(|mut sk, sk_share| {
-            izip_eq!(sk.as_mut(), sk_share.as_ref()).for_each(|(a, b)| *a += b);
-            sk
+        .reduce(|mut sk_ks, sk_ks_share| {
+            izip_eq!(sk_ks.as_mut(), sk_ks_share.as_ref()).for_each(|(a, b)| *a += b);
+            sk_ks
         })
         .unwrap();
     (sk, sk_ks, pk, bs_key)
@@ -214,7 +214,7 @@ fn interactive() {
 }
 
 #[test]
-fn key_gen_determinism() {
+fn bs_key_gen_determinism() {
     fn run<R: RingOps>(modulus: impl Into<Modulus>) {
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
@@ -225,11 +225,13 @@ fn key_gen_determinism() {
         );
     }
 
+    run::<NativeRing>(Native::native());
+    run::<NonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(54));
     run::<PrimeRing>(Prime::gen(54, 12));
 }
 
 #[test]
-fn key_gen_stats() {
+fn bs_key_gen_stats() {
     fn run<R: RingOps>(modulus: impl Into<Modulus>) {
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
@@ -269,5 +271,69 @@ fn key_gen_stats() {
         assert!(noise.log2_std_dev() < var_noise_brk.sqrt().log2());
     }
 
+    run::<NativeRing>(Native::native());
+    run::<NonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(54));
+    run::<PrimeRing>(Prime::gen(54, 12));
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn serialize_deserialize() {
+    use phantom_zone_math::util::serde::dev::assert_serde_eq;
+
+    fn run<R: RingOps>(modulus: impl Into<Modulus>) {
+        let mut rng = StdLweRng::from_entropy();
+        let param = test_param(modulus);
+        let crs = LmkcdeyInteractiveCrs::<StdRng>::sample(&mut rng);
+        let rgsw = RgswParam::from(*param).build::<R>();
+        let rlwe = rgsw.rlwe();
+        let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
+        let ring = rgsw.ring();
+        let mod_ks = lwe_ks.modulus();
+
+        let sk_share = rlwe.sk_gen(&mut rng);
+        let sk_ks_share = lwe_ks.sk_gen(&mut rng);
+        let pk_share = {
+            let mut pk_share = SeededRlwePublicKey::allocate(param.ring_size);
+            let mut scratch = ring.allocate_scratch(2, 2, 0);
+            interactive::pk_share_gen(
+                ring,
+                &mut pk_share,
+                &param,
+                &crs,
+                &sk_share,
+                scratch.borrow_mut(),
+                &mut rng,
+            );
+            pk_share
+        };
+        let pk = {
+            let mut pk = RlwePublicKey::allocate(ring.ring_size());
+            interactive::aggregate_pk_shares(ring, &mut pk, &crs, &[pk_share.clone()]);
+            pk
+        };
+        let bs_key_shares = {
+            let mut bs_key_share = LmkcdeyKeyShare::allocate(param, crs, 0);
+            let mut scratch = ring.allocate_scratch(2, 3, 0);
+            interactive::bs_key_share_gen(
+                ring,
+                mod_ks,
+                &mut bs_key_share,
+                &sk_share,
+                &pk,
+                &sk_ks_share,
+                scratch.borrow_mut(),
+                &mut rng,
+            );
+            bs_key_share
+        };
+        assert_serde_eq(&crs);
+        assert_serde_eq(&pk_share);
+        assert_serde_eq(&pk);
+        assert_serde_eq(&bs_key_shares);
+    }
+
+    run::<NativeRing>(Native::native());
+    run::<NonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(54));
     run::<PrimeRing>(Prime::gen(54, 12));
 }

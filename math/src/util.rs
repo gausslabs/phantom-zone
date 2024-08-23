@@ -1,5 +1,6 @@
 pub mod as_slice;
 pub mod scratch;
+pub mod serde;
 
 pub fn bit_reverse<T, V: AsMut<[T]>>(mut values: V) -> V {
     let n = values.as_mut().len();

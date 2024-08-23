@@ -23,7 +23,7 @@ use core::{
 };
 use rand::{RngCore, SeedableRng};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LmkcdeyInteractiveParam {
     pub param: LmkcdeyParam,
@@ -54,7 +54,7 @@ pub struct LmkcdeyInteractiveCrs<S: SeedableRng> {
     _marker: PhantomData<S>,
 }
 
-impl<S: RngCore + SeedableRng<Seed: Clone>> LmkcdeyInteractiveCrs<S> {
+impl<S: SeedableRng> LmkcdeyInteractiveCrs<S> {
     pub fn sample(mut rng: impl RngCore) -> Self {
         let mut seed = S::Seed::default();
         rng.fill_bytes(seed.as_mut());
@@ -63,7 +63,9 @@ impl<S: RngCore + SeedableRng<Seed: Clone>> LmkcdeyInteractiveCrs<S> {
             _marker: PhantomData,
         }
     }
+}
 
+impl<S: RngCore + SeedableRng<Seed: Clone>> LmkcdeyInteractiveCrs<S> {
     pub fn pk_rng<R: RngCore + SeedableRng>(&self, rng: &mut R) -> LweRng<R, S> {
         let private = R::from_rng(rng).unwrap();
         let seedable = self.hierarchical_rng(&[0]);
@@ -197,7 +199,7 @@ impl<T1, T2, S: SeedableRng> LmkcdeyKeyShare<T1, T2, S> {
     }
 }
 
-impl<T1: Default + Clone, T2: Default, S: SeedableRng> LmkcdeyKeyShare<T1, T2, S> {
+impl<T1: Clone + Default, T2: Default, S: SeedableRng> LmkcdeyKeyShare<T1, T2, S> {
     fn new(
         param: LmkcdeyInteractiveParam,
         crs: LmkcdeyInteractiveCrs<S>,
@@ -249,5 +251,54 @@ impl<T1: Default + Clone, T2: Default, S: SeedableRng> LmkcdeyKeyShare<T1, T2, S
             })
             .collect();
         Self::new(param, crs, share_idx, ks_key, brks, aks)
+    }
+}
+
+impl<T1: Clone, T2: Clone, S: SeedableRng<Seed: Clone>> Clone for LmkcdeyKeyShare<T1, T2, S> {
+    fn clone(&self) -> Self {
+        LmkcdeyKeyShare {
+            param: self.param,
+            crs: self.crs.clone(),
+            share_idx: self.share_idx,
+            ks_key: self.ks_key.clone(),
+            brks: self.brks.clone(),
+            aks: self.aks.clone(),
+        }
+    }
+}
+
+impl<T1: Debug, T2: Debug, S: SeedableRng<Seed: Debug>> Debug for LmkcdeyKeyShare<T1, T2, S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LmkcdeyKeyShare")
+            .field("param", &self.param)
+            .field("crs", &self.crs)
+            .field("share_idx", &self.share_idx)
+            .field("ks_key", &self.ks_key)
+            .field("brks", &self.brks)
+            .field("aks", &self.aks)
+            .finish()
+    }
+}
+
+impl<T1: PartialEq, T2: PartialEq, S: SeedableRng<Seed: PartialEq>> PartialEq
+    for LmkcdeyKeyShare<T1, T2, S>
+{
+    fn eq(&self, other: &Self) -> bool {
+        (
+            &self.param,
+            &self.crs,
+            &self.share_idx,
+            &self.ks_key,
+            &self.brks,
+            &self.aks,
+        )
+            .eq(&(
+                &other.param,
+                &other.crs,
+                &other.share_idx,
+                &other.ks_key,
+                &other.brks,
+                &other.aks,
+            ))
     }
 }
