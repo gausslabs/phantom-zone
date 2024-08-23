@@ -26,9 +26,20 @@ pub type FhewBoolParam = LmkcdeyParam;
 
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct FhewBoolCiphertext<R: RingOps>(LweCiphertextOwned<R::Elem>, PhantomData<R>);
+pub struct FhewBoolCiphertext<R: RingOps> {
+    ct: LweCiphertextOwned<R::Elem>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    _marker: PhantomData<R>,
+}
 
 impl<R: RingOps> FhewBoolCiphertext<R> {
+    pub fn new(ct: LweCiphertextOwned<R::Elem>) -> Self {
+        Self {
+            ct,
+            _marker: PhantomData,
+        }
+    }
+
     pub fn encrypt<'a, T>(
         ring: &R,
         sk: impl Into<LweSecretKeyView<'a, T>>,
@@ -43,7 +54,7 @@ impl<R: RingOps> FhewBoolCiphertext<R> {
         let pt = LwePlaintext(NonNativePowerOfTwo::new(2).mod_switch(&(m as u64), ring));
         let mut ct = LweCiphertext::allocate(ring.ring_size());
         lwe::sk_encrypt(ring, &mut ct, sk, pt, noise_distribution, rng);
-        Self(ct, PhantomData)
+        Self::new(ct)
     }
 
     pub fn decrypt<'a, T>(&self, ring: &R, sk: impl Into<LweSecretKeyView<'a, T>>) -> bool
@@ -51,7 +62,7 @@ impl<R: RingOps> FhewBoolCiphertext<R> {
         R: ElemFrom<T>,
         T: 'a + Copy,
     {
-        let pt = lwe::decrypt(ring, sk, &self.0);
+        let pt = lwe::decrypt(ring, sk, &self.ct);
         let m = ring.mod_switch(&pt.0, &NonNativePowerOfTwo::new(2));
         debug_assert!(m == 0 || m == 1);
         m == 1
@@ -134,32 +145,32 @@ impl<R: RingOps, M: ModulusOps> BoolEvaluator for FhewBoolEvaluator<R, M> {
     type Ciphertext = FhewBoolCiphertext<R>;
 
     fn bitnot_assign(&self, a: &mut Self::Ciphertext) {
-        self.ring.slice_neg_assign(a.0.as_mut());
-        self.ring.add_assign(a.0.b_mut(), &self.big_q_by_4);
+        self.ring.slice_neg_assign(a.ct.as_mut());
+        self.ring.add_assign(a.ct.b_mut(), &self.big_q_by_4);
     }
 
     fn bitand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(0, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<false>(0, a.ct.as_mut_view(), b.ct.as_view())
     }
 
     fn bitnand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(1, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<false>(1, a.ct.as_mut_view(), b.ct.as_view())
     }
 
     fn bitor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(2, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<false>(2, a.ct.as_mut_view(), b.ct.as_view())
     }
 
     fn bitnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(3, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<false>(3, a.ct.as_mut_view(), b.ct.as_view())
     }
 
     fn bitxor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<true>(2, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<true>(2, a.ct.as_mut_view(), b.ct.as_view())
     }
 
     fn bitxnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<true>(3, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<true>(3, a.ct.as_mut_view(), b.ct.as_view())
     }
 }
 

@@ -50,6 +50,7 @@ impl Deref for LmkcdeyInteractiveParam {
 )]
 pub struct LmkcdeyInteractiveCrs<S: SeedableRng> {
     seed: S::Seed,
+    #[cfg_attr(feature = "serde", serde(skip))]
     _marker: PhantomData<S>,
 }
 
