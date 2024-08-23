@@ -25,7 +25,7 @@ use rand::{RngCore, SeedableRng};
 type Evaluator = FhewBoolEvaluator<NoisyNativeRing, NonNativePowerOfTwoRing>;
 
 const PARAM: FhewBoolParam = FhewBoolParam {
-    modulus: Native::native(),
+    modulus: Modulus::Native(Native::native()),
     ring_size: 2048,
     sk_distribution: SecretDistribution::Gaussian(Gaussian(3.19)),
     noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
