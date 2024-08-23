@@ -21,6 +21,7 @@ use phantom_zone_math::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LmkcdeyParam {
     // Rlwe param
     pub modulus: Modulus,
@@ -79,6 +80,11 @@ impl LmkcdeyParam {
 /// Also because `g` is odd, `v` will only be odd, the `map` stores the output
 /// of `v` in index `v >> 1` to make use of all space.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "SerdeLogGMap", from = "SerdeLogGMap")
+)]
 pub struct LogGMap {
     g: usize,
     q: usize,
@@ -124,7 +130,32 @@ fn powers_mod_q(g: usize, q: usize) -> impl Iterator<Item = usize> {
     successors(Some(1), move |v| ((v * g) & mask).into())
 }
 
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SerdeLogGMap {
+    g: usize,
+    q: usize,
+}
+
+#[cfg(feature = "serde")]
+impl From<SerdeLogGMap> for LogGMap {
+    fn from(value: SerdeLogGMap) -> Self {
+        Self::new(value.g, value.q)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl From<LogGMap> for SerdeLogGMap {
+    fn from(value: LogGMap) -> Self {
+        Self {
+            g: value.g,
+            q: value.q,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LmkcdeyKey<T1, T2> {
     param: LmkcdeyParam,
     ks_key: LweKeySwitchKeyOwned<T2>,

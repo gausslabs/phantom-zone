@@ -14,6 +14,7 @@ use phantom_zone_math::{
 use rand::RngCore;
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RlweSecretKey<S> {
     #[as_slice]
     data: S,
@@ -50,6 +51,7 @@ impl<S: AsSlice> From<RlweSecretKey<S>> for LweSecretKey<S> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RlwePlaintext<S> {
     #[as_slice]
     data: S,
@@ -79,6 +81,7 @@ impl<'a, T> RlwePlaintext<&'a mut [T]> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RlweCiphertext<S> {
     #[as_slice]
     data: S,
@@ -145,6 +148,7 @@ impl<'a, T> RlweCiphertext<&'a mut [T]> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RlweCiphertextList<S> {
     #[as_slice]
     data: S,
@@ -252,6 +256,7 @@ impl<'a, T> RlweCiphertextList<&'a mut [T]> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RlwePublicKey<S>(#[as_slice(nested)] RlweCiphertext<S>);
 
 impl<S: AsSlice> RlwePublicKey<S> {
@@ -311,6 +316,7 @@ impl<'a, T> RlwePublicKey<&'a mut [T]> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RlweKeySwitchKey<S> {
     #[as_slice(nested)]
     cts: RlweCiphertextList<S>,
@@ -369,7 +375,15 @@ impl<T: Default> RlweKeySwitchKey<Vec<T>> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "S1: serde::Serialize, S2: Clone",
+        deserialize = "S1: serde::Deserialize<'de>, S2: From<Vec<usize>>"
+    ))
+)]
 pub struct RlweAutoKey<S1, S2: AsSlice<Elem = usize>> {
     #[as_slice(nested)]
     ks_key: RlweKeySwitchKey<S1>,
@@ -442,6 +456,7 @@ impl<T: Default> RlweAutoKey<Vec<T>, Vec<usize>> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SeededRlweCiphertext<S> {
     #[as_slice]
     data: S,
@@ -480,6 +495,7 @@ impl<T: Default> SeededRlweCiphertext<Vec<T>> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SeededRlweCiphertextList<S> {
     #[as_slice]
     data: S,
@@ -566,6 +582,7 @@ impl<T: Default> SeededRlweCiphertextList<Vec<T>> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SeededRlwePublicKey<S>(#[as_slice(nested)] SeededRlweCiphertext<S>);
 
 impl<S: AsSlice> SeededRlwePublicKey<S> {
@@ -599,6 +616,7 @@ impl<T: Default> SeededRlwePublicKey<Vec<T>> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SeededRlweKeySwitchKey<S> {
     #[as_slice(nested)]
     cts: SeededRlweCiphertextList<S>,
@@ -646,7 +664,8 @@ impl<T: Default> SeededRlweKeySwitchKey<Vec<T>> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SeededRlweAutoKey<S> {
     #[as_slice(nested)]
     ks_key: SeededRlweKeySwitchKey<S>,

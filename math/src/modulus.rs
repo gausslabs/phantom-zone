@@ -14,6 +14,7 @@ pub use power_of_two::{Native, NonNativePowerOfTwo};
 pub use prime::Prime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Modulus {
     Native(Native),
     NonNativePowerOfTwo(NonNativePowerOfTwo),
@@ -39,7 +40,20 @@ impl Modulus {
 }
 
 pub trait ElemOps: Clone + Debug + Send + Sync {
+    #[cfg(not(feature = "serde"))]
     type Elem: 'static + Copy + Debug + Default + Send + Sync + Eq + Ord + Hash;
+    #[cfg(feature = "serde")]
+    type Elem: 'static
+        + Copy
+        + Debug
+        + Default
+        + Send
+        + Sync
+        + Eq
+        + Ord
+        + Hash
+        + serde::Serialize
+        + serde::de::DeserializeOwned;
 }
 
 pub trait ElemFrom<T>: ElemOps {

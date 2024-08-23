@@ -3,7 +3,10 @@ use core::fmt::Debug;
 pub mod fhew;
 
 pub trait BoolEvaluator: Send + Sync {
+    #[cfg(not(feature = "serde"))]
     type Ciphertext: Clone + Debug;
+    #[cfg(feature = "serde")]
+    type Ciphertext: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned;
 
     fn bitnot_assign(&self, a: &mut Self::Ciphertext);
 

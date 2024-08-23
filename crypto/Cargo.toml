@@ -7,6 +7,7 @@ edition = "2021"
 itertools = { workspace = true }
 num-traits = { workspace = true }
 rand = { workspace = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
 phantom-zone-derive = { path = "../derive" }
 phantom-zone-math = { path = "../math" }
 
@@ -16,6 +17,7 @@ phantom-zone-math = { path = "../math", features = ["dev"] }
 
 [features]
 default = []
+serde = ["dep:serde", "phantom-zone-math/serde"]
 dev = ["phantom-zone-math/dev"]
 
 [[bench]]

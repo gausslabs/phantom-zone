@@ -23,7 +23,13 @@ use phantom_zone_derive::AsSliceWrapper;
 /// assert_eq!(iter.next(), Some((true, 3)));  // X^7 = -X^(3*5)
 /// assert_eq!(iter.next(), None);
 /// ```
-#[derive(Clone, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "SerdeAutomorphismMap", from = "SerdeAutomorphismMap"),
+    serde(bound(serialize = "S: Clone", deserialize = "S: From<Vec<usize>>"))
+)]
 pub struct AutomorphismMap<S: AsSlice<Elem = usize>> {
     #[as_slice]
     map: S,
@@ -77,6 +83,36 @@ impl AutomorphismMapOwned {
 impl<S: AsSlice<Elem = usize>> PartialEq for AutomorphismMap<S> {
     fn eq(&self, other: &Self) -> bool {
         (self.ring_size(), self.k()).eq(&(other.ring_size(), other.k()))
+    }
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SerdeAutomorphismMap {
+    ring_size: usize,
+    k: usize,
+}
+
+#[cfg(feature = "serde")]
+impl<S: AsSlice<Elem = usize> + From<Vec<usize>>> From<SerdeAutomorphismMap>
+    for AutomorphismMap<S>
+{
+    fn from(value: SerdeAutomorphismMap) -> Self {
+        let auto_map = AutomorphismMap::new(value.ring_size, value.k);
+        Self {
+            map: auto_map.map.into(),
+            k: auto_map.k,
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<S: AsSlice<Elem = usize>> From<AutomorphismMap<S>> for SerdeAutomorphismMap {
+    fn from(value: AutomorphismMap<S>) -> Self {
+        Self {
+            ring_size: value.ring_size(),
+            k: value.k,
+        }
     }
 }
 

@@ -9,6 +9,11 @@ pub type Native = PowerOfTwo<true>;
 pub type NonNativePowerOfTwo = PowerOfTwo<false>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "SerdePowerOfTwo", from = "SerdePowerOfTwo")
+)]
 pub struct PowerOfTwo<const NATIVE: bool> {
     bits: usize,
     mask: u64,
@@ -18,9 +23,10 @@ impl<const NATIVE: bool> PowerOfTwo<NATIVE> {
     #[inline(always)]
     pub const fn new(bits: usize) -> Self {
         if NATIVE {
-            debug_assert!(bits == 64);
+            assert!(bits == 64);
         } else {
-            debug_assert!(bits < 64);
+            assert!(bits > 0);
+            assert!(bits < 64);
         }
         let mask = if bits == 64 {
             u64::MAX
@@ -235,6 +241,26 @@ impl<const NATIVE: bool> TryFrom<Modulus> for PowerOfTwo<NATIVE> {
             }),
             _ => Err(()),
         }
+    }
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SerdePowerOfTwo {
+    bits: usize,
+}
+
+#[cfg(feature = "serde")]
+impl<const NATIVE: bool> From<SerdePowerOfTwo> for PowerOfTwo<NATIVE> {
+    fn from(value: SerdePowerOfTwo) -> Self {
+        Self::new(value.bits)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<const NATIVE: bool> From<PowerOfTwo<NATIVE>> for SerdePowerOfTwo {
+    fn from(value: PowerOfTwo<NATIVE>) -> Self {
+        Self { bits: value.bits }
     }
 }
 

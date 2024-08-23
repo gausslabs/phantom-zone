@@ -13,6 +13,7 @@ use phantom_zone_math::{
 use rand::RngCore;
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LweSecretKey<S>(S);
 
 impl<S: AsSlice> LweSecretKey<S> {
@@ -46,9 +47,11 @@ impl<S: AsSlice> From<LweSecretKey<S>> for RlweSecretKey<S> {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LwePlaintext<T>(pub T);
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LweCiphertext<S>(S);
 
 impl<S: AsSlice> LweCiphertext<S> {
@@ -102,6 +105,7 @@ impl<'a, T> LweCiphertext<&'a mut [T]> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LweCiphertextList<S> {
     #[as_slice]
     data: S,
@@ -176,6 +180,7 @@ impl<T: Default> LweCiphertextList<Vec<T>> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LweKeySwitchKey<S> {
     #[as_slice(nested)]
     cts: LweCiphertextList<S>,
@@ -229,6 +234,7 @@ impl<T: Default> LweKeySwitchKey<Vec<T>> {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SeededLweCiphertext<T> {
     data: T,
     dimension: usize,
@@ -257,6 +263,7 @@ impl<T> SeededLweCiphertext<&mut T> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SeededLweCiphertextList<S> {
     #[as_slice]
     data: S,
@@ -328,6 +335,7 @@ impl<T: Default> SeededLweCiphertextListOwned<T> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SeededLweKeySwitchKey<S> {
     #[as_slice(nested)]
     cts: SeededLweCiphertextList<S>,

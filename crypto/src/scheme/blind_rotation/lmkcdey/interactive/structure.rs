@@ -24,6 +24,7 @@ use core::{
 use rand::{RngCore, SeedableRng};
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LmkcdeyInteractiveParam {
     pub param: LmkcdeyParam,
     pub u_distribution: SecretDistribution,
@@ -39,6 +40,14 @@ impl Deref for LmkcdeyInteractiveParam {
     }
 }
 
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "S::Seed: serde::Serialize",
+        deserialize = "S::Seed: serde::Deserialize<'de>"
+    ))
+)]
 pub struct LmkcdeyInteractiveCrs<S: SeedableRng> {
     seed: S::Seed,
     _marker: PhantomData<S>,
@@ -132,6 +141,14 @@ impl<S: SeedableRng<Seed: PartialEq>> PartialEq for LmkcdeyInteractiveCrs<S> {
     }
 }
 
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "T1: serde::Serialize, T2: serde::Serialize, S::Seed: serde::Serialize",
+        deserialize = "T1: serde::Deserialize<'de>, T2: serde::Deserialize<'de>, S::Seed: serde::Deserialize<'de>"
+    ))
+)]
 pub struct LmkcdeyKeyShare<T1, T2, S: SeedableRng> {
     param: LmkcdeyInteractiveParam,
     crs: LmkcdeyInteractiveCrs<S>,

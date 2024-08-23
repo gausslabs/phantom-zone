@@ -365,6 +365,7 @@ dependencies = [
  "phantom-zone-derive",
  "phantom-zone-math",
  "rand",
+ "serde",
 ]
 
 [[package]]
@@ -388,6 +389,7 @@ dependencies = [
  "phantom-zone-derive",
  "phantom-zone-math",
  "rand",
+ "serde",
 ]
 
 [[package]]
@@ -403,6 +405,7 @@ dependencies = [
  "rand",
  "rand_distr",
  "rustfft",
+ "serde",
 ]
 
 [[package]]

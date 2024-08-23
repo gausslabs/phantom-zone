@@ -25,6 +25,7 @@ use rand::RngCore;
 pub type FhewBoolParam = LmkcdeyParam;
 
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FhewBoolCiphertext<R: RingOps>(LweCiphertextOwned<R::Elem>, PhantomData<R>);
 
 impl<R: RingOps> FhewBoolCiphertext<R> {

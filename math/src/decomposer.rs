@@ -6,6 +6,7 @@ use crate::{
 use core::{borrow::Borrow, fmt::Debug};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DecompositionParam {
     pub log_base: usize,
     pub level: usize,
