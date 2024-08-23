@@ -19,8 +19,7 @@ rand = { version = "0.8.5", default-features = false, features = ["std", "std_rn
 
 [features]
 default = []
-dev = ["getrandom", "rand/std", "rand/std_rng"]
-getrandom = ["rand/getrandom"]
+dev = ["rand/std", "rand/std_rng"]
 
 [[bench]]
 name = "ring"

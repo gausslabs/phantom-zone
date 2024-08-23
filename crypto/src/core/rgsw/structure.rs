@@ -31,7 +31,7 @@ impl RgswDecompositionParam {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct RgswCiphertext<S> {
     #[as_slice(nested)]
     cts: RlweCiphertextList<S>,

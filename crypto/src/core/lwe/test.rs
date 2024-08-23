@@ -14,7 +14,7 @@ use phantom_zone_math::{
     modulus::{Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
     ring::{NativeRing, NonNativePowerOfTwoRing, PrimeRing},
 };
-use rand::{thread_rng, RngCore, SeedableRng};
+use rand::{RngCore, SeedableRng};
 
 #[derive(Clone, Copy, Debug)]
 pub struct LweParam {
@@ -72,8 +72,8 @@ impl<M: ModulusOps> Lwe<M> {
         (pt as f64 / self.delta).round() as u64 % self.param.message_modulus
     }
 
-    pub fn sk_gen(&self) -> LweSecretKeyOwned<i32> {
-        LweSecretKey::sample(self.dimension(), self.param.sk_distribution, thread_rng())
+    pub fn sk_gen(&self, rng: impl RngCore) -> LweSecretKeyOwned<i32> {
+        LweSecretKey::sample(self.dimension(), self.param.sk_distribution, rng)
     }
 
     pub fn sk_encrypt(
@@ -166,7 +166,7 @@ fn encrypt_decrypt() {
     fn run<M: ModulusOps>(param: LweParam) {
         let mut rng = StdLweRng::from_entropy();
         let lwe = param.build::<M>();
-        let sk = lwe.sk_gen();
+        let sk = lwe.sk_gen(&mut rng);
         for m in 0..param.message_modulus {
             let pt = lwe.encode(m);
             let ct = lwe.sk_encrypt(&sk, pt, &mut rng);
@@ -189,8 +189,8 @@ fn key_switch() {
         let mut rng = StdLweRng::from_entropy();
         let lwe_from = param.build::<M>();
         let lwe_to = param.dimension(2 * param.dimension).build::<M>();
-        let sk_from = lwe_from.sk_gen();
-        let sk_to = lwe_to.sk_gen();
+        let sk_from = lwe_from.sk_gen(&mut rng);
+        let sk_to = lwe_to.sk_gen(&mut rng);
         let ks_key = lwe_to.ks_key_gen(&sk_from, &sk_to, &mut rng);
         for m in 0..param.message_modulus {
             let pt = lwe_from.encode(m);

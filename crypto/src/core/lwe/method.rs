@@ -146,7 +146,7 @@ pub fn unseed_ks_key<'a, 'b, M: ModulusOps>(
     modulus: &M,
     ks_key: impl Into<LweKeySwitchKeyMutView<'a, M::Elem>>,
     ks_key_seeded: impl Into<SeededLweKeySwitchKeyView<'b, M::Elem>>,
-    rng: &mut LweRng<impl RngCore, impl RngCore>,
+    rng: &mut LweRng<(), impl RngCore>,
 ) {
     let (mut ks_key, ks_key_seeded) = (ks_key.into(), ks_key_seeded.into());
     izip_eq!(ks_key.cts_iter_mut(), ks_key_seeded.cts_iter()).for_each(|(mut cts, cts_seeded)| {

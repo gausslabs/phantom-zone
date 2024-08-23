@@ -457,7 +457,7 @@ pub fn unseed_ct<'a, 'b, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     ct_seeded: impl Into<SeededRlweCiphertextView<'b, R::Elem>>,
-    rng: &mut LweRng<impl RngCore, impl RngCore>,
+    rng: &mut LweRng<(), impl RngCore>,
 ) {
     let mut ct = ct.into();
     ring.sample_uniform_into(ct.a_mut(), rng.seedable());
@@ -468,7 +468,7 @@ pub fn unseed_pk<'a, 'b, R: RingOps>(
     ring: &R,
     pk: impl Into<RlwePublicKeyMutView<'a, R::Elem>>,
     pk_seeded: impl Into<SeededRlwePublicKeyView<'b, R::Elem>>,
-    rng: &mut LweRng<impl RngCore, impl RngCore>,
+    rng: &mut LweRng<(), impl RngCore>,
 ) {
     unseed_ct(ring, pk.into().as_ct_mut(), pk_seeded.into().as_ct(), rng);
 }
@@ -477,7 +477,7 @@ pub fn unseed_ks_key<'a, 'b, R: RingOps>(
     ring: &R,
     ks_key: impl Into<RlweKeySwitchKeyMutView<'a, R::Elem>>,
     ks_key_seeded: impl Into<SeededRlweKeySwitchKeyView<'b, R::Elem>>,
-    rng: &mut LweRng<impl RngCore, impl RngCore>,
+    rng: &mut LweRng<(), impl RngCore>,
 ) {
     izip_eq!(ks_key.into().ct_iter_mut(), ks_key_seeded.into().ct_iter())
         .for_each(|(ct, ct_seeded)| unseed_ct(ring, ct, ct_seeded, rng))
@@ -487,7 +487,7 @@ pub fn unseed_auto_key<'a, 'b, R: RingOps>(
     ring: &R,
     auto_key: impl Into<RlweAutoKeyMutView<'a, R::Elem>>,
     auto_key_seeded: impl Into<SeededRlweAutoKeyView<'b, R::Elem>>,
-    rng: &mut LweRng<impl RngCore, impl RngCore>,
+    rng: &mut LweRng<(), impl RngCore>,
 ) {
     unseed_ks_key(
         ring,

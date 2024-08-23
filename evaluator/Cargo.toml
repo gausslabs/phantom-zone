@@ -18,8 +18,7 @@ phantom-zone-crypto = { path = "../crypto", features = ["dev"] }
 
 [features]
 default = []
-dev = ["getrandom", "phantom-zone-crypto/dev"]
-getrandom = ["phantom-zone-crypto/getrandom"]
+dev = ["phantom-zone-crypto/dev"]
 
 [[bench]]
 name = "boolean"

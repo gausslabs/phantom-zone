@@ -14,10 +14,15 @@ use crate::{
             SeededRlweAutoKeyMutView, SeededRlweAutoKeyOwned, SeededRlweAutoKeyView,
         },
     },
-    util::distribution::{NoiseDistribution, SecretDistribution},
+    util::{
+        distribution::{NoiseDistribution, SecretDistribution},
+        rng::LweRng,
+    },
 };
 use core::{
+    fmt::{self, Debug, Formatter},
     iter::{repeat, successors},
+    marker::PhantomData,
     ops::Deref,
 };
 use itertools::{chain, izip};
@@ -26,6 +31,7 @@ use phantom_zone_math::{
     modulus::{Modulus, ModulusOps},
     ring::RingOps,
 };
+use rand::{RngCore, SeedableRng};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LmkcdeyParam {
@@ -78,7 +84,7 @@ impl LmkcdeyParam {
 /// The `map` contains `sign` bit and `log` encoded as `log << 1 | sign`.
 /// Also because `g` is odd, `v` will only be odd, the `map` stores the output
 /// of `v` in index `v >> 1` to make use of all space.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LogGMap {
     g: usize,
     q: usize,
@@ -124,6 +130,7 @@ fn powers_mod_q(g: usize, q: usize) -> impl Iterator<Item = usize> {
     successors(Some(1), move |v| ((v * g) & mask).into())
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct LmkcdeyKey<T1, T2> {
     param: LmkcdeyParam,
     ks_key: LweKeySwitchKeyOwned<T2>,
@@ -263,6 +270,7 @@ pub struct LmkcdeyInteractiveParam {
     pub param: LmkcdeyParam,
     pub u_distribution: SecretDistribution,
     pub rgsw_by_rgsw_decomposition_param: RgswDecompositionParam,
+    pub total_shares: usize,
 }
 
 impl Deref for LmkcdeyInteractiveParam {
@@ -273,26 +281,119 @@ impl Deref for LmkcdeyInteractiveParam {
     }
 }
 
-pub struct LmkcdeyKeyShare<T1, T2> {
+pub struct LmkcdeyInteractiveCrs<S: SeedableRng> {
+    seed: S::Seed,
+    _marker: PhantomData<S>,
+}
+
+impl<S: RngCore + SeedableRng<Seed: Clone>> LmkcdeyInteractiveCrs<S> {
+    pub fn sample(mut rng: impl RngCore) -> Self {
+        let mut seed = S::Seed::default();
+        rng.fill_bytes(seed.as_mut());
+        Self {
+            seed,
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn pk_rng<R: RngCore + SeedableRng>(&self, rng: &mut R) -> LweRng<R, S> {
+        let private = R::from_rng(rng).unwrap();
+        let seedable = self.hierarchical_rng(&[0]);
+        LweRng::new(private, seedable)
+    }
+
+    pub fn unseed_pk_rng(&self) -> LweRng<(), S> {
+        let seedable = self.hierarchical_rng(&[0]);
+        LweRng::new((), seedable)
+    }
+
+    pub(crate) fn ks_key_rng<R: RngCore + SeedableRng>(&self, rng: &mut R) -> LweRng<R, S> {
+        let private = R::from_rng(rng).unwrap();
+        let seedable = self.hierarchical_rng(&[1, 0]);
+        LweRng::new(private, seedable)
+    }
+
+    pub(crate) fn unseed_ks_key_rng(&self) -> LweRng<(), S> {
+        let seedable = self.hierarchical_rng(&[1, 0]);
+        LweRng::new((), seedable)
+    }
+
+    pub(crate) fn ak_rng<R: RngCore + SeedableRng>(&self, rng: &mut R) -> LweRng<R, S> {
+        let private = R::from_rng(rng).unwrap();
+        let seedable = self.hierarchical_rng(&[1, 1]);
+        LweRng::new(private, seedable)
+    }
+
+    pub(crate) fn unseed_ak_rng(&self) -> LweRng<(), S> {
+        let seedable = self.hierarchical_rng(&[1, 1]);
+        LweRng::new((), seedable)
+    }
+
+    pub(crate) fn brk_rng<R: RngCore + SeedableRng>(&self, rng: &mut R) -> LweRng<R, R> {
+        LweRng::from_rng(rng).unwrap()
+    }
+
+    fn hierarchical_rng(&self, path: &[usize]) -> S {
+        S::from_seed(self.hierarchical_seed(path))
+    }
+
+    fn hierarchical_seed(&self, path: &[usize]) -> S::Seed {
+        let mut seed = self.seed.clone();
+        for idx in path {
+            let mut rng = S::from_seed(seed.clone());
+            for _ in 0..idx + 1 {
+                rng.fill_bytes(seed.as_mut());
+            }
+        }
+        seed
+    }
+}
+
+impl<S: SeedableRng<Seed: Clone>> Clone for LmkcdeyInteractiveCrs<S> {
+    fn clone(&self) -> Self {
+        Self {
+            seed: self.seed.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<S: SeedableRng<Seed: Copy>> Copy for LmkcdeyInteractiveCrs<S> {}
+
+impl<S: SeedableRng<Seed: Debug>> Debug for LmkcdeyInteractiveCrs<S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LmkcdeyInteractiveCrs")
+            .field("seed", &self.seed)
+            .finish()
+    }
+}
+
+impl<S: SeedableRng<Seed: PartialEq>> PartialEq for LmkcdeyInteractiveCrs<S> {
+    fn eq(&self, other: &Self) -> bool {
+        self.seed.eq(&other.seed)
+    }
+}
+
+pub struct LmkcdeyKeyShare<T1, T2, S: SeedableRng> {
     param: LmkcdeyInteractiveParam,
+    crs: LmkcdeyInteractiveCrs<S>,
+    share_idx: usize,
     ks_key: SeededLweKeySwitchKeyOwned<T2>,
     brks: Vec<RgswCiphertextOwned<T1>>,
     aks: Vec<SeededRlweAutoKeyOwned<T1>>,
-    share_idx: usize,
-    total_shares: usize,
 }
 
-impl<T1, T2> LmkcdeyKeyShare<T1, T2> {
+impl<T1, T2, S: SeedableRng> LmkcdeyKeyShare<T1, T2, S> {
     pub fn param(&self) -> &LmkcdeyInteractiveParam {
         &self.param
     }
 
-    pub fn share_idx(&self) -> usize {
-        self.share_idx
+    pub fn crs(&self) -> &LmkcdeyInteractiveCrs<S> {
+        &self.crs
     }
 
-    pub fn total_shares(&self) -> usize {
-        self.total_shares
+    pub fn share_idx(&self) -> usize {
+        self.share_idx
     }
 
     pub fn ks_key(&self) -> SeededLweKeySwitchKeyView<T2> {
@@ -320,35 +421,39 @@ impl<T1, T2> LmkcdeyKeyShare<T1, T2> {
     }
 }
 
-impl<T1: Default + Clone, T2: Default> LmkcdeyKeyShare<T1, T2> {
+impl<T1: Default + Clone, T2: Default, S: SeedableRng> LmkcdeyKeyShare<T1, T2, S> {
     fn new(
         param: LmkcdeyInteractiveParam,
+        crs: LmkcdeyInteractiveCrs<S>,
+        share_idx: usize,
         ks_key: SeededLweKeySwitchKeyOwned<T2>,
         brks: Vec<RgswCiphertextOwned<T1>>,
         aks: Vec<SeededRlweAutoKeyOwned<T1>>,
-        share_idx: usize,
-        total_shares: usize,
     ) -> Self {
-        debug_assert!(total_shares > 0);
-        debug_assert!(share_idx < total_shares);
+        debug_assert!(param.total_shares > 0);
+        debug_assert!(share_idx < param.total_shares);
         Self {
             param,
+            crs,
+            share_idx,
             ks_key,
             brks,
             aks,
-            share_idx,
-            total_shares,
         }
     }
 
-    pub fn allocate(param: LmkcdeyInteractiveParam, share_idx: usize, total_shares: usize) -> Self {
+    pub fn allocate(
+        param: LmkcdeyInteractiveParam,
+        crs: LmkcdeyInteractiveCrs<S>,
+        share_idx: usize,
+    ) -> Self {
         let ks_key = SeededLweKeySwitchKey::allocate(
             param.ring_size,
             param.lwe_dimension,
             param.lwe_ks_decomposition_param,
         );
         let brks = {
-            let chunk_size = param.lwe_dimension.div_ceil(total_shares);
+            let chunk_size = param.lwe_dimension.div_ceil(param.total_shares);
             let init_range = chunk_size * share_idx..chunk_size * (share_idx + 1);
             (0..param.lwe_dimension)
                 .map(|idx| {
@@ -367,6 +472,6 @@ impl<T1: Default + Clone, T2: Default> LmkcdeyKeyShare<T1, T2> {
                 SeededRlweAutoKey::allocate(param.ring_size, param.auto_decomposition_param, k as _)
             })
             .collect();
-        Self::new(param, ks_key, brks, aks, share_idx, total_shares)
+        Self::new(param, crs, share_idx, ks_key, brks, aks)
     }
 }

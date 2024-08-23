@@ -12,7 +12,7 @@ use phantom_zone_math::{
 };
 use rand::RngCore;
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct LweSecretKey<S>(S);
 
 impl<S: AsSlice> LweSecretKey<S> {
@@ -48,7 +48,7 @@ impl<S: AsSlice> From<LweSecretKey<S>> for RlweSecretKey<S> {
 #[derive(Clone, Copy, Debug)]
 pub struct LwePlaintext<T>(pub T);
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct LweCiphertext<S>(S);
 
 impl<S: AsSlice> LweCiphertext<S> {
@@ -101,7 +101,7 @@ impl<'a, T> LweCiphertext<&'a mut [T]> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct LweCiphertextList<S> {
     #[as_slice]
     data: S,
@@ -175,7 +175,7 @@ impl<T: Default> LweCiphertextList<Vec<T>> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct LweKeySwitchKey<S> {
     #[as_slice(nested)]
     cts: LweCiphertextList<S>,
@@ -256,7 +256,7 @@ impl<T> SeededLweCiphertext<&mut T> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct SeededLweCiphertextList<S> {
     #[as_slice]
     data: S,
@@ -327,7 +327,7 @@ impl<T: Default> SeededLweCiphertextListOwned<T> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct SeededLweKeySwitchKey<S> {
     #[as_slice(nested)]
     cts: SeededLweCiphertextList<S>,

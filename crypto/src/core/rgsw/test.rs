@@ -240,7 +240,7 @@ fn rlwe_by_rgsw() {
         let mut rng = StdLweRng::from_entropy();
         let rgsw = param.build::<R>();
         let rlwe = &rgsw.rlwe;
-        let sk = rlwe.sk_gen();
+        let sk = rlwe.sk_gen(&mut rng);
         let pk = rlwe.pk_gen(&sk, &mut rng);
         for _ in 0..100 {
             let m_rlwe = rgsw.message_ring().sample_uniform_poly(&mut rng);
@@ -279,7 +279,7 @@ fn rgsw_by_rgsw() {
         let mut rng = StdLweRng::from_entropy();
         let rgsw = param.build::<R>();
         let rlwe = &rgsw.rlwe;
-        let sk = rlwe.sk_gen();
+        let sk = rlwe.sk_gen(&mut rng);
         for _ in 0..100 {
             let m_a = rgsw.message_ring().sample_uniform_poly(&mut rng);
             let m_b = rgsw.message_ring().sample_uniform_poly(&mut rng);

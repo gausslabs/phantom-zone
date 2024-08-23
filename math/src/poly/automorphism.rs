@@ -74,6 +74,12 @@ impl AutomorphismMapOwned {
     }
 }
 
+impl<S: AsSlice<Elem = usize>> PartialEq for AutomorphismMap<S> {
+    fn eq(&self, other: &Self) -> bool {
+        (self.ring_size(), self.k()).eq(&(other.ring_size(), other.k()))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::poly::automorphism::AutomorphismMap;

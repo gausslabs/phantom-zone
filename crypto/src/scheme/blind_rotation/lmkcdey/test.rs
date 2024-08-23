@@ -8,7 +8,8 @@ use crate::{
         },
     },
     scheme::blind_rotation::lmkcdey::{
-        self, LmkcdeyInteractiveParam, LmkcdeyKey, LmkcdeyKeyShare, LmkcdeyParam,
+        self, LmkcdeyInteractiveCrs, LmkcdeyInteractiveParam, LmkcdeyKey, LmkcdeyKeyShare,
+        LmkcdeyParam,
     },
     util::rng::StdLweRng,
 };
@@ -26,7 +27,7 @@ use phantom_zone_math::{
     },
     util::{dev::Stats, scratch::ScratchOwned},
 };
-use rand::{thread_rng, RngCore, SeedableRng};
+use rand::{rngs::StdRng, thread_rng, RngCore, SeedableRng};
 
 impl From<LmkcdeyParam> for RgswParam {
     fn from(param: LmkcdeyParam) -> Self {
@@ -108,8 +109,8 @@ fn bootstrap() {
         let ring = rgsw.ring();
         let mod_ks = lwe_ks.modulus();
 
-        let sk = rgsw.rlwe().sk_gen();
-        let sk_ks = lwe_ks.sk_gen();
+        let sk = rgsw.rlwe().sk_gen(&mut rng);
+        let sk_ks = lwe_ks.sk_gen(&mut rng);
         let bs_key = {
             let mut scratch = ring.allocate_scratch(0, 3, 0);
             let mut bs_key = LmkcdeyKey::allocate(param);
@@ -159,10 +160,7 @@ fn bootstrap() {
     }
 }
 
-fn test_interactive_param(
-    modulus: impl Into<Modulus>,
-    embedding_factor: usize,
-) -> LmkcdeyInteractiveParam {
+fn test_interactive_param(modulus: impl Into<Modulus>) -> LmkcdeyInteractiveParam {
     let ring_size = 2048;
     LmkcdeyInteractiveParam {
         param: LmkcdeyParam {
@@ -187,7 +185,7 @@ fn test_interactive_param(
                 log_base: 1,
                 level: 13,
             },
-            q: 2 * ring_size / embedding_factor,
+            q: 2 * ring_size,
             g: 5,
             w: 10,
         },
@@ -197,13 +195,15 @@ fn test_interactive_param(
             level_a: 7,
             level_b: 6,
         },
+        total_shares: 4,
     }
 }
 
 #[allow(clippy::type_complexity)]
 fn interactive_bs_key_gen<R: RingOps>(
     param: LmkcdeyInteractiveParam,
-    total_shares: usize,
+    crs: LmkcdeyInteractiveCrs<StdRng>,
+    mut rng: impl RngCore,
 ) -> (
     LweSecretKeyOwned<i32>,
     LweSecretKeyOwned<i32>,
@@ -215,28 +215,23 @@ fn interactive_bs_key_gen<R: RingOps>(
     let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
     let ring = rgsw.ring();
     let mod_ks = lwe_ks.modulus();
-    let seed = from_fn(|_| thread_rng().next_u64() as u8);
 
-    let mut rngs = repeat_with(|| StdLweRng::from_seed(seed))
-        .take(total_shares + 1)
+    let mut rngs = repeat_with(|| StdRng::from_rng(&mut rng).unwrap())
+        .take(param.total_shares)
         .collect_vec();
-    let sk_shares = repeat_with(|| rlwe.sk_gen())
-        .take(total_shares)
-        .collect_vec();
-    let sk_ks_shares = repeat_with(|| lwe_ks.sk_gen())
-        .take(total_shares)
-        .collect_vec();
+    let sk_shares = rngs.iter_mut().map(|rng| rlwe.sk_gen(rng)).collect_vec();
+    let sk_ks_shares = rngs.iter_mut().map(|rng| lwe_ks.sk_gen(rng)).collect_vec();
     let pk_shares = izip!(&sk_shares, &mut rngs)
-        .map(|(sk, rng)| rlwe.seeded_pk_gen(sk, rng))
+        .map(|(sk, rng)| rlwe.seeded_pk_gen(sk, &mut crs.pk_rng(rng)))
         .collect_vec();
     let pk = {
         let mut pk = RlwePublicKey::allocate(ring.ring_size());
-        lmkcdey::aggregate_pk_shares(ring, &mut pk, &pk_shares, rngs.last_mut().unwrap());
+        lmkcdey::aggregate_pk_shares(ring, &mut pk, &crs, &pk_shares);
         pk
     };
     let bs_key_shares = izip!(0.., &sk_shares, &sk_ks_shares, &mut rngs)
         .map(|(share_idx, sk, sk_ks, rng)| {
-            let mut bs_key_share = LmkcdeyKeyShare::allocate(param, share_idx, total_shares);
+            let mut bs_key_share = LmkcdeyKeyShare::allocate(param, crs, share_idx);
             let mut scratch = ring.allocate_scratch(2, 3, 0);
             lmkcdey::bs_key_share_gen(
                 ring,
@@ -263,9 +258,9 @@ fn interactive_bs_key_gen<R: RingOps>(
             ring,
             mod_ks,
             &mut bs_key,
+            &crs,
             &bs_key_shares,
             scratch.borrow_mut(),
-            rngs.last_mut().unwrap(),
         );
         bs_key
     };
@@ -290,8 +285,8 @@ fn interactive_bs_key_gen<R: RingOps>(
 #[test]
 fn interactive() {
     fn run<R1: RingOps, R2: RingOps<Elem = R1::Elem>>(modulus: impl Into<Modulus>) {
-        let total_shares = 4;
-        let param = test_interactive_param(modulus, 1);
+        let param = test_interactive_param(modulus);
+        let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
         let rgsw = RgswParam::from(*param).build::<R2>();
         let rlwe = rgsw.rlwe();
         let lwe = RgswParam::from(*param).rlwe.to_lwe().build::<R2>();
@@ -299,7 +294,7 @@ fn interactive() {
         let ring = rgsw.ring();
         let mod_ks = lwe_ks.modulus();
 
-        let (sk, _, pk, bs_key) = interactive_bs_key_gen::<R1>(param, total_shares);
+        let (sk, _, pk, bs_key) = interactive_bs_key_gen::<R1>(param, crs, thread_rng());
         let bs_key = {
             let mut scratch = ring.allocate_scratch(0, 3, 0);
             let mut bs_key_prep = LmkcdeyKey::allocate_eval(*bs_key.param(), ring.eval_size());
@@ -337,16 +332,31 @@ fn interactive() {
 }
 
 #[test]
+fn interactive_key_gen_determinism() {
+    fn run<R: RingOps>(modulus: impl Into<Modulus>) {
+        let param = test_interactive_param(modulus);
+        let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
+        let rng = StdRng::from_entropy();
+        assert_eq!(
+            interactive_bs_key_gen::<R>(param, crs, rng.clone()),
+            interactive_bs_key_gen::<R>(param, crs, rng.clone()),
+        );
+    }
+
+    run::<PrimeRing>(Prime::gen(54, 12));
+}
+
+#[test]
 fn interactive_key_gen_stats() {
     fn run<R: RingOps>(modulus: impl Into<Modulus>) {
-        let total_shares = 4;
-        let param = test_interactive_param(modulus, 2);
+        let param = test_interactive_param(modulus);
+        let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
         let rgsw = RgswParam::from(*param).build::<R>();
         let ring = rgsw.ring();
 
-        let embedding_factor = param.embedding_factor() as i64;
-        let (sk, sk_ks, _, bs_key) = interactive_bs_key_gen::<R>(param, total_shares);
+        let (sk, sk_ks, _, bs_key) = interactive_bs_key_gen::<R>(param, crs, thread_rng());
         let sk = RlweSecretKey::from(sk);
+        let embedding_factor = param.embedding_factor() as i64;
         let mut noise = Stats::default();
         izip_eq!(sk_ks.as_ref(), bs_key.brks()).for_each(|(sk_ks_i, brk_i)| {
             let brk_i = brk_i.cloned();
@@ -355,8 +365,9 @@ fn interactive_key_gen_stats() {
             noise.extend(rgsw.noise(&sk, &pt, &brk_i).into_iter().flatten());
         });
 
+        let total_shares = param.total_shares as f64;
         let ring_size = param.ring_size as f64;
-        let var_sk = total_shares as f64 * param.sk_distribution.variance();
+        let var_sk = total_shares * param.sk_distribution.variance();
         let var_noise = param.noise_distribution.variance();
         let var_noise_ct_pk =
             ring_size * var_sk * var_noise + (ring_size * var_sk + 1.0) * var_noise;
@@ -371,7 +382,7 @@ fn interactive_key_gen_stats() {
             let var_noise_b = ((level_b * base * base) as f64 * ring_size * var_noise_ct_pk) / 12.0;
             let var_ignored_a = ((ignored_a * ignored_a) as f64 * ring_size * var_sk) / 12.0;
             let var_ignored_b = ((ignored_b * ignored_b) as f64) / 12.0;
-            total_shares as f64 * (var_noise_a + var_noise_b + var_ignored_a + var_ignored_b)
+            total_shares * (var_noise_a + var_noise_b + var_ignored_a + var_ignored_b)
         };
         assert!(noise.log2_std_dev() < var_noise_brk.sqrt().log2());
     }

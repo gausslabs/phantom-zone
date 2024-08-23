@@ -13,7 +13,7 @@ use phantom_zone_math::{
 };
 use rand::RngCore;
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct RlweSecretKey<S> {
     #[as_slice]
     data: S,
@@ -49,7 +49,7 @@ impl<S: AsSlice> From<RlweSecretKey<S>> for LweSecretKey<S> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct RlwePlaintext<S> {
     #[as_slice]
     data: S,
@@ -78,7 +78,7 @@ impl<'a, T> RlwePlaintext<&'a mut [T]> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct RlweCiphertext<S> {
     #[as_slice]
     data: S,
@@ -144,7 +144,7 @@ impl<'a, T> RlweCiphertext<&'a mut [T]> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct RlweCiphertextList<S> {
     #[as_slice]
     data: S,
@@ -251,7 +251,7 @@ impl<'a, T> RlweCiphertextList<&'a mut [T]> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct RlwePublicKey<S>(#[as_slice(nested)] RlweCiphertext<S>);
 
 impl<S: AsSlice> RlwePublicKey<S> {
@@ -310,7 +310,7 @@ impl<'a, T> RlwePublicKey<&'a mut [T]> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct RlweKeySwitchKey<S> {
     #[as_slice(nested)]
     cts: RlweCiphertextList<S>,
@@ -369,7 +369,7 @@ impl<T: Default> RlweKeySwitchKey<Vec<T>> {
     }
 }
 
-#[derive(Clone, Debug, AsSliceWrapper)]
+#[derive(Clone, Debug, PartialEq, AsSliceWrapper)]
 pub struct RlweAutoKey<S1, S2: AsSlice<Elem = usize>> {
     #[as_slice(nested)]
     ks_key: RlweKeySwitchKey<S1>,
@@ -441,7 +441,7 @@ impl<T: Default> RlweAutoKey<Vec<T>, Vec<usize>> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct SeededRlweCiphertext<S> {
     #[as_slice]
     data: S,
@@ -479,7 +479,7 @@ impl<T: Default> SeededRlweCiphertext<Vec<T>> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct SeededRlweCiphertextList<S> {
     #[as_slice]
     data: S,
@@ -565,7 +565,7 @@ impl<T: Default> SeededRlweCiphertextList<Vec<T>> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct SeededRlwePublicKey<S>(#[as_slice(nested)] SeededRlweCiphertext<S>);
 
 impl<S: AsSlice> SeededRlwePublicKey<S> {
@@ -598,7 +598,7 @@ impl<T: Default> SeededRlwePublicKey<Vec<T>> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct SeededRlweKeySwitchKey<S> {
     #[as_slice(nested)]
     cts: SeededRlweCiphertextList<S>,
@@ -646,7 +646,7 @@ impl<T: Default> SeededRlweKeySwitchKey<Vec<T>> {
     }
 }
 
-#[derive(Clone, Debug, AsSliceWrapper)]
+#[derive(Clone, Debug, PartialEq, AsSliceWrapper)]
 pub struct SeededRlweAutoKey<S> {
     #[as_slice(nested)]
     ks_key: SeededRlweKeySwitchKey<S>,

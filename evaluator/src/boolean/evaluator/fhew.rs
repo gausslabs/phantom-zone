@@ -171,7 +171,7 @@ mod dev {
         util::rng::StdLweRng,
     };
     use phantom_zone_math::{modulus::ModulusOps, ring::RingOps};
-    use rand::{RngCore, SeedableRng};
+    use rand::RngCore;
 
     impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         pub fn sample(param: LmkcdeyParam, sk: &LweSecretKeyOwned<i32>, rng: impl RngCore) -> Self {

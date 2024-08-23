@@ -24,7 +24,7 @@ use phantom_zone_math::{
     },
     util::dev::Stats,
 };
-use rand::{thread_rng, RngCore, SeedableRng};
+use rand::{RngCore, SeedableRng};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RlweParam {
@@ -101,8 +101,8 @@ impl<R: RingOps> Rlwe<R> {
         self.ring().mod_switch(&pt.0, &self.message_ring)
     }
 
-    pub fn sk_gen(&self) -> RlweSecretKeyOwned<i32> {
-        RlweSecretKey::sample(self.ring_size(), self.param.sk_distribution, thread_rng())
+    pub fn sk_gen(&self, rng: impl RngCore) -> RlweSecretKeyOwned<i32> {
+        RlweSecretKey::sample(self.ring_size(), self.param.sk_distribution, rng)
     }
 
     pub fn pk_gen(
@@ -364,7 +364,7 @@ fn encrypt_decrypt() {
     fn run<R: RingOps>(param: RlweParam) {
         let mut rng = StdLweRng::from_entropy();
         let rlwe = param.build::<R>();
-        let sk = rlwe.sk_gen();
+        let sk = rlwe.sk_gen(&mut rng);
         let pk = rlwe.pk_gen(&sk, &mut rng);
         for _ in 0..100 {
             let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
@@ -390,7 +390,7 @@ fn sample_extract() {
     fn run<R: RingOps>(param: RlweParam) {
         let mut rng = StdLweRng::from_entropy();
         let rlwe = param.build::<R>();
-        let sk = rlwe.sk_gen();
+        let sk = rlwe.sk_gen(&mut rng);
         let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
         let pt = rlwe.encode(&m);
         let ct_rlwe = rlwe.sk_encrypt(&sk, &pt, &mut rng);
@@ -413,8 +413,8 @@ fn key_switch() {
     fn run<R: RingOps>(param: RlweParam) {
         let mut rng = StdLweRng::from_entropy();
         let rlwe = param.build::<R>();
-        let sk_from = rlwe.sk_gen();
-        let sk_to = rlwe.sk_gen();
+        let sk_from = rlwe.sk_gen(&mut rng);
+        let sk_to = rlwe.sk_gen(&mut rng);
         let ks_key = rlwe.ks_key_gen(&sk_from, &sk_to, &mut rng);
         let ks_key_prep = rlwe.prepare_ks_key(&ks_key);
         for _ in 0..100 {
@@ -441,7 +441,7 @@ fn automorphism() {
     fn run<R: RingOps>(param: RlweParam) {
         let mut rng = StdLweRng::from_entropy();
         let rlwe = param.build::<R>();
-        let sk = rlwe.sk_gen();
+        let sk = rlwe.sk_gen(&mut rng);
         for k in (1..rlwe.ring_size()).step_by(2) {
             let auto_key = rlwe.auto_key_gen(&sk, k as _, &mut rng);
             let auto_key_prep = rlwe.prepare_auto_key(&auto_key);
@@ -471,7 +471,7 @@ fn noise_stats() {
     fn run<R: RingOps>(param: RlweParam) {
         let mut rng = StdLweRng::from_entropy();
         let rlwe = param.build::<R>();
-        let sk = rlwe.sk_gen();
+        let sk = rlwe.sk_gen(&mut rng);
         let pk = rlwe.pk_gen(&sk, &mut rng);
         let mut noise_ct_sk = Stats::default();
         let mut noise_ct_pk = Stats::default();

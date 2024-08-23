@@ -1,7 +1,8 @@
-use rand::{rngs::StdRng, Error, RngCore};
+use rand::{rngs::StdRng, Error, RngCore, SeedableRng};
 
 pub type StdLweRng = LweRng<StdRng, StdRng>;
 
+#[derive(Clone, Debug)]
 pub struct LweRng<R, S> {
     private: R,
     seedable: S,
@@ -11,9 +12,17 @@ impl<R, S> LweRng<R, S> {
     pub fn new(private: R, seedable: S) -> Self {
         Self { private, seedable }
     }
+
+    pub fn from_rng(mut rng: impl RngCore) -> Result<Self, Error>
+    where
+        R: SeedableRng,
+        S: SeedableRng,
+    {
+        Ok(Self::new(R::from_rng(&mut rng)?, S::from_rng(&mut rng)?))
+    }
 }
 
-impl<R: RngCore, S: RngCore> LweRng<R, S> {
+impl<R, S> LweRng<R, S> {
     pub fn seedable(&mut self) -> &mut S {
         &mut self.seedable
     }
@@ -37,23 +46,23 @@ impl<R: RngCore, S> RngCore for LweRng<R, S> {
     }
 }
 
-#[cfg(any(test, feature = "getrandom"))]
-impl<R: rand::SeedableRng, S: rand::SeedableRng> rand::SeedableRng for LweRng<R, S> {
-    type Seed = S::Seed;
+#[cfg(any(test, feature = "dev"))]
+impl<R: SeedableRng, S: SeedableRng> SeedableRng for LweRng<R, S> {
+    type Seed = [u8; 0];
 
-    fn seed_from_u64(state: u64) -> Self {
-        Self::new(R::from_entropy(), S::seed_from_u64(state))
+    fn seed_from_u64(_: u64) -> Self {
+        Self::from_entropy()
     }
 
-    fn from_rng<T: RngCore>(rng: T) -> Result<Self, Error> {
-        Ok(Self::new(R::from_entropy(), S::from_rng(rng)?))
+    fn from_rng<T: RngCore>(_: T) -> Result<Self, Error> {
+        Ok(Self::from_entropy())
     }
 
     fn from_entropy() -> Self {
         Self::new(R::from_entropy(), S::from_entropy())
     }
 
-    fn from_seed(seed: Self::Seed) -> Self {
-        Self::new(R::from_entropy(), S::from_seed(seed))
+    fn from_seed(_: Self::Seed) -> Self {
+        Self::from_entropy()
     }
 }
