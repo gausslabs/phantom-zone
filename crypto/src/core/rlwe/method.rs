@@ -4,8 +4,10 @@ use crate::{
         rlwe::structure::{
             RlweAutoKeyMutView, RlweAutoKeyView, RlweCiphertext, RlweCiphertextMutView,
             RlweCiphertextView, RlweKeySwitchKeyMutView, RlweKeySwitchKeyView,
-            RlwePlaintextMutView, RlwePlaintextView, RlwePublicKeyMutView, RlwePublicKeyView,
-            RlweSecretKeyView,
+            RlwePlaintextMutView, RlwePlaintextView, RlwePublicKey, RlwePublicKeyMutView,
+            RlwePublicKeyView, RlweSecretKeyView, SeededRlweAutoKeyMutView, SeededRlweAutoKeyView,
+            SeededRlweCiphertextView, SeededRlweKeySwitchKeyMutView, SeededRlweKeySwitchKeyView,
+            SeededRlwePublicKeyMutView, SeededRlwePublicKeyView,
         },
     },
     util::{
@@ -18,6 +20,7 @@ use phantom_zone_math::{
     decomposer::{Decomposer, DecompositionParam},
     izip_eq,
     modulus::ElemFrom,
+    poly::automorphism::AutomorphismMap,
     ring::RingOps,
     util::scratch::Scratch,
 };
@@ -392,4 +395,104 @@ pub(crate) fn decomposed_fma_prep<'a, 'b, R: RingOps, const DIRTY: bool>(
         eval_fma_prep(ring, ct_eval.a_mut(), t0, b_i.a());
         eval_fma_prep(ring, ct_eval.b_mut(), t0, b_i.b());
     });
+}
+
+pub fn seeded_pk_gen<'a, 'b, R, T>(
+    ring: &R,
+    pk: impl Into<SeededRlwePublicKeyMutView<'a, R::Elem>>,
+    sk: impl Into<RlweSecretKeyView<'b, T>>,
+    noise_distribution: NoiseDistribution,
+    mut scratch: Scratch,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) where
+    R: RingOps + ElemFrom<T>,
+    T: 'b + Copy,
+{
+    let mut t = RlwePublicKey::scratch(ring.ring_size(), ring.ring_size(), &mut scratch);
+    pk_gen(ring, &mut t, sk, noise_distribution, scratch, rng);
+    pk.into().as_ct_mut().b_mut().copy_from_slice(t.b());
+}
+
+fn seeded_ks_key_gen_inner<R, T>(
+    ring: &R,
+    mut ks_key: SeededRlweKeySwitchKeyMutView<R::Elem>,
+    sk_from: &[T],
+    sk_to: RlweSecretKeyView<T>,
+    noise_distribution: NoiseDistribution,
+    mut scratch: Scratch,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) where
+    R: RingOps + ElemFrom<T>,
+    T: Copy,
+{
+    let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
+    let mut t = RlweCiphertext::scratch(ring.ring_size(), ring.ring_size(), &mut scratch);
+    izip_eq!(ks_key.ct_iter_mut(), decomposer.gadget_iter()).for_each(|(mut ks_key_i, beta_i)| {
+        let scratch = scratch.reborrow();
+        sk_encrypt_zero(ring, &mut t, sk_to, noise_distribution, scratch, rng);
+        ks_key_i.b_mut().copy_from_slice(t.b());
+        ring.slice_scalar_fma_elem_from(ks_key_i.b_mut(), sk_from, &ring.neg(&beta_i));
+    });
+}
+
+pub fn seeded_auto_key_gen<'a, 'b, R, T>(
+    ring: &R,
+    auto_key_seeded: impl Into<SeededRlweAutoKeyMutView<'a, R::Elem>>,
+    sk: impl Into<RlweSecretKeyView<'b, T>>,
+    noise_distribution: NoiseDistribution,
+    mut scratch: Scratch<'b>,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) where
+    R: RingOps + ElemFrom<T>,
+    T: 'b + Copy + Neg<Output = T>,
+{
+    let (mut auto_key_seeded, sk) = (auto_key_seeded.into(), sk.into());
+    let auto_map = AutomorphismMap::new(ring.ring_size(), auto_key_seeded.k());
+    let ks_key = auto_key_seeded.as_ks_key_mut();
+    let sk_auto = scratch.copy_iter(auto_map.apply(sk.as_ref(), |&v| -v));
+    seeded_ks_key_gen_inner(ring, ks_key, sk_auto, sk, noise_distribution, scratch, rng);
+}
+
+pub fn unseed_ct<'a, 'b, R: RingOps>(
+    ring: &R,
+    ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
+    ct_seeded: impl Into<SeededRlweCiphertextView<'b, R::Elem>>,
+    rng: &mut LweRng<(), impl RngCore>,
+) {
+    let mut ct = ct.into();
+    ring.sample_uniform_into(ct.a_mut(), rng.seedable());
+    ct.b_mut().copy_from_slice(ct_seeded.into().b());
+}
+
+pub fn unseed_pk<'a, 'b, R: RingOps>(
+    ring: &R,
+    pk: impl Into<RlwePublicKeyMutView<'a, R::Elem>>,
+    pk_seeded: impl Into<SeededRlwePublicKeyView<'b, R::Elem>>,
+    rng: &mut LweRng<(), impl RngCore>,
+) {
+    unseed_ct(ring, pk.into().as_ct_mut(), pk_seeded.into().as_ct(), rng);
+}
+
+pub fn unseed_ks_key<'a, 'b, R: RingOps>(
+    ring: &R,
+    ks_key: impl Into<RlweKeySwitchKeyMutView<'a, R::Elem>>,
+    ks_key_seeded: impl Into<SeededRlweKeySwitchKeyView<'b, R::Elem>>,
+    rng: &mut LweRng<(), impl RngCore>,
+) {
+    izip_eq!(ks_key.into().ct_iter_mut(), ks_key_seeded.into().ct_iter())
+        .for_each(|(ct, ct_seeded)| unseed_ct(ring, ct, ct_seeded, rng))
+}
+
+pub fn unseed_auto_key<'a, 'b, R: RingOps>(
+    ring: &R,
+    auto_key: impl Into<RlweAutoKeyMutView<'a, R::Elem>>,
+    auto_key_seeded: impl Into<SeededRlweAutoKeyView<'b, R::Elem>>,
+    rng: &mut LweRng<(), impl RngCore>,
+) {
+    unseed_ks_key(
+        ring,
+        auto_key.into().as_ks_key_mut(),
+        auto_key_seeded.into().as_ks_key(),
+        rng,
+    )
 }

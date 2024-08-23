@@ -5,7 +5,7 @@ use crate::{
 };
 use core::{borrow::Borrow, fmt::Debug};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DecompositionParam {
     pub log_base: usize,
     pub level: usize,
@@ -240,53 +240,9 @@ mod test {
             PrimeDecomposer,
         },
         modulus::{ModulusOps, Native, NonNativePowerOfTwo, Prime},
+        util::dev::Stats,
     };
-    use core::iter::Sum;
-    use num_traits::{Signed, ToPrimitive};
     use rand::thread_rng;
-
-    #[derive(Clone)]
-    struct Stats<T> {
-        samples: Vec<T>,
-    }
-
-    impl<T> Default for Stats<T> {
-        fn default() -> Self {
-            Stats { samples: vec![] }
-        }
-    }
-
-    impl<T: Copy + ToPrimitive + Signed + Sum<T>> Stats<T>
-    where
-        T: for<'a> Sum<&'a T>,
-    {
-        fn mean(&self) -> f64 {
-            self.samples.iter().sum::<T>().to_f64().unwrap() / (self.samples.len() as f64)
-        }
-
-        fn variance(&self) -> f64 {
-            let mean = self.mean();
-
-            let diff_sq = self
-                .samples
-                .iter()
-                .map(|v| {
-                    let t = v.to_f64().unwrap() - mean;
-                    t * t
-                })
-                .sum::<f64>();
-
-            diff_sq / (self.samples.len() as f64 - 1.0)
-        }
-
-        fn std_dev(&self) -> f64 {
-            self.variance().sqrt()
-        }
-
-        fn add_many_samples(&mut self, values: impl IntoIterator<Item = T>) {
-            self.samples.extend(values);
-        }
-    }
 
     #[test]
     fn decompose() {
@@ -357,16 +313,13 @@ mod test {
             let decomposer = D::new(modulus.modulus(), param);
 
             for a in modulus.sample_uniform_iter(thread_rng()).take(10000000) {
-                stats.add_many_samples(decomposer.decompose_iter(&a).map(|v| modulus.to_i64(v)));
+                stats.extend(decomposer.decompose_iter(&a).map(|v| modulus.to_i64(v)));
             }
 
             // Signed decomposition outputs limbs uniformly distributed in range [-B/2, B/2). The distribution must have mean nearly 0 and stanadrd deviation \sqrt{B^2 / 12}.
             assert!(stats.mean().abs() < 0.5);
             assert!(
-                stats.std_dev().log2()
-                    - ((1 << (param.log_base * 2)).to_f64().unwrap() / 12.0)
-                        .sqrt()
-                        .log2()
+                stats.log2_std_dev() - (2f64.powi(2 * param.log_base as i32) / 12.0).sqrt().log2()
                     < 0.01
             );
         }

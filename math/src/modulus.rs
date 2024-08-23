@@ -13,7 +13,7 @@ pub(crate) mod prime;
 pub use power_of_two::{Native, NonNativePowerOfTwo};
 pub use prime::Prime;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Modulus {
     Native(Native),
     NonNativePowerOfTwo(NonNativePowerOfTwo),
@@ -21,8 +21,12 @@ pub enum Modulus {
 }
 
 impl Modulus {
-    pub const fn native() -> Self {
-        Self::Native(Native::native())
+    pub fn bits(&self) -> usize {
+        match self {
+            Self::Native(inner) => inner.bits(),
+            Self::NonNativePowerOfTwo(inner) => inner.bits(),
+            Self::Prime(inner) => inner.bits(),
+        }
     }
 
     pub fn as_f64(&self) -> f64 {
@@ -95,8 +99,7 @@ pub trait ModulusOps:
     }
 
     fn powers(&self, a: &Self::Elem) -> impl Iterator<Item = Self::Elem> {
-        let a = self.prepare(a);
-        successors(Some(self.one()), move |v| self.mul_prep(v, &a).into())
+        successors(Some(self.one()), move |v| self.mul(v, a).into())
     }
 
     fn inv(&self, _: &Self::Elem) -> Option<Self::Elem> {

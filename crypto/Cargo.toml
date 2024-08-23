@@ -16,8 +16,7 @@ phantom-zone-math = { path = "../math", features = ["dev"] }
 
 [features]
 default = []
-dev = ["getrandom", "phantom-zone-math/dev"]
-getrandom = ["phantom-zone-math/getrandom"]
+dev = ["phantom-zone-math/dev"]
 
 [[bench]]
 name = "rlwe"

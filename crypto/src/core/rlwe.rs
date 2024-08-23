@@ -20,3 +20,16 @@ pub use structure::{
     RlwePublicKeyMutView, RlwePublicKeyOwned, RlwePublicKeyView, RlweSecretKey,
     RlweSecretKeyMutView, RlweSecretKeyOwned, RlweSecretKeyView,
 };
+
+pub use method::{
+    seeded_auto_key_gen, seeded_pk_gen, unseed_auto_key, unseed_ct, unseed_ks_key, unseed_pk,
+};
+pub use structure::{
+    SeededRlweAutoKey, SeededRlweAutoKeyMutView, SeededRlweAutoKeyOwned, SeededRlweAutoKeyView,
+    SeededRlweCiphertext, SeededRlweCiphertextList, SeededRlweCiphertextListMutView,
+    SeededRlweCiphertextListOwned, SeededRlweCiphertextListView, SeededRlweCiphertextMutView,
+    SeededRlweCiphertextOwned, SeededRlweCiphertextView, SeededRlweKeySwitchKey,
+    SeededRlweKeySwitchKeyMutView, SeededRlweKeySwitchKeyOwned, SeededRlweKeySwitchKeyView,
+    SeededRlwePublicKey, SeededRlwePublicKeyMutView, SeededRlwePublicKeyOwned,
+    SeededRlwePublicKeyView,
+};

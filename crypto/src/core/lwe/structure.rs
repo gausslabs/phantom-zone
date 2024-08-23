@@ -12,7 +12,7 @@ use phantom_zone_math::{
 };
 use rand::RngCore;
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct LweSecretKey<S>(S);
 
 impl<S: AsSlice> LweSecretKey<S> {
@@ -48,7 +48,7 @@ impl<S: AsSlice> From<LweSecretKey<S>> for RlweSecretKey<S> {
 #[derive(Clone, Copy, Debug)]
 pub struct LwePlaintext<T>(pub T);
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct LweCiphertext<S>(S);
 
 impl<S: AsSlice> LweCiphertext<S> {
@@ -101,7 +101,7 @@ impl<'a, T> LweCiphertext<&'a mut [T]> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct LweCiphertextList<S> {
     #[as_slice]
     data: S,
@@ -175,7 +175,7 @@ impl<T: Default> LweCiphertextList<Vec<T>> {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsSliceWrapper)]
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 pub struct LweKeySwitchKey<S> {
     #[as_slice(nested)]
     cts: LweCiphertextList<S>,
@@ -190,16 +190,16 @@ impl<S: AsSlice> LweKeySwitchKey<S> {
         }
     }
 
+    pub fn decomposition_param(&self) -> DecompositionParam {
+        self.decomposition_param
+    }
+
     pub fn to_dimension(&self) -> usize {
         self.cts.dimension()
     }
 
     pub fn from_dimension(&self) -> usize {
         self.cts.len() / self.decomposition_param.level
-    }
-
-    pub fn decomposition_param(&self) -> DecompositionParam {
-        self.decomposition_param
     }
 
     pub fn cts_iter(&self) -> impl Iterator<Item = LweCiphertextListView<S::Elem>> {
@@ -223,6 +223,163 @@ impl<T: Default> LweKeySwitchKey<Vec<T>> {
     ) -> Self {
         Self::new(
             LweCiphertextList::allocate(to_dimension, from_dimension * decomposition_param.level),
+            decomposition_param,
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SeededLweCiphertext<T> {
+    data: T,
+    dimension: usize,
+}
+
+impl<T> SeededLweCiphertext<T> {
+    pub fn new(data: T, dimension: usize) -> Self {
+        Self { data, dimension }
+    }
+
+    pub fn dimension(&self) -> usize {
+        self.dimension
+    }
+}
+
+impl<T> SeededLweCiphertext<&T> {
+    pub fn b(&self) -> &T {
+        self.data
+    }
+}
+
+impl<T> SeededLweCiphertext<&mut T> {
+    pub fn b_mut(&mut self) -> &mut T {
+        self.data
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+pub struct SeededLweCiphertextList<S> {
+    #[as_slice]
+    data: S,
+    dimension: usize,
+}
+
+impl<S: AsSlice> SeededLweCiphertextList<S> {
+    pub fn new(data: S, dimension: usize) -> Self {
+        Self { data, dimension }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn dimension(&self) -> usize {
+        self.dimension
+    }
+
+    pub fn ct_size(&self) -> usize {
+        self.dimension + 1
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = SeededLweCiphertext<&S::Elem>> {
+        let dimension = self.dimension();
+        self.as_ref()
+            .iter()
+            .map(move |data| SeededLweCiphertext::new(data, dimension))
+    }
+
+    pub fn chunks(
+        &self,
+        chunk_size: usize,
+    ) -> impl Iterator<Item = SeededLweCiphertextListView<S::Elem>> {
+        let dimension = self.dimension();
+        self.as_ref()
+            .chunks(chunk_size)
+            .map(move |data| SeededLweCiphertextList::new(data, dimension))
+    }
+}
+
+impl<S: AsMutSlice> SeededLweCiphertextList<S> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = SeededLweCiphertext<&mut S::Elem>> {
+        let dimension = self.dimension();
+        self.as_mut()
+            .iter_mut()
+            .map(move |data| SeededLweCiphertext::new(data, dimension))
+    }
+
+    pub fn chunks_mut(
+        &mut self,
+        chunk_size: usize,
+    ) -> impl Iterator<Item = SeededLweCiphertextListMutView<S::Elem>> {
+        let dimension = self.dimension();
+        self.as_mut()
+            .chunks_mut(chunk_size)
+            .map(move |data| SeededLweCiphertextList::new(data, dimension))
+    }
+}
+
+impl<T: Default> SeededLweCiphertextListOwned<T> {
+    pub fn allocate(dimension: usize, n: usize) -> Self {
+        Self::new(repeat_with(T::default).take(n).collect(), dimension)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+pub struct SeededLweKeySwitchKey<S> {
+    #[as_slice(nested)]
+    cts: SeededLweCiphertextList<S>,
+    decomposition_param: DecompositionParam,
+}
+
+impl<S: AsSlice> SeededLweKeySwitchKey<S> {
+    pub fn new(cts: SeededLweCiphertextList<S>, decomposition_param: DecompositionParam) -> Self {
+        Self {
+            cts,
+            decomposition_param,
+        }
+    }
+
+    pub fn decomposition_param(&self) -> DecompositionParam {
+        self.decomposition_param
+    }
+
+    pub fn to_dimension(&self) -> usize {
+        self.cts.dimension()
+    }
+
+    pub fn from_dimension(&self) -> usize {
+        self.cts.len() / self.decomposition_param.level
+    }
+
+    pub fn cts_iter(&self) -> impl Iterator<Item = SeededLweCiphertextListView<S::Elem>> {
+        let chunk_size = self.decomposition_param.level;
+        self.cts.chunks(chunk_size)
+    }
+}
+
+impl<S: AsMutSlice> SeededLweKeySwitchKey<S> {
+    pub fn cts_iter_mut(
+        &mut self,
+    ) -> impl Iterator<Item = SeededLweCiphertextListMutView<S::Elem>> {
+        let chunk_size = self.decomposition_param.level;
+        self.cts.chunks_mut(chunk_size)
+    }
+}
+
+impl<T: Default> SeededLweKeySwitchKey<Vec<T>> {
+    pub fn allocate(
+        from_dimension: usize,
+        to_dimension: usize,
+        decomposition_param: DecompositionParam,
+    ) -> Self {
+        Self::new(
+            SeededLweCiphertextList::allocate(
+                to_dimension,
+                from_dimension * decomposition_param.level,
+            ),
             decomposition_param,
         )
     }

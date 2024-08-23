@@ -239,7 +239,7 @@ fn from_f64(a: f64) -> u64 {
 mod test {
     use crate::{
         distribution::Sampler,
-        modulus::{Modulus, NonNativePowerOfTwo},
+        modulus::{Native, NonNativePowerOfTwo},
         ring::{
             power_of_two::precise::{NativeRing, NonNativePowerOfTwoRing},
             test::{test_poly_mul, test_round_trip},
@@ -265,7 +265,7 @@ mod test {
     fn native_round_trip() {
         let mut rng = thread_rng();
         for log_ring_size in 0..10 {
-            let ring: NativeRing = RingOps::new(Modulus::native(), 1 << log_ring_size);
+            let ring: NativeRing = RingOps::new(Native::native().into(), 1 << log_ring_size);
             let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
             test_round_trip(&ring, &a, |a, b| assert_eq!(a, b));
         }
@@ -289,7 +289,7 @@ mod test {
     fn native_poly_mul() {
         let mut rng = thread_rng();
         for log_ring_size in 0..10 {
-            let ring: NativeRing = RingOps::new(Modulus::native(), 1 << log_ring_size);
+            let ring: NativeRing = RingOps::new(Native::native().into(), 1 << log_ring_size);
             let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
             let b = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
             test_poly_mul(&ring, &a, &b, |a, b| assert_eq!(a, b));

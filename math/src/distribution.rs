@@ -104,14 +104,26 @@ pub trait DistributionSized<T> {
     fn sample_vec<R: Rng>(self, n: usize, rng: R) -> Vec<T>;
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Gaussian(pub f64);
+pub trait DistributionVariance {
+    fn variance(self) -> f64;
 
-impl Gaussian {
-    pub fn std_dev(&self) -> f64 {
-        self.0
+    fn std_dev(self) -> f64
+    where
+        Self: Sized,
+    {
+        self.variance().sqrt()
+    }
+
+    fn log2_std_dev(self) -> f64
+    where
+        Self: Sized,
+    {
+        self.std_dev().log2()
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Gaussian(pub f64);
 
 impl<T: FromPrimitive> Distribution<T> for Gaussian {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
@@ -120,19 +132,22 @@ impl<T: FromPrimitive> Distribution<T> for Gaussian {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Ternary(pub usize);
+impl DistributionVariance for Gaussian {
+    fn variance(self) -> f64 {
+        self.0 * self.0
+    }
 
-impl Ternary {
-    pub fn hamming_weight(self) -> usize {
+    fn std_dev(self) -> f64 {
         self.0
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ternary;
+
 impl<T: Signed> DistributionSized<T> for Ternary {
     fn sample_map_into<R: Rng, O>(self, out: &mut [O], f: impl Fn(T) -> O, mut rng: R) {
-        assert_ne!(self.hamming_weight(), 0);
-        assert!(self.hamming_weight() <= out.len());
+        let hamming_weight = out.len() / 2;
         let indices = {
             let insert = |set: &mut [u8], idx: usize| {
                 let is_none = (set[idx / 8] & 1 << (idx % 8)) == 0;
@@ -143,7 +158,7 @@ impl<T: Signed> DistributionSized<T> for Ternary {
             let mut count = 0;
             for idx in Uniform::new(0, out.len()).sample_iter(&mut rng) {
                 count += insert(&mut set, idx) as usize;
-                if count == self.hamming_weight() {
+                if count == hamming_weight {
                     break;
                 }
             }
@@ -158,6 +173,12 @@ impl<T: Signed> DistributionSized<T> for Ternary {
         let mut out = repeat_with(T::zero).take(n).collect_vec();
         self.sample_into(&mut out, rng);
         out
+    }
+}
+
+impl DistributionVariance for Ternary {
+    fn variance(self) -> f64 {
+        0.5
     }
 }
 
@@ -204,7 +225,7 @@ mod test {
         for n in (0..12).map(|log_n| 1 << log_n) {
             for _ in 0..n.min(100) {
                 let hamming_weight = Uniform::new_inclusive(1, n).sample(&mut rng);
-                let out: Vec<i64> = Ternary(hamming_weight).sample_vec(n, &mut rng);
+                let out: Vec<i64> = Ternary.sample_vec(2 * hamming_weight, &mut rng);
                 assert_eq!(out.iter().filter(|v| !v.is_zero()).count(), hamming_weight);
             }
         }

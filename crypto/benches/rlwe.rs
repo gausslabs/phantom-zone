@@ -8,7 +8,7 @@ use phantom_zone_crypto::{
 };
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    modulus::{Modulus, NonNativePowerOfTwo, Prime},
+    modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
@@ -18,11 +18,11 @@ use rand::SeedableRng;
 
 fn automorphism(c: &mut Criterion) {
     fn runner<R: RingOps + 'static>(
-        modulus: Modulus,
+        modulus: impl Into<Modulus>,
         ring_size: usize,
         decomposition_param: DecompositionParam,
     ) -> Box<dyn FnMut()> {
-        let ring = <R as RingOps>::new(modulus, ring_size);
+        let ring = <R as RingOps>::new(modulus.into(), ring_size);
         let mut rng = StdLweRng::from_entropy();
         let mut scratch = ring.allocate_scratch(2, 3, 0);
         let mut auto_key = RlweAutoKey::allocate(ring.ring_size(), decomposition_param, 5);
@@ -49,27 +49,27 @@ fn automorphism(c: &mut Criterion) {
         let ring_size = 1 << log_ring_size;
         let runners = [
             ("noisy_native", {
-                let modulus = Modulus::native();
+                let modulus = Native::native();
                 runner::<NoisyNativeRing>(modulus, ring_size, decomposition_param)
             }),
             ("noisy_non_native_power_of_two", {
-                let modulus = NonNativePowerOfTwo::new(54).into();
+                let modulus = NonNativePowerOfTwo::new(54);
                 runner::<NoisyNonNativePowerOfTwoRing>(modulus, ring_size, decomposition_param)
             }),
             ("native", {
-                let modulus = Modulus::native();
+                let modulus = Native::native();
                 runner::<NativeRing>(modulus, ring_size, decomposition_param)
             }),
             ("non_native_power_of_two", {
-                let modulus = NonNativePowerOfTwo::new(54).into();
+                let modulus = NonNativePowerOfTwo::new(54);
                 runner::<NonNativePowerOfTwoRing>(modulus, ring_size, decomposition_param)
             }),
             ("noisy_prime", {
-                let modulus = Prime::gen(54, log_ring_size + 1).into();
+                let modulus = Prime::gen(54, log_ring_size + 1);
                 runner::<NoisyPrimeRing>(modulus, ring_size, decomposition_param)
             }),
             ("prime", {
-                let modulus = Prime::gen(54, log_ring_size + 1).into();
+                let modulus = Prime::gen(54, log_ring_size + 1);
                 runner::<PrimeRing>(modulus, ring_size, decomposition_param)
             }),
         ];
@@ -82,11 +82,11 @@ fn automorphism(c: &mut Criterion) {
 
 fn rlwe_by_rgsw(c: &mut Criterion) {
     fn runner<R: RingOps + 'static>(
-        modulus: Modulus,
+        modulus: impl Into<Modulus>,
         ring_size: usize,
         decomposition_param: RgswDecompositionParam,
     ) -> Box<dyn FnMut()> {
-        let ring = <R as RingOps>::new(modulus, ring_size);
+        let ring = <R as RingOps>::new(modulus.into(), ring_size);
         let mut rng = StdLweRng::from_entropy();
         let mut scratch = ring.allocate_scratch(2, 3, 0);
         let mut ct_rgsw = RgswCiphertext::allocate(ring.ring_size(), decomposition_param);
@@ -114,27 +114,27 @@ fn rlwe_by_rgsw(c: &mut Criterion) {
         let ring_size = 1 << log_ring_size;
         let runners = [
             ("noisy_native", {
-                let modulus = Modulus::native();
+                let modulus = Native::native();
                 runner::<NoisyNativeRing>(modulus, ring_size, decomposition_param)
             }),
             ("noisy_non_native_power_of_two", {
-                let modulus = NonNativePowerOfTwo::new(54).into();
+                let modulus = NonNativePowerOfTwo::new(54);
                 runner::<NoisyNonNativePowerOfTwoRing>(modulus, ring_size, decomposition_param)
             }),
             ("native", {
-                let modulus = Modulus::native();
+                let modulus = Native::native();
                 runner::<NativeRing>(modulus, ring_size, decomposition_param)
             }),
             ("non_native_power_of_two", {
-                let modulus = NonNativePowerOfTwo::new(54).into();
+                let modulus = NonNativePowerOfTwo::new(54);
                 runner::<NonNativePowerOfTwoRing>(modulus, ring_size, decomposition_param)
             }),
             ("noisy_prime", {
-                let modulus = Prime::gen(54, log_ring_size + 1).into();
+                let modulus = Prime::gen(54, log_ring_size + 1);
                 runner::<NoisyPrimeRing>(modulus, ring_size, decomposition_param)
             }),
             ("prime", {
-                let modulus = Prime::gen(54, log_ring_size + 1).into();
+                let modulus = Prime::gen(54, log_ring_size + 1);
                 runner::<PrimeRing>(modulus, ring_size, decomposition_param)
             }),
         ];

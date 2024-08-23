@@ -115,7 +115,7 @@ impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
 mod test {
     use crate::{
         distribution::Sampler,
-        modulus::{Modulus, NonNativePowerOfTwo},
+        modulus::{Native, NonNativePowerOfTwo},
         poly::ffnt::test::{poly_mul_prec_loss, round_trip_prec_loss},
         ring::{
             power_of_two::noisy::{NoisyNativeRing, NoisyNonNativePowerOfTwoRing},
@@ -147,7 +147,7 @@ mod test {
         let mut rng = thread_rng();
         for log_ring_size in 0..10 {
             let prec_loss = round_trip_prec_loss(log_ring_size, 64);
-            let ring: NoisyNativeRing = RingOps::new(Modulus::native(), 1 << log_ring_size);
+            let ring: NoisyNativeRing = RingOps::new(Native::native().into(), 1 << log_ring_size);
             for _ in 0..100 {
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 test_round_trip(&ring, &a, |a, b| assert_precision!(a, b, prec_loss));
@@ -179,7 +179,7 @@ mod test {
     fn native_poly_mul() {
         let mut rng = thread_rng();
         for log_ring_size in 0..10 {
-            let ring: NoisyNativeRing = RingOps::new(Modulus::native(), 1 << log_ring_size);
+            let ring: NoisyNativeRing = RingOps::new(Native::native().into(), 1 << log_ring_size);
             for log_b in 12..16 {
                 let prec_loss = poly_mul_prec_loss(log_ring_size, 64, log_b);
                 let uniform_b = Uniform::new(0, 1u64 << log_b);

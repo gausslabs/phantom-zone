@@ -77,7 +77,11 @@ impl RingOps for PrimeRing {
     }
 
     fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]) {
-        self.slice_prepare(b, a)
+        izip_eq!(b, a).for_each(|(b, a)| {
+            let mut a = *a;
+            self.q.reduce_once_assign(&mut a);
+            *b = self.prepare(&a);
+        });
     }
 
     fn eval_mul(&self, c: &mut [Self::Eval], a: &[Self::Eval], b: &[Self::Eval]) {

@@ -11,3 +11,10 @@ pub use structure::{
     LweKeySwitchKey, LweKeySwitchKeyMutView, LweKeySwitchKeyOwned, LweKeySwitchKeyView,
     LwePlaintext, LweSecretKey, LweSecretKeyMutView, LweSecretKeyOwned, LweSecretKeyView,
 };
+
+pub use method::{seeded_ks_key_gen, unseed_ks_key};
+pub use structure::{
+    SeededLweCiphertext, SeededLweCiphertextList, SeededLweCiphertextListMutView,
+    SeededLweCiphertextListOwned, SeededLweCiphertextListView, SeededLweKeySwitchKey,
+    SeededLweKeySwitchKeyMutView, SeededLweKeySwitchKeyOwned, SeededLweKeySwitchKeyView,
+};

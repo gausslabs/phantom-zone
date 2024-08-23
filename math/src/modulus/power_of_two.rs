@@ -8,7 +8,7 @@ use rand::distributions::{Distribution, Uniform};
 pub type Native = PowerOfTwo<true>;
 pub type NonNativePowerOfTwo = PowerOfTwo<false>;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PowerOfTwo<const NATIVE: bool> {
     bits: usize,
     mask: u64,

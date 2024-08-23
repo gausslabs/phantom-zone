@@ -11,11 +11,12 @@ use crate::{
     util::rng::{LweRng, StdLweRng},
 };
 use core::ops::Deref;
+use itertools::chain;
 use phantom_zone_math::{
     decomposer::Decomposer,
     distribution::Sampler,
     izip_eq,
-    modulus::{ElemFrom, Modulus, NonNativePowerOfTwo, Prime},
+    modulus::{ElemFrom, Modulus, Native, NonNativePowerOfTwo, Prime},
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
@@ -74,7 +75,7 @@ impl<R: RingOps> Rgsw<R> {
     }
 
     pub fn decode(&self, pt: &RlwePlaintextOwned<R::Elem>) -> Vec<u64> {
-        let decode = |pt| self.message_ring().elem_from(self.ring().to_u64(pt));
+        let decode = |pt| self.message_ring().elem_from(self.ring().to_i64(pt));
         let mut m = vec![0; self.ring_size()];
         izip_eq!(&mut m, pt.as_ref()).for_each(|(m, pt)| *m = decode(*pt));
         m
@@ -193,6 +194,33 @@ impl<R: RingOps> Rgsw<R> {
         rgsw::rgsw_by_rgsw_in_place(self.ring(), &mut ct_a, ct_b, scratch.borrow_mut());
         ct_a
     }
+
+    pub fn noise(
+        &self,
+        sk: &RlweSecretKeyOwned<i32>,
+        pt: &RlwePlaintextOwned<R::Elem>,
+        ct: &RgswCiphertextOwned<R::Elem>,
+    ) -> Vec<Vec<i64>> {
+        let ring = self.ring();
+        let decomposer_a = R::Decomposer::new(ring.modulus(), ct.decomposition_param_a());
+        let decomposer_b = R::Decomposer::new(ring.modulus(), ct.decomposition_param_b());
+        let mut scratch = ring.allocate_scratch(0, 2, 0);
+        chain![
+            izip_eq!(ct.a_ct_iter(), decomposer_a.gadget_iter()).map(|(ct, beta_j)| {
+                let scratch = scratch.borrow_mut();
+                let mut pt = pt.clone();
+                ring.poly_mul_assign_elem_from(pt.as_mut(), sk.as_ref(), scratch);
+                ring.slice_scalar_mul_assign(pt.as_mut(), &ring.neg(&beta_j));
+                self.rlwe.noise(sk, &pt, &ct.cloned())
+            }),
+            izip_eq!(ct.b_ct_iter(), decomposer_b.gadget_iter()).map(|(ct, beta_j)| {
+                let mut pt = pt.clone();
+                ring.slice_scalar_mul_assign(pt.as_mut(), &beta_j);
+                self.rlwe.noise(sk, &pt, &ct.cloned())
+            })
+        ]
+        .collect()
+    }
 }
 
 pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RgswParam {
@@ -212,7 +240,7 @@ fn rlwe_by_rgsw() {
         let mut rng = StdLweRng::from_entropy();
         let rgsw = param.build::<R>();
         let rlwe = &rgsw.rlwe;
-        let sk = rlwe.sk_gen();
+        let sk = rlwe.sk_gen(&mut rng);
         let pk = rlwe.pk_gen(&sk, &mut rng);
         for _ in 0..100 {
             let m_rlwe = rgsw.message_ring().sample_uniform_poly(&mut rng);
@@ -237,9 +265,9 @@ fn rlwe_by_rgsw() {
         }
     }
 
-    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNativeRing>(test_param(Native::native()));
     run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
-    run::<NativeRing>(test_param(Modulus::native()));
+    run::<NativeRing>(test_param(Native::native()));
     run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));
@@ -251,7 +279,7 @@ fn rgsw_by_rgsw() {
         let mut rng = StdLweRng::from_entropy();
         let rgsw = param.build::<R>();
         let rlwe = &rgsw.rlwe;
-        let sk = rlwe.sk_gen();
+        let sk = rlwe.sk_gen(&mut rng);
         for _ in 0..100 {
             let m_a = rgsw.message_ring().sample_uniform_poly(&mut rng);
             let m_b = rgsw.message_ring().sample_uniform_poly(&mut rng);
@@ -263,9 +291,9 @@ fn rgsw_by_rgsw() {
         }
     }
 
-    run::<NoisyNativeRing>(test_param(Modulus::native()));
+    run::<NoisyNativeRing>(test_param(Native::native()));
     run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
-    run::<NativeRing>(test_param(Modulus::native()));
+    run::<NativeRing>(test_param(Native::native()));
     run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
     run::<NoisyPrimeRing>(test_param(Prime::gen(50, 9)));
     run::<PrimeRing>(test_param(Prime::gen(50, 9)));

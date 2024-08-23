@@ -8,7 +8,7 @@ use num_bigint_dig::{prime::probably_prime, BigUint};
 use num_traits::ToPrimitive;
 use rand::distributions::{Distribution, Uniform};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Prime {
     q: u64,
     q_half: u64,
@@ -318,6 +318,7 @@ pub struct Shoup(u64, u64);
 impl Shoup {
     #[inline(always)]
     pub fn new(v: u64, q: u64) -> Self {
+        debug_assert!(v < q);
         let quotient = (((v as u128) << 64) / q as u128) as _;
         Self(v, quotient)
     }

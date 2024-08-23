@@ -1,8 +1,8 @@
 use num_traits::FromPrimitive;
-use phantom_zone_math::distribution::{DistributionSized, Gaussian, Ternary};
+use phantom_zone_math::distribution::{DistributionSized, DistributionVariance, Gaussian, Ternary};
 use rand::{distributions::Distribution, Rng};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SecretDistribution {
     Gaussian(Gaussian),
     Ternary(Ternary),
@@ -32,6 +32,13 @@ where
         }
     }
 
+    fn sample_into<R: Rng>(self, out: &mut [T], rng: R) {
+        match self {
+            Self::Gaussian(inner) => inner.sample_into(out, rng),
+            Self::Ternary(inner) => inner.sample_into(out, rng),
+        }
+    }
+
     fn sample_vec<R: Rng>(self, n: usize, rng: R) -> Vec<T> {
         match self {
             Self::Gaussian(inner) => inner.sample_vec(n, rng),
@@ -40,7 +47,30 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+impl DistributionVariance for SecretDistribution {
+    fn variance(self) -> f64 {
+        match self {
+            Self::Gaussian(inner) => inner.variance(),
+            Self::Ternary(inner) => inner.variance(),
+        }
+    }
+
+    fn std_dev(self) -> f64 {
+        match self {
+            Self::Gaussian(inner) => inner.std_dev(),
+            Self::Ternary(inner) => inner.std_dev(),
+        }
+    }
+
+    fn log2_std_dev(self) -> f64 {
+        match self {
+            Self::Gaussian(inner) => inner.log2_std_dev(),
+            Self::Ternary(inner) => inner.log2_std_dev(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NoiseDistribution {
     Gaussian(Gaussian),
 }
@@ -72,9 +102,35 @@ where
         }
     }
 
+    fn sample_into<R: Rng>(self, out: &mut [T], rng: R) {
+        match self {
+            Self::Gaussian(inner) => inner.sample_into(out, rng),
+        }
+    }
+
     fn sample_vec<R: Rng>(self, n: usize, rng: R) -> Vec<T> {
         match self {
             Self::Gaussian(inner) => inner.sample_vec(n, rng),
+        }
+    }
+}
+
+impl DistributionVariance for NoiseDistribution {
+    fn variance(self) -> f64 {
+        match self {
+            Self::Gaussian(inner) => inner.variance(),
+        }
+    }
+
+    fn std_dev(self) -> f64 {
+        match self {
+            Self::Gaussian(inner) => inner.std_dev(),
+        }
+    }
+
+    fn log2_std_dev(self) -> f64 {
+        match self {
+            Self::Gaussian(inner) => inner.log2_std_dev(),
         }
     }
 }
