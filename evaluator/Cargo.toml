@@ -13,6 +13,7 @@ phantom-zone-math = { path = "../math" }
 
 [dev-dependencies]
 criterion = { workspace = true }
+num-traits = { workspace = true }
 phantom-zone-crypto = { path = "../crypto", features = ["dev"] }
 
 [features]
@@ -23,4 +24,8 @@ getrandom = ["phantom-zone-crypto/getrandom"]
 [[bench]]
 name = "boolean"
 harness = false
+required-features = ["dev"]
+
+[[example]]
+name = "single_party"
 required-features = ["dev"]

@@ -24,7 +24,7 @@ fn fhew(c: &mut Criterion) {
 
     fn runner<R: RingOps + 'static>(param: FhewBoolParam) -> Box<dyn FnMut()> {
         let mut rng = StdLweRng::from_entropy();
-        let ring = R::new(param.modulus, param.ring_size);
+        let ring = <R as RingOps>::new(param.modulus, param.ring_size);
         let sk = LweSecretKey::sample(param.ring_size, Gaussian(3.2).into(), &mut rng);
         let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, &mut rng);
         let cts = (0..2000)
@@ -51,7 +51,7 @@ fn fhew(c: &mut Criterion) {
                 level_b: 1,
             },
             lwe_modulus: NonNativePowerOfTwo::new(16).into(),
-            lwe_dimension: 600,
+            lwe_dimension: 620,
             lwe_ks_decomposition_param: DecompositionParam {
                 log_base: 1,
                 level: 13,

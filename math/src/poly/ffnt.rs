@@ -205,6 +205,12 @@ impl Debug for Ffnt {
     }
 }
 
+impl Default for Ffnt {
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod test {
     pub fn round_trip_prec_loss(log_ring_size: usize, log_q: usize) -> usize {

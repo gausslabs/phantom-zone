@@ -1,8 +1,7 @@
 use crate::{
-    decomposer::PowerOfTwoDecomposer,
-    modulus::{Modulus, ModulusOps},
+    modulus::{ElemFrom, Modulus, ModulusOps},
     poly::ffnt::Ffnt,
-    ring::{power_of_two, ElemFrom, RingOps},
+    ring::{power_of_two, RingOps},
 };
 use num_complex::Complex64;
 
@@ -73,7 +72,6 @@ where
 {
     type Eval = Complex64;
     type EvalPrep = Complex64;
-    type Decomposer = PowerOfTwoDecomposer<NATIVE>;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self {
         Self::new(modulus.try_into().unwrap(), Ffnt::new(ring_size))

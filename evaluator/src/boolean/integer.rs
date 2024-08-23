@@ -12,12 +12,26 @@ pub type FheU16<'a, E> = FheUint<'a, E, 16>;
 pub type FheU32<'a, E> = FheUint<'a, E, 32>;
 pub type FheU64<'a, E> = FheUint<'a, E, 64>;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FheUint<'a, E: BoolEvaluator, const BITS: usize>([FheBool<'a, E>; BITS]);
 
 impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
     pub fn new(bits: [FheBool<'a, E>; BITS]) -> Self {
         Self(bits)
+    }
+
+    pub fn from_cts(evaluator: &'a E, bits: [E::Ciphertext; BITS]) -> Self {
+        Self::new(bits.map(|bit| FheBool::new(evaluator, bit)))
+    }
+
+    pub fn into_cts(self) -> [E::Ciphertext; BITS] {
+        self.0.map(FheBool::into_ct)
+    }
+}
+
+impl<'a, E: BoolEvaluator, const BITS: usize> Clone for FheUint<'a, E, BITS> {
+    fn clone(&self) -> Self {
+        Self::new(self.0.each_ref().map(|bit| bit.clone()))
     }
 }
 

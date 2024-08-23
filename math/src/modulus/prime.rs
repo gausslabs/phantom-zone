@@ -1,6 +1,7 @@
 use crate::{
-    distribution::DistributionSized,
-    modulus::{ElemFrom, ElemTo, Modulus, ModulusOps},
+    decomposer::PrimeDecomposer,
+    distribution::{DistributionSized, Sampler},
+    modulus::{ElemFrom, ElemOps, ElemTo, Modulus, ModulusOps},
 };
 use core::ops::Deref;
 use num_bigint_dig::{prime::probably_prime, BigUint};
@@ -18,8 +19,7 @@ pub struct Prime {
 }
 
 impl Prime {
-    pub fn new(q: u64) -> Self {
-        assert!(is_prime(q));
+    pub const fn new(q: u64) -> Self {
         let log_q = q.next_power_of_two().ilog2() as usize;
         let barrett_mu = (1u128 << (log_q * 2 + 3)) / (q as u128);
         let barrett_alpha = log_q + 3;
@@ -81,6 +81,7 @@ impl Prime {
     }
 
     pub fn multiplicative_generator(&self) -> u64 {
+        assert!(is_prime(self.q));
         let order = self.q - 1;
         (1..order)
             .find(|g| self.pow(*g, order >> 1) == order)
@@ -143,9 +144,17 @@ impl Deref for Prime {
     }
 }
 
-impl ModulusOps for Prime {
+impl ElemOps for Prime {
     type Elem = u64;
-    type Prep = Shoup;
+}
+
+impl ModulusOps for Prime {
+    type ElemPrep = Shoup;
+    type Decomposer = PrimeDecomposer;
+
+    fn new(modulus: Modulus) -> Self {
+        modulus.try_into().unwrap()
+    }
 
     #[inline(always)]
     fn modulus(&self) -> Modulus {
@@ -217,12 +226,12 @@ impl ModulusOps for Prime {
     }
 
     #[inline(always)]
-    fn prepare(&self, a: &Self::Elem) -> Self::Prep {
+    fn prepare(&self, a: &Self::Elem) -> Self::ElemPrep {
         Shoup::new(*a, self.q)
     }
 
     #[inline(always)]
-    fn mul_prep(&self, a: &Self::Elem, b: &Self::Prep) -> Self::Elem {
+    fn mul_prep(&self, a: &Self::Elem, b: &Self::ElemPrep) -> Self::Elem {
         b.mul(*a, self.q)
     }
 }
@@ -282,6 +291,8 @@ impl ElemTo<f64> for Prime {
         self.center(v) as f64
     }
 }
+
+impl Sampler for Prime {}
 
 impl From<Prime> for Modulus {
     fn from(value: Prime) -> Self {

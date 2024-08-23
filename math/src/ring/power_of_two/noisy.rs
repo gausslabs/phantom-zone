@@ -1,8 +1,7 @@
 use crate::{
-    decomposer::PowerOfTwoDecomposer,
-    modulus::{power_of_two::f64_mod_u64, Modulus, ModulusOps},
+    modulus::{power_of_two::f64_mod_u64, ElemFrom, Modulus, ModulusOps},
     poly::ffnt::Ffnt,
-    ring::{power_of_two, ElemFrom, RingOps},
+    ring::{power_of_two, RingOps},
 };
 use num_complex::Complex64;
 
@@ -15,7 +14,6 @@ pub type NoisyPowerOfTwoRing<const NATIVE: bool> = power_of_two::PowerOfTwoRing<
 impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
     type Eval = Complex64;
     type EvalPrep = Complex64;
-    type Decomposer = PowerOfTwoDecomposer<NATIVE>;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self {
         Self::new(modulus.try_into().unwrap(), Ffnt::new(ring_size))

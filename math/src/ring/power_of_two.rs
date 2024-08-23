@@ -1,8 +1,7 @@
 use crate::{
     distribution::{DistributionSized, Sampler},
-    modulus::{power_of_two::PowerOfTwo, Modulus},
+    modulus::{power_of_two::PowerOfTwo, ElemFrom, ElemOps, ElemTo, Modulus, ModulusOps},
     poly::ffnt::Ffnt,
-    ring::{ElemFrom, ElemTo, ModulusOps, SliceOps},
 };
 use core::fmt::Debug;
 use rand::distributions::Distribution;
@@ -22,9 +21,17 @@ impl<const NATIVE: bool, const LIMBS: usize> PowerOfTwoRing<NATIVE, LIMBS> {
     }
 }
 
+impl<const NATIVE: bool, const LIMBS: usize> ElemOps for PowerOfTwoRing<NATIVE, LIMBS> {
+    type Elem = <PowerOfTwo<NATIVE> as ElemOps>::Elem;
+}
+
 impl<const NATIVE: bool, const LIMBS: usize> ModulusOps for PowerOfTwoRing<NATIVE, LIMBS> {
-    type Elem = u64;
-    type Prep = u64;
+    type ElemPrep = <PowerOfTwo<NATIVE> as ModulusOps>::ElemPrep;
+    type Decomposer = <PowerOfTwo<NATIVE> as ModulusOps>::Decomposer;
+
+    fn new(modulus: Modulus) -> Self {
+        Self::new(modulus.try_into().unwrap(), Ffnt::default())
+    }
 
     #[inline(always)]
     fn modulus(&self) -> Modulus {
@@ -83,12 +90,12 @@ impl<const NATIVE: bool, const LIMBS: usize> ModulusOps for PowerOfTwoRing<NATIV
     }
 
     #[inline(always)]
-    fn prepare(&self, a: &Self::Elem) -> Self::Prep {
+    fn prepare(&self, a: &Self::Elem) -> Self::ElemPrep {
         self.q.prepare(a)
     }
 
     #[inline(always)]
-    fn mul_prep(&self, a: &Self::Elem, b: &Self::Prep) -> Self::Elem {
+    fn mul_prep(&self, a: &Self::Elem, b: &Self::ElemPrep) -> Self::Elem {
         self.q.mul_prep(a, b)
     }
 }
@@ -148,7 +155,5 @@ impl<const NATIVE: bool, const LIMBS: usize> ElemTo<f64> for PowerOfTwoRing<NATI
         self.q.elem_to(v)
     }
 }
-
-impl<const NATIVE: bool, const LIMBS: usize> SliceOps for PowerOfTwoRing<NATIVE, LIMBS> {}
 
 impl<const NATIVE: bool, const LIMBS: usize> Sampler for PowerOfTwoRing<NATIVE, LIMBS> {}

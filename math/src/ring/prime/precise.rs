@@ -1,17 +1,15 @@
 use crate::{
-    decomposer::PrimeDecomposer,
     izip_eq,
-    modulus::{prime::Shoup, Modulus},
+    modulus::{prime::Shoup, ElemFrom, Modulus, ModulusOps},
     poly::ntt::Ntt,
-    ring::{ElemFrom, ModulusOps, RingOps, SliceOps},
+    ring::{prime, RingOps},
 };
 
-pub type PrimeRing = crate::ring::prime::PrimeRing<Ntt>;
+pub type PrimeRing = prime::PrimeRing<Ntt>;
 
 impl RingOps for PrimeRing {
     type Eval = u64;
     type EvalPrep = Shoup;
-    type Decomposer = PrimeDecomposer;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self {
         let q = modulus.try_into().unwrap();
@@ -32,7 +30,7 @@ impl RingOps for PrimeRing {
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem], _: &mut [Self::Eval]) {
         b.copy_from_slice(a);
-        self.fft.forward(b);
+        self.fft.forward::<false>(b);
     }
 
     fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T], _: &mut [Self::Eval])
@@ -40,23 +38,17 @@ impl RingOps for PrimeRing {
         Self: ElemFrom<T>,
     {
         self.slice_elem_from(b, a);
-        self.fft.forward(b);
+        self.fft.forward::<false>(b);
     }
 
-    fn forward_normalized(
-        &self,
-        b: &mut [Self::Eval],
-        a: &[Self::Elem],
-        scratch: &mut [Self::Eval],
-    ) {
-        self.forward(b, a, scratch);
-        self.fft.normalize(b);
+    fn forward_normalized(&self, b: &mut [Self::Eval], a: &[Self::Elem], _: &mut [Self::Eval]) {
+        b.copy_from_slice(a);
+        self.fft.forward::<true>(b);
     }
 
     fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], _: &mut [Self::Eval]) {
         b.copy_from_slice(a);
-        self.fft.backward(b);
-        b.iter_mut().for_each(|b| self.q.reduce_once_assign(b));
+        self.fft.backward::<false>(b);
     }
 
     fn backward_normalized(
@@ -66,16 +58,12 @@ impl RingOps for PrimeRing {
         _: &mut [Self::Eval],
     ) {
         b.copy_from_slice(a);
-        self.fft.backward(b);
-        self.fft.normalize(b);
+        self.fft.backward::<true>(b);
     }
 
     fn add_backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], _: &mut [Self::Eval]) {
-        self.fft.backward(a);
-        izip_eq!(b, a).for_each(|(b, a)| {
-            self.q.reduce_once_assign(a);
-            *b = self.add(a, b);
-        })
+        self.fft.backward::<false>(a);
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.add(a, b));
     }
 
     fn add_backward_normalized(
@@ -84,8 +72,8 @@ impl RingOps for PrimeRing {
         a: &mut [Self::Eval],
         _: &mut [Self::Eval],
     ) {
-        self.fft.backward(a);
-        izip_eq!(b, a).for_each(|(b, a)| *b = self.add(&self.q.mul_prep(a, self.fft.n_inv()), b))
+        self.fft.backward::<true>(a);
+        izip_eq!(b, a).for_each(|(b, a)| *b = self.add(a, b));
     }
 
     fn eval_prepare(&self, b: &mut [Self::EvalPrep], a: &[Self::Eval]) {

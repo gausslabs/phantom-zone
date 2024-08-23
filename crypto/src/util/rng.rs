@@ -45,7 +45,7 @@ impl<R: rand::SeedableRng, S: rand::SeedableRng> rand::SeedableRng for LweRng<R,
         Self::new(R::from_entropy(), S::seed_from_u64(state))
     }
 
-    fn from_rng<R2: RngCore>(rng: R2) -> Result<Self, Error> {
+    fn from_rng<T: RngCore>(rng: T) -> Result<Self, Error> {
         Ok(Self::new(R::from_entropy(), S::from_rng(rng)?))
     }
 
