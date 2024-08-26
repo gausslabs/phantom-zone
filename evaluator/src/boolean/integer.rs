@@ -27,6 +27,10 @@ impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
     pub fn into_cts(self) -> [E::Ciphertext; BITS] {
         self.0.map(FheBool::into_ct)
     }
+
+    pub fn cts(&self) -> [&E::Ciphertext; BITS] {
+        self.0.each_ref().map(FheBool::ct)
+    }
 }
 
 impl<'a, E: BoolEvaluator, const BITS: usize> Clone for FheUint<'a, E, BITS> {

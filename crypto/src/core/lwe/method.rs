@@ -1,8 +1,8 @@
 use crate::{
     core::lwe::structure::{
-        LweCiphertext, LweCiphertextMutView, LweCiphertextView, LweKeySwitchKeyMutView,
-        LweKeySwitchKeyView, LwePlaintext, LweSecretKeyView, SeededLweKeySwitchKeyMutView,
-        SeededLweKeySwitchKeyView,
+        LweCiphertext, LweCiphertextMutView, LweCiphertextView, LweDecryptionShare,
+        LweKeySwitchKeyMutView, LweKeySwitchKeyView, LwePlaintext, LweSecretKeyView,
+        SeededLweKeySwitchKeyMutView, SeededLweKeySwitchKeyView,
     },
     util::{distribution::NoiseDistribution, rng::LweRng},
 };
@@ -59,6 +59,35 @@ where
     let ct = ct.into();
     let a_sk = modulus.slice_dot_elem_from(ct.a(), sk.into().as_ref());
     LwePlaintext(modulus.sub(ct.b(), &a_sk))
+}
+
+pub fn decrypt_share<'a, 'b, M, T>(
+    modulus: &M,
+    sk: impl Into<LweSecretKeyView<'a, T>>,
+    ct: impl Into<LweCiphertextView<'b, M::Elem>>,
+    noise_distribution: NoiseDistribution,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) -> LweDecryptionShare<M::Elem>
+where
+    M: ModulusOps + ElemFrom<T>,
+    T: 'a + Copy,
+{
+    let a_sk = modulus.slice_dot_elem_from(ct.into().a(), sk.into().as_ref());
+    let e = modulus.sample::<i64>(&noise_distribution, rng);
+    LweDecryptionShare(modulus.add(&a_sk, &e))
+}
+
+pub fn aggregate_decryption_shares<'a, 'b, M: ModulusOps>(
+    modulus: &M,
+    ct: impl Into<LweCiphertextView<'a, M::Elem>>,
+    dec_shares: impl IntoIterator<Item = &'b LweDecryptionShare<M::Elem>>,
+) -> LwePlaintext<M::Elem> {
+    let a_sk = dec_shares
+        .into_iter()
+        .fold(modulus.zero(), |a_sk, dec_share| {
+            modulus.add(&a_sk, &dec_share.0)
+        });
+    LwePlaintext(modulus.sub(ct.into().b(), &a_sk))
 }
 
 pub fn ks_key_gen<'a, 'b, 'c, M, T>(

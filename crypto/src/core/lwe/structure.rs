@@ -52,6 +52,10 @@ impl<S: AsSlice> From<LweSecretKey<S>> for RlweSecretKey<S> {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LwePlaintext<T>(pub T);
 
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct LweDecryptionShare<T>(pub T);
+
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LweCiphertext<S>(S);
