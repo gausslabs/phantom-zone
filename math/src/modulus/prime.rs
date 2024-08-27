@@ -17,7 +17,6 @@ use rand::distributions::{Distribution, Uniform};
 pub struct Prime {
     q: u64,
     q_half: u64,
-    q_twice: u64,
     log_q: usize,
     barrett_mu: u128,
     barrett_alpha: usize,
@@ -32,7 +31,6 @@ impl Prime {
         Self {
             q,
             q_half: q >> 1,
-            q_twice: q << 1,
             log_q,
             barrett_mu,
             barrett_alpha,
@@ -223,8 +221,8 @@ impl ModulusOps for Prime {
 
     #[inline(always)]
     fn mul(&self, a: &Self::Elem, b: &Self::Elem) -> Self::Elem {
-        debug_assert!(*a < self.q_twice);
-        debug_assert!(*b < self.q_twice);
+        debug_assert!(*a < self.q << 1);
+        debug_assert!(*b < self.q << 1);
 
         self.reduce_u128(*a as u128 * *b as u128)
     }

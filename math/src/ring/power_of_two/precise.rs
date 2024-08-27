@@ -10,9 +10,7 @@ const LIMB_BITS: usize = u64::BITS as usize / LIMBS;
 const LIMB_MASK: u64 = (1 << LIMB_BITS) - 1;
 
 pub type NativeRing = PowerOfTwoRing<true>;
-
 pub type NonNativePowerOfTwoRing = PowerOfTwoRing<false>;
-
 pub type PowerOfTwoRing<const NATIVE: bool> = power_of_two::PowerOfTwoRing<NATIVE, LIMBS>;
 
 impl<const NATIVE: bool> PowerOfTwoRing<NATIVE> {

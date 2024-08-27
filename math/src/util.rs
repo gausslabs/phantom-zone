@@ -1,4 +1,5 @@
 pub mod as_slice;
+pub mod compact;
 pub mod scratch;
 pub mod serde;
 

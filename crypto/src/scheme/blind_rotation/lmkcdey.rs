@@ -7,4 +7,4 @@ pub mod interactive;
 pub(crate) mod test;
 
 pub use method::{bootstrap, bs_key_gen, prepare_bs_key};
-pub use structure::{LmkcdeyKey, LmkcdeyParam};
+pub use structure::{LmkcdeyKey, LmkcdeyKeyCompact, LmkcdeyKeyOwned, LmkcdeyParam};

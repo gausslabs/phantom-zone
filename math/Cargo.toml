@@ -15,6 +15,7 @@ phantom-zone-derive = { path = "../derive" }
 
 # serde
 serde = { workspace = true, optional = true, features = ["derive"] }
+serde_bytes = { workspace = true, optional = true }
 
 # dev
 bincode = { workspace = true, optional = true }
@@ -26,7 +27,7 @@ rand = { workspace = true, features = ["std"] }
 
 [features]
 default = []
-serde = ["dep:serde", "num-complex/serde"]
+serde = ["dep:serde", "dep:serde_bytes", "num-complex/serde"]
 dev = ["dep:bincode", "num-bigint-dig/prime", "rand/std"]
 
 [[bench]]

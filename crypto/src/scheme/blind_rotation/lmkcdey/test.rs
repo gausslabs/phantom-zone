@@ -187,6 +187,11 @@ fn serialize_deserialize() {
         assert_serde_eq(&sk_ks);
         assert_serde_eq(&bs_key);
         assert_serde_eq(&bs_key_prep);
+        assert_serde_eq(&bs_key.compact(ring, mod_ks));
+        assert_eq!(
+            &bs_key,
+            &bs_key.compact(ring, mod_ks).uncompact(ring, mod_ks)
+        );
     }
 
     run::<NoisyNativeRing>(Native::native());

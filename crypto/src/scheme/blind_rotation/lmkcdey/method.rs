@@ -7,7 +7,7 @@ use crate::{
             RlweSecretKeyView,
         },
     },
-    scheme::blind_rotation::lmkcdey::structure::{LmkcdeyKey, LogGMap},
+    scheme::blind_rotation::lmkcdey::structure::{LmkcdeyKeyOwned, LogGMap},
     util::rng::LweRng,
 };
 use core::{cmp::Reverse, ops::Neg};
@@ -24,7 +24,7 @@ use rand::RngCore;
 pub fn bs_key_gen<'a, 'b, R, M, T>(
     ring: &R,
     mod_ks: &M,
-    bs_key: &mut LmkcdeyKey<R::Elem, M::Elem>,
+    bs_key: &mut LmkcdeyKeyOwned<R::Elem, M::Elem>,
     sk: impl Into<RlweSecretKeyView<'a, T>>,
     sk_ks: impl Into<LweSecretKeyView<'b, T>>,
     mut scratch: Scratch,
@@ -62,8 +62,8 @@ pub fn bs_key_gen<'a, 'b, R, M, T>(
 
 pub fn prepare_bs_key<R: RingOps, T: Copy>(
     ring: &R,
-    key_prep: &mut LmkcdeyKey<R::EvalPrep, T>,
-    bs_key: &LmkcdeyKey<R::Elem, T>,
+    key_prep: &mut LmkcdeyKeyOwned<R::EvalPrep, T>,
+    bs_key: &LmkcdeyKeyOwned<R::Elem, T>,
     mut scratch: Scratch,
 ) {
     debug_assert_eq!(key_prep.param(), bs_key.param());
@@ -86,7 +86,7 @@ pub fn bootstrap<'a, 'b, 'c, R: RingOps, M: ModulusOps>(
     ring: &R,
     mod_ks: &M,
     ct: impl Into<LweCiphertextMutView<'a, R::Elem>>,
-    bs_key: &LmkcdeyKey<R::EvalPrep, M::Elem>,
+    bs_key: &LmkcdeyKeyOwned<R::EvalPrep, M::Elem>,
     f_auto_neg_g: impl Into<RlwePlaintextView<'c, R::Elem>>,
     mut scratch: Scratch,
 ) {
@@ -124,7 +124,7 @@ fn key_switch_mod_switch_odd<R: RingOps, M: ModulusOps>(
     ring: &R,
     mod_ks: &M,
     mut ct_ks_mod_switch: LweCiphertextMutView<u64>,
-    bs_key: &LmkcdeyKey<R::EvalPrep, M::Elem>,
+    bs_key: &LmkcdeyKeyOwned<R::EvalPrep, M::Elem>,
     ct: LweCiphertextView<R::Elem>,
     mut scratch: Scratch,
 ) {
@@ -145,7 +145,7 @@ fn key_switch_mod_switch_odd<R: RingOps, M: ModulusOps>(
 fn blind_rotate_core<'a, R: RingOps, T>(
     ring: &R,
     acc: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
-    bs_key: &LmkcdeyKey<R::EvalPrep, T>,
+    bs_key: &LmkcdeyKeyOwned<R::EvalPrep, T>,
     a: &[u64],
     mut scratch: Scratch,
 ) {

@@ -1,7 +1,7 @@
 use crate::{
     izip_eq,
     modulus::{ElemFrom, Modulus, ModulusOps},
-    poly::automorphism::AutomorphismMapView,
+    poly::automorphism::AutomorphismMap,
     util::{
         scratch::{Scratch, ScratchOwned},
         serde::Serde,
@@ -248,7 +248,7 @@ pub trait RingOps: ModulusOps {
         }
     }
 
-    fn poly_add_auto(&self, a: &mut [Self::Elem], b: &[Self::Elem], auto_map: AutomorphismMapView) {
+    fn poly_add_auto(&self, a: &mut [Self::Elem], b: &[Self::Elem], auto_map: &AutomorphismMap) {
         izip_eq!(a, auto_map.iter()).for_each(|(a, (sign, idx))| {
             if sign {
                 *a = self.sub(a, &b[idx]);

@@ -16,17 +16,19 @@ use rand::RngCore;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LweSecretKey<S>(S);
 
-impl<S: AsSlice> LweSecretKey<S> {
+impl<S> LweSecretKey<S> {
     pub fn new(data: S) -> Self {
         Self(data)
     }
+}
 
+impl<S: AsSlice> LweSecretKey<S> {
     pub fn dimension(&self) -> usize {
         self.as_ref().len()
     }
 }
 
-impl<T: Default> LweSecretKey<Vec<T>> {
+impl<T: Default> LweSecretKeyOwned<T> {
     pub fn allocate(dimension: usize) -> Self {
         Self::new(repeat_with(T::default).take(dimension).collect())
     }
@@ -54,11 +56,13 @@ pub struct LwePlaintext<T>(pub T);
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LweCiphertext<S>(S);
 
-impl<S: AsSlice> LweCiphertext<S> {
+impl<S> LweCiphertext<S> {
     pub fn new(data: S) -> Self {
         Self(data)
     }
+}
 
+impl<S: AsSlice> LweCiphertext<S> {
     pub fn dimension(&self) -> usize {
         self.as_ref().len() - 1
     }
@@ -92,13 +96,13 @@ impl<S: AsMutSlice> LweCiphertext<S> {
     }
 }
 
-impl<T: Default> LweCiphertext<Vec<T>> {
+impl<T: Default> LweCiphertextOwned<T> {
     pub fn allocate(dimension: usize) -> Self {
         Self::new(repeat_with(T::default).take(dimension + 1).collect())
     }
 }
 
-impl<'a, T> LweCiphertext<&'a mut [T]> {
+impl<'a, T> LweCiphertextMutView<'a, T> {
     pub fn scratch(dimension: usize, scratch: &mut Scratch<'a>) -> Self {
         Self::new(scratch.take_slice(dimension + 1))
     }
@@ -110,6 +114,16 @@ pub struct LweCiphertextList<S> {
     #[as_slice]
     data: S,
     dimension: usize,
+}
+
+impl<S> LweCiphertextList<S> {
+    pub fn dimension(&self) -> usize {
+        self.dimension
+    }
+
+    pub fn ct_size(&self) -> usize {
+        self.dimension + 1
+    }
 }
 
 impl<S: AsSlice> LweCiphertextList<S> {
@@ -124,14 +138,6 @@ impl<S: AsSlice> LweCiphertextList<S> {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    pub fn dimension(&self) -> usize {
-        self.dimension
-    }
-
-    pub fn ct_size(&self) -> usize {
-        self.dimension + 1
     }
 
     pub fn iter(&self) -> impl Iterator<Item = LweCiphertextView<S::Elem>> {
@@ -169,7 +175,7 @@ impl<S: AsMutSlice> LweCiphertextList<S> {
     }
 }
 
-impl<T: Default> LweCiphertextList<Vec<T>> {
+impl<T: Default> LweCiphertextListOwned<T> {
     pub fn allocate(dimension: usize, n: usize) -> Self {
         let ct_size = dimension + 1;
         Self::new(
@@ -187,7 +193,7 @@ pub struct LweKeySwitchKey<S> {
     decomposition_param: DecompositionParam,
 }
 
-impl<S: AsSlice> LweKeySwitchKey<S> {
+impl<S> LweKeySwitchKey<S> {
     pub fn new(cts: LweCiphertextList<S>, decomposition_param: DecompositionParam) -> Self {
         Self {
             cts,
@@ -202,7 +208,9 @@ impl<S: AsSlice> LweKeySwitchKey<S> {
     pub fn to_dimension(&self) -> usize {
         self.cts.dimension()
     }
+}
 
+impl<S: AsSlice> LweKeySwitchKey<S> {
     pub fn from_dimension(&self) -> usize {
         self.cts.len() / self.decomposition_param.level
     }
@@ -220,7 +228,7 @@ impl<S: AsMutSlice> LweKeySwitchKey<S> {
     }
 }
 
-impl<T: Default> LweKeySwitchKey<Vec<T>> {
+impl<T: Default> LweKeySwitchKeyOwned<T> {
     pub fn allocate(
         from_dimension: usize,
         to_dimension: usize,
@@ -270,17 +278,9 @@ pub struct SeededLweCiphertextList<S> {
     dimension: usize,
 }
 
-impl<S: AsSlice> SeededLweCiphertextList<S> {
+impl<S> SeededLweCiphertextList<S> {
     pub fn new(data: S, dimension: usize) -> Self {
         Self { data, dimension }
-    }
-
-    pub fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     pub fn dimension(&self) -> usize {
@@ -289,6 +289,16 @@ impl<S: AsSlice> SeededLweCiphertextList<S> {
 
     pub fn ct_size(&self) -> usize {
         self.dimension + 1
+    }
+}
+
+impl<S: AsSlice> SeededLweCiphertextList<S> {
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn iter(&self) -> impl Iterator<Item = SeededLweCiphertext<&S::Elem>> {
@@ -357,7 +367,9 @@ impl<S: AsSlice> SeededLweKeySwitchKey<S> {
     pub fn to_dimension(&self) -> usize {
         self.cts.dimension()
     }
+}
 
+impl<S: AsSlice> SeededLweKeySwitchKey<S> {
     pub fn from_dimension(&self) -> usize {
         self.cts.len() / self.decomposition_param.level
     }
@@ -377,7 +389,7 @@ impl<S: AsMutSlice> SeededLweKeySwitchKey<S> {
     }
 }
 
-impl<T: Default> SeededLweKeySwitchKey<Vec<T>> {
+impl<T: Default> SeededLweKeySwitchKeyOwned<T> {
     pub fn allocate(
         from_dimension: usize,
         to_dimension: usize,

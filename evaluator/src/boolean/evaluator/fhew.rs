@@ -11,7 +11,7 @@ use phantom_zone_crypto::{
         },
         rlwe::{RlwePlaintext, RlwePlaintextOwned},
     },
-    scheme::blind_rotation::lmkcdey::{self, LmkcdeyKey, LmkcdeyParam},
+    scheme::blind_rotation::lmkcdey::{self, LmkcdeyKeyOwned, LmkcdeyParam},
     util::{distribution::NoiseDistribution, rng::LweRng},
 };
 use phantom_zone_math::{
@@ -74,14 +74,14 @@ pub struct FhewBoolEvaluator<R: RingOps, M: ModulusOps> {
     mod_ks: M,
     big_q_by_4: R::Elem,
     big_q_by_8: R::Elem,
-    bs_key: LmkcdeyKey<R::EvalPrep, M::Elem>,
+    bs_key: LmkcdeyKeyOwned<R::EvalPrep, M::Elem>,
     /// Contains tables for AND, NAND, OR (XOR), NOR (XNOR).
     luts: [RlwePlaintextOwned<R::Elem>; 4],
     scratch_bytes: usize,
 }
 
 impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
-    pub fn new(bs_key: LmkcdeyKey<R::EvalPrep, M::Elem>) -> Self {
+    pub fn new(bs_key: LmkcdeyKeyOwned<R::EvalPrep, M::Elem>) -> Self {
         let param = bs_key.param();
         let ring = <R as RingOps>::new(param.modulus, param.ring_size);
         let mod_ks = M::new(param.lwe_modulus);
@@ -179,7 +179,7 @@ mod dev {
     use crate::boolean::evaluator::fhew::{FhewBoolEvaluator, LmkcdeyParam};
     use phantom_zone_crypto::{
         core::lwe::LweSecretKeyOwned,
-        scheme::blind_rotation::lmkcdey::{self, LmkcdeyKey},
+        scheme::blind_rotation::lmkcdey::{self, LmkcdeyKeyOwned},
         util::rng::StdLweRng,
     };
     use phantom_zone_math::{modulus::ModulusOps, ring::RingOps};
@@ -196,7 +196,7 @@ mod dev {
                 &mut rng,
             );
             let mut scratch = ring.allocate_scratch(0, 3, 0);
-            let mut bs_key = LmkcdeyKey::allocate(param);
+            let mut bs_key = LmkcdeyKeyOwned::allocate(param);
             lmkcdey::bs_key_gen(
                 &ring,
                 &mod_ks,
@@ -206,7 +206,7 @@ mod dev {
                 scratch.borrow_mut(),
                 &mut rng,
             );
-            let mut bs_key_prep = LmkcdeyKey::allocate_eval(param, ring.eval_size());
+            let mut bs_key_prep = LmkcdeyKeyOwned::allocate_eval(param, ring.eval_size());
             lmkcdey::prepare_bs_key(&ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
             FhewBoolEvaluator::new(bs_key_prep)
         }

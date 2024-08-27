@@ -10,7 +10,7 @@ use crate::{
         self,
         interactive::{self, LmkcdeyInteractiveCrs, LmkcdeyInteractiveParam, LmkcdeyKeyShare},
         test::nand_lut,
-        LmkcdeyKey, LmkcdeyParam,
+        LmkcdeyKeyOwned, LmkcdeyParam,
     },
     util::rng::StdLweRng,
 };
@@ -77,7 +77,7 @@ fn bs_key_gen<R: RingOps>(
     LweSecretKeyOwned<i32>,
     LweSecretKeyOwned<i32>,
     RlwePublicKeyOwned<R::Elem>,
-    LmkcdeyKey<R::Elem, u64>,
+    LmkcdeyKeyOwned<R::Elem, u64>,
 ) {
     let rgsw = RgswParam::from(*param).build::<R>();
     let rlwe = rgsw.rlwe();
@@ -129,7 +129,7 @@ fn bs_key_gen<R: RingOps>(
         })
         .collect_vec();
     let bs_key = {
-        let mut bs_key = LmkcdeyKey::allocate(*param);
+        let mut bs_key = LmkcdeyKeyOwned::allocate(*param);
         let mut scratch = ring.allocate_scratch(
             2,
             3,
@@ -179,7 +179,7 @@ fn interactive() {
         let (sk, _, pk, bs_key) = bs_key_gen::<R1>(param, crs, thread_rng());
         let bs_key = {
             let mut scratch = ring.allocate_scratch(0, 3, 0);
-            let mut bs_key_prep = LmkcdeyKey::allocate_eval(*bs_key.param(), ring.eval_size());
+            let mut bs_key_prep = LmkcdeyKeyOwned::allocate_eval(*bs_key.param(), ring.eval_size());
             lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
             bs_key_prep
         };
@@ -312,7 +312,7 @@ fn serialize_deserialize() {
             interactive::aggregate_pk_shares(ring, &mut pk, &crs, &[pk_share.clone()]);
             pk
         };
-        let bs_key_shares = {
+        let bs_key_share = {
             let mut bs_key_share = LmkcdeyKeyShare::allocate(param, crs, 0);
             let mut scratch = ring.allocate_scratch(2, 3, 0);
             interactive::bs_key_share_gen(
@@ -330,7 +330,12 @@ fn serialize_deserialize() {
         assert_serde_eq(&crs);
         assert_serde_eq(&pk_share);
         assert_serde_eq(&pk);
-        assert_serde_eq(&bs_key_shares);
+        assert_serde_eq(&bs_key_share);
+        assert_serde_eq(&bs_key_share.compact(ring, mod_ks));
+        assert_eq!(
+            &bs_key_share,
+            &bs_key_share.compact(ring, mod_ks).uncompact(ring, mod_ks)
+        );
     }
 
     run::<NativeRing>(Native::native());

@@ -76,7 +76,6 @@ pub trait Decomposer<T: 'static + Copy + Debug + Send + Sync>: Clone + Debug + S
 }
 
 pub type NativeDecomposer = PowerOfTwoDecomposer<true>;
-
 pub type NonNativePowerOfTwoDecomposer = PowerOfTwoDecomposer<false>;
 
 #[derive(Clone, Copy, Debug)]
