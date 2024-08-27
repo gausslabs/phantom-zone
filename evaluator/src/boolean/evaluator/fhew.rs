@@ -64,7 +64,7 @@ impl<R: RingOps> FhewBoolCiphertext<R> {
     {
         let pt = lwe::decrypt(ring, sk, &self.ct);
         let m = ring.mod_switch(&pt.0, &NonNativePowerOfTwo::new(2));
-        debug_assert!(m == 0 || m == 1);
+        assert!(m == 0 || m == 1);
         m == 1
     }
 }
