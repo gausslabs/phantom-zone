@@ -74,6 +74,10 @@ pub mod dev {
             self.std_dev().log2()
         }
 
+        pub fn push(&mut self, value: T) {
+            self.samples.push(value);
+        }
+
         pub fn extend(&mut self, iter: impl IntoIterator<Item = T>) {
             self.samples.extend(iter);
         }

@@ -1,9 +1,10 @@
 use crate::{
     core::{
-        lwe::{test::LweParam, LweSecretKey, LweSecretKeyOwned},
+        lwe::{test::LweParam, LweCiphertext, LwePlaintext, LweSecretKey, LweSecretKeyOwned},
         rgsw::{test::RgswParam, RgswDecompositionParam},
         rlwe::{
-            RlwePlaintext, RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey, SeededRlwePublicKey,
+            RlweCiphertext, RlwePlaintext, RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey,
+            SeededRlwePublicKey,
         },
     },
     scheme::blind_rotation::lmkcdey::{
@@ -20,9 +21,9 @@ use core::{array::from_fn, iter::repeat_with};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    distribution::{DistributionVariance, Gaussian, Ternary},
+    distribution::{DistributionVariance, Gaussian, Sampler, Ternary},
     izip_eq,
-    modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
+    modulus::{Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
@@ -241,6 +242,7 @@ fn bs_key_gen_stats() {
         let rlwe = rgsw.rlwe();
         let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
         let ring = rgsw.ring();
+        let mod_ks = lwe_ks.modulus();
 
         let (sk, sk_ks, _, bs_key) = bs_key_gen::<R>(param, crs, thread_rng());
         let sk = RlweSecretKey::from(sk);
@@ -290,6 +292,37 @@ fn bs_key_gen_stats() {
         assert!((noise_ks_key.log2_std_dev() - var_ks_key.sqrt().log2()).abs() < 0.1);
         assert!((noise_ak.log2_std_dev() - var_ak.sqrt().log2()).abs() < 0.1);
         assert!(noise_brk.log2_std_dev() < var_noise_brk.sqrt().log2());
+
+        if param.modulus.bits() == 54 {
+            let mut noise_ct_auto = Stats::default();
+            for _ in 0..1000 {
+                let mut rng = StdLweRng::from_entropy();
+                let mut scratch = ring.allocate_scratch(0, 2, 0);
+                let mut pt = RlwePlaintext::allocate(param.ring_size);
+                let mut ct = RlweCiphertext::allocate(param.ring_size);
+                ring.sample_uniform_into(ct.a_mut(), &mut rng);
+                ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.as_ref(), scratch.borrow_mut());
+                ring.slice_neg_assign(pt.as_mut());
+                bs_key.aks().for_each(|ak| {
+                    let mut pt_auto = RlwePlaintext::allocate(param.ring_size);
+                    ring.poly_add_auto(pt_auto.as_mut(), pt.as_ref(), ak.auto_map());
+                    let ct_auto = rlwe.automorphism(&ak.cloned(), &ct);
+                    noise_ct_auto.extend(rlwe.noise(&sk, &pt_auto, &ct_auto));
+                });
+            }
+            assert!((noise_ct_auto.log2_std_dev() - 34.21).abs() < 0.05);
+
+            let mut noise_ct_ks = Stats::default();
+            for _ in 0..1000 {
+                let mut rng = StdLweRng::from_entropy();
+                let mut ct = LweCiphertext::allocate(param.ring_size);
+                mod_ks.sample_uniform_into(ct.a_mut(), &mut rng);
+                let pt = mod_ks.neg(&mod_ks.slice_dot_elem_from(ct.a(), sk.as_ref()));
+                let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
+                noise_ct_ks.push(lwe_ks.noise(&sk_ks, &LwePlaintext(pt), &ct_ks));
+            }
+            assert!((noise_ct_ks.log2_std_dev() - 9.27).abs() < 0.1);
+        }
     }
 
     run::<NativeRing>(Native::native());
