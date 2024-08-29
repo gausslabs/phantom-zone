@@ -9,7 +9,7 @@ use crate::{
     },
     scheme::blind_rotation::lmkcdey::{
         interactive::structure::{
-            LmkcdeyInteractiveCrs, LmkcdeyInteractiveParam, LmkcdeyKeyShareOwned,
+            LmkcdeyInteractiveCrs, LmkcdeyInteractiveKeyShareOwned, LmkcdeyInteractiveParam,
         },
         structure::LmkcdeyKeyOwned,
     },
@@ -48,7 +48,7 @@ pub fn pk_share_gen<'a, 'b, R, S, T>(
 pub fn bs_key_share_gen<'a, 'b, 'c, R, M, S, T>(
     ring: &R,
     mod_ks: &M,
-    bs_key_share: &mut LmkcdeyKeyShareOwned<R::Elem, M::Elem, S>,
+    bs_key_share: &mut LmkcdeyInteractiveKeyShareOwned<R::Elem, M::Elem, S>,
     sk: impl Into<RlweSecretKeyView<'a, T>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
     sk_ks: impl Into<LweSecretKeyView<'c, T>>,
@@ -112,7 +112,7 @@ pub fn aggregate_bs_key_shares<R, M, S>(
     mod_ks: &M,
     bs_key: &mut LmkcdeyKeyOwned<R::Elem, M::Elem>,
     crs: &LmkcdeyInteractiveCrs<S>,
-    bs_key_shares: &[LmkcdeyKeyShareOwned<R::Elem, M::Elem, S>],
+    bs_key_shares: &[LmkcdeyInteractiveKeyShareOwned<R::Elem, M::Elem, S>],
     mut scratch: Scratch,
 ) where
     R: RingOps,

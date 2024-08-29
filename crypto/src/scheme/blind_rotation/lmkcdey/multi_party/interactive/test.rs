@@ -8,7 +8,9 @@ use crate::{
     },
     scheme::blind_rotation::lmkcdey::{
         self,
-        interactive::{self, LmkcdeyInteractiveCrs, LmkcdeyInteractiveParam, LmkcdeyKeyShare},
+        interactive::{
+            self, LmkcdeyInteractiveCrs, LmkcdeyInteractiveKeyShare, LmkcdeyInteractiveParam,
+        },
         test::nand_lut,
         LmkcdeyKeyOwned, LmkcdeyParam,
     },
@@ -113,7 +115,7 @@ fn bs_key_gen<R: RingOps>(
     };
     let bs_key_shares = izip!(0.., &sk_shares, &sk_ks_shares, &mut rngs)
         .map(|(share_idx, sk_share, sk_ks_share, rng)| {
-            let mut bs_key_share = LmkcdeyKeyShare::allocate(param, crs, share_idx);
+            let mut bs_key_share = LmkcdeyInteractiveKeyShare::allocate(param, crs, share_idx);
             let mut scratch = ring.allocate_scratch(2, 3, 0);
             interactive::bs_key_share_gen(
                 ring,
@@ -313,7 +315,7 @@ fn serialize_deserialize() {
             pk
         };
         let bs_key_share = {
-            let mut bs_key_share = LmkcdeyKeyShare::allocate(param, crs, 0);
+            let mut bs_key_share = LmkcdeyInteractiveKeyShare::allocate(param, crs, 0);
             let mut scratch = ring.allocate_scratch(2, 3, 0);
             interactive::bs_key_share_gen(
                 ring,

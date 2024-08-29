@@ -10,7 +10,8 @@ use phantom_zone_crypto::{
     scheme::blind_rotation::lmkcdey::{
         interactive::{
             aggregate_bs_key_shares, aggregate_pk_shares, bs_key_share_gen, pk_share_gen,
-            LmkcdeyInteractiveCrs, LmkcdeyInteractiveParam, LmkcdeyKeyShare, LmkcdeyKeyShareOwned,
+            LmkcdeyInteractiveCrs, LmkcdeyInteractiveKeyShare, LmkcdeyInteractiveKeyShareOwned,
+            LmkcdeyInteractiveParam,
         },
         prepare_bs_key, LmkcdeyKey, LmkcdeyParam,
     },
@@ -114,14 +115,15 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
     fn bs_key_share_gen(
         &self,
         pk: &RlwePublicKeyOwned<R::Elem>,
-    ) -> LmkcdeyKeyShareOwned<R::Elem, M::Elem, StdRng> {
+    ) -> LmkcdeyInteractiveKeyShareOwned<R::Elem, M::Elem, StdRng> {
         let sk_ks = LweSecretKey::sample(
             self.param.lwe_dimension,
             self.param.lwe_sk_distribution,
             StdRng::from_entropy(),
         );
         let mut scratch = self.ring.allocate_scratch(2, 3, 0);
-        let mut bs_key_share = LmkcdeyKeyShare::allocate(self.param, self.crs, self.share_idx);
+        let mut bs_key_share =
+            LmkcdeyInteractiveKeyShare::allocate(self.param, self.crs, self.share_idx);
         bs_key_share_gen(
             &self.ring,
             &self.mod_ks,
@@ -173,7 +175,7 @@ impl<R: RingOps, M: ModulusOps> Server<R, M> {
 
     fn aggregate_bs_key_shares<R2: RingOps<Elem = R::Elem>>(
         &mut self,
-        bs_key_shares: &[LmkcdeyKeyShareOwned<R::Elem, M::Elem, StdRng>],
+        bs_key_shares: &[LmkcdeyInteractiveKeyShareOwned<R::Elem, M::Elem, StdRng>],
     ) {
         let bs_key = {
             let ring = <R2 as RingOps>::new(self.param.modulus, self.param.ring_size);
