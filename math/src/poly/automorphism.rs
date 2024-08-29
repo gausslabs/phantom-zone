@@ -1,6 +1,3 @@
-use crate::util::as_slice::{AsMutSlice, AsSlice};
-use phantom_zone_derive::AsSliceWrapper;
-
 /// Map for `f(X) -> f(X^k)`. The `map` slice contains `sign` bit and
 /// pre-image `index` encoded as `index << 1 | sign`.
 ///
@@ -23,14 +20,32 @@ use phantom_zone_derive::AsSliceWrapper;
 /// assert_eq!(iter.next(), Some((true, 3)));  // X^7 = -X^(3*5)
 /// assert_eq!(iter.next(), None);
 /// ```
-#[derive(Clone, Debug, AsSliceWrapper)]
-pub struct AutomorphismMap<S: AsSlice<Elem = usize>> {
-    #[as_slice]
-    map: S,
+#[derive(Clone, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "SerdeAutomorphismMap", from = "SerdeAutomorphismMap")
+)]
+pub struct AutomorphismMap {
+    map: Vec<usize>,
     k: usize,
 }
 
-impl<S: AsSlice<Elem = usize>> AutomorphismMap<S> {
+impl AutomorphismMap {
+    pub fn new(ring_size: usize, k: usize) -> Self {
+        debug_assert!(ring_size.is_power_of_two());
+        debug_assert!(k < 2 * ring_size);
+        let mask = ring_size - 1;
+        let log_n = ring_size.ilog2();
+        let mut map = vec![0; ring_size];
+        (0..ring_size).for_each(|i| {
+            let j = i * k;
+            let sign = (j >> log_n) & 1;
+            map[j & mask] = (i << 1) | sign
+        });
+        Self { map, k }
+    }
+
     pub fn ring_size(&self) -> usize {
         self.map.len()
     }
@@ -40,7 +55,7 @@ impl<S: AsSlice<Elem = usize>> AutomorphismMap<S> {
     }
 
     pub fn iter(&self) -> impl Clone + Iterator<Item = (bool, usize)> + '_ {
-        self.map.as_ref().iter().map(|v| {
+        self.map.iter().map(|v| {
             let sign = (v & 1) == 1;
             let idx = v >> 1;
             (sign, idx)
@@ -58,25 +73,33 @@ impl<S: AsSlice<Elem = usize>> AutomorphismMap<S> {
     }
 }
 
-impl AutomorphismMapOwned {
-    pub fn new(ring_size: usize, k: usize) -> Self {
-        debug_assert!(ring_size.is_power_of_two());
-        debug_assert!(k < 2 * ring_size);
-        let mask = ring_size - 1;
-        let log_n = ring_size.ilog2();
-        let mut map = vec![0; ring_size];
-        (0..ring_size).for_each(|i| {
-            let j = i * k;
-            let sign = (j >> log_n) & 1;
-            map[j & mask] = (i << 1) | sign
-        });
-        Self { map, k }
+impl PartialEq for AutomorphismMap {
+    fn eq(&self, other: &Self) -> bool {
+        (self.ring_size(), self.k()).eq(&(other.ring_size(), other.k()))
     }
 }
 
-impl<S: AsSlice<Elem = usize>> PartialEq for AutomorphismMap<S> {
-    fn eq(&self, other: &Self) -> bool {
-        (self.ring_size(), self.k()).eq(&(other.ring_size(), other.k()))
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SerdeAutomorphismMap {
+    ring_size: usize,
+    k: usize,
+}
+
+#[cfg(feature = "serde")]
+impl From<SerdeAutomorphismMap> for AutomorphismMap {
+    fn from(value: SerdeAutomorphismMap) -> Self {
+        Self::new(value.ring_size, value.k)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl From<AutomorphismMap> for SerdeAutomorphismMap {
+    fn from(value: AutomorphismMap) -> Self {
+        Self {
+            ring_size: value.ring_size(),
+            k: value.k,
+        }
     }
 }
 

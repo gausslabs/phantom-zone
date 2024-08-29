@@ -1,8 +1,11 @@
 use crate::{
     izip_eq,
     modulus::{ElemFrom, Modulus, ModulusOps},
-    poly::automorphism::AutomorphismMapView,
-    util::scratch::{Scratch, ScratchOwned},
+    poly::automorphism::AutomorphismMap,
+    util::{
+        scratch::{Scratch, ScratchOwned},
+        serde::Serde,
+    },
 };
 use core::{fmt::Debug, mem::size_of};
 
@@ -16,8 +19,8 @@ pub use power_of_two::{
 pub use prime::{noisy::NoisyPrimeRing, precise::PrimeRing};
 
 pub trait RingOps: ModulusOps {
-    type Eval: 'static + Copy + Debug + Default + Send + Sync;
-    type EvalPrep: 'static + Copy + Debug + Default + Send + Sync;
+    type Eval: 'static + Copy + Debug + Default + PartialEq + Send + Sync + Serde;
+    type EvalPrep: 'static + Copy + Debug + Default + PartialEq + Send + Sync + Serde;
 
     fn new(modulus: Modulus, ring_size: usize) -> Self;
 
@@ -245,7 +248,7 @@ pub trait RingOps: ModulusOps {
         }
     }
 
-    fn poly_add_auto(&self, a: &mut [Self::Elem], b: &[Self::Elem], auto_map: AutomorphismMapView) {
+    fn poly_add_auto(&self, a: &mut [Self::Elem], b: &[Self::Elem], auto_map: &AutomorphismMap) {
         izip_eq!(a, auto_map.iter()).for_each(|(a, (sign, idx))| {
             if sign {
                 *a = self.sub(a, &b[idx]);

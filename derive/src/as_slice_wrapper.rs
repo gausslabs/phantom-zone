@@ -9,8 +9,7 @@ use quote::{format_ident, quote, ToTokens};
 use std::collections::BTreeMap;
 use syn::{
     parse::Parse, parse2, punctuated::Punctuated, Attribute, Data, DeriveInput, Error, Fields,
-    GenericArgument, GenericParam, Index, PathArguments, Result, Token, TypeParamBound,
-    WhereClause,
+    GenericParam, Index, Result, Token, WhereClause,
 };
 
 pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
@@ -85,43 +84,7 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
         .params
         .iter()
         .map(|param| match &param {
-            GenericParam::Type(ty) => {
-                let ident = &ty.ident;
-                let elem_bound = ty
-                    .bounds
-                    .iter()
-                    .flat_map(|bound| match bound {
-                        TypeParamBound::Trait(tr) => tr
-                            .path
-                            .segments
-                            .iter()
-                            .flat_map(|seg| {
-                                if seg.ident == "AsSlice" {
-                                    match &seg.arguments {
-                                        PathArguments::AngleBracketed(generic) => generic
-                                            .args
-                                            .iter()
-                                            .flat_map(|arg| match arg {
-                                                GenericArgument::AssocType(assoc)
-                                                    if assoc.ident == "Elem" =>
-                                                {
-                                                    Some(&assoc.ty)
-                                                }
-                                                _ => None,
-                                            })
-                                            .next(),
-                                        _ => None,
-                                    }
-                                } else {
-                                    None
-                                }
-                            })
-                            .next(),
-                        _ => None,
-                    })
-                    .next();
-                Ok((ident, elem_bound))
-            }
+            GenericParam::Type(ty) => Ok(&ty.ident),
             _ => Err(call_site_err(
                 "Lifetime or const generics are not supported yet",
             )),
@@ -135,53 +98,56 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
         .unwrap_or_else(|| parse(quote!(where)));
     let mut as_view_where_clause = input_where_clause.clone();
     let mut as_mut_view_where_clause = input_where_clause;
-    let mut as_view_generics = Generics::default();
-    let mut as_mut_view_generics = Generics::default();
-    let mut input_owned_impl_generics = Generics::default();
-    let mut input_owned_type_genercs = Generics::default();
-    let mut input_view_impl_generics = Generics(once(quote!('alias)).collect());
-    let mut input_view_type_genercs = Generics::default();
-    let mut input_mut_view_impl_generics = Generics(once(quote!('alias)).collect());
-    let mut input_mut_view_type_genercs = Generics::default();
-    let mut cloned_impl_generics = Generics::default();
+    let mut as_view_type_generics = Generics::default();
+    let mut as_mut_view_type_generics = Generics::default();
+    let mut input_owned_alias_generics = Generics::default();
+    let mut input_owned_type_generics = Generics::default();
+    let mut input_view_alias_generics = Generics(once(quote!('alias)).collect());
+    let mut input_view_type_generics = Generics::default();
+    let mut input_mut_view_alias_generics = Generics(once(quote!('alias)).collect());
+    let mut input_mut_view_type_generics = Generics::default();
+    let mut compact_type_generics = Generics::default();
+    let mut compact_where_clause: WhereClause = parse(quote!(where));
+    let mut uncompact_type_generics = Generics::default();
+    let mut cloned_type_generics = Generics::default();
     let mut cloned_where_clause: WhereClause = parse(quote!(where));
     let mut from_impl_generics = input.generics.clone();
-    from_impl_generics.params = once(parse(quote! { 'from }))
+    from_impl_generics.params = once(parse(quote!('from)))
         .chain(from_impl_generics.params)
         .collect();
     let mut from_type_generics = Generics(once(quote!('from)).collect());
 
-    as_slice_generics.iter().for_each(|(ident, elem_bound)| {
+    as_slice_generics.iter().for_each(|ident| {
         as_view_where_clause
             .predicates
             .push(parse(quote! { #ident: AsSlice }));
         as_mut_view_where_clause
             .predicates
             .push(parse(quote! { #ident: AsMutSlice }));
-        as_view_generics.push(quote! { &[#ident::Elem] });
-        as_mut_view_generics.push(quote! { &mut [#ident::Elem] });
-        cloned_impl_generics.push(quote! { Vec<#ident::Elem> });
+        as_view_type_generics.push(quote! { &[#ident::Elem] });
+        as_mut_view_type_generics.push(quote! { &mut [#ident::Elem] });
+        compact_type_generics.push(quote! { phantom_zone_math::util::compact::Compact });
+        compact_where_clause
+            .predicates
+            .push(parse(quote! { #ident: AsSlice<Elem = M::Elem> }));
+        uncompact_type_generics.push(quote! { Vec<M::Elem> });
+        cloned_type_generics.push(quote! { Vec<#ident::Elem> });
         cloned_where_clause
             .predicates
             .push(parse(quote! { #ident::Elem: Clone }));
-        if let Some(elem_bound) = elem_bound {
-            input_owned_type_genercs.push(quote! { Vec<#elem_bound> });
-            input_view_type_genercs.push(quote! { &'alias [#elem_bound] });
-            input_mut_view_type_genercs.push(quote! { &'alias mut [#elem_bound] });
-        } else {
-            let generic_ident = {
-                let ident = ident.to_string();
-                let suffix = ident.trim_start_matches(char::is_alphabetic);
-                format_ident!("T{suffix}")
-            };
-            input_owned_impl_generics.push(quote! { #generic_ident });
-            input_owned_type_genercs.push(quote! { Vec<#generic_ident> });
-            input_view_impl_generics.push(quote! { #generic_ident });
-            input_view_type_genercs.push(quote! { &'alias [#generic_ident] });
-            input_mut_view_impl_generics.push(quote! { #generic_ident });
-            input_mut_view_type_genercs.push(quote! { &'alias mut [#generic_ident] });
-            from_type_generics.push(quote! { #ident::Elem });
-        }
+
+        let elem_ident = {
+            let ident = ident.to_string();
+            let suffix = ident.trim_start_matches(char::is_alphabetic);
+            format_ident!("T{suffix}")
+        };
+        input_owned_alias_generics.push(quote! { #elem_ident });
+        input_owned_type_generics.push(quote! { Vec<#elem_ident> });
+        input_view_alias_generics.push(quote! { #elem_ident });
+        input_view_type_generics.push(quote! { &'alias [#elem_ident] });
+        input_mut_view_alias_generics.push(quote! { #elem_ident });
+        input_mut_view_type_generics.push(quote! { &'alias mut [#elem_ident] });
+        from_type_generics.push(quote! { #ident::Elem });
     });
 
     let impl_as_ref_and_as_mut = {
@@ -189,7 +155,7 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
         (as_slice_fields.len() == 1 && !nested)
             .then(|| {
                 let field_ident = &field_idents[*as_slice_fields.first_entry().unwrap().key()];
-                let generic_ident = as_slice_generics[0].0;
+                let generic_ident = as_slice_generics[0];
 
                 quote! {
                     impl #input_impl_generics AsRef<[#generic_ident::Elem]> for #input_ident #input_type_generics #as_view_where_clause {
@@ -209,12 +175,12 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
     };
 
     Ok(quote! {
-        pub type #input_owned_ident #input_owned_impl_generics = #input_ident #input_owned_type_genercs;
-        pub type #input_view_ident #input_view_impl_generics = #input_ident #input_view_type_genercs;
-        pub type #input_mut_view_ident #input_mut_view_impl_generics = #input_ident #input_mut_view_type_genercs;
+        pub type #input_owned_ident #input_owned_alias_generics = #input_ident #input_owned_type_generics;
+        pub type #input_view_ident #input_view_alias_generics = #input_ident #input_view_type_generics;
+        pub type #input_mut_view_ident #input_mut_view_alias_generics = #input_ident #input_mut_view_type_generics;
 
         impl #input_impl_generics #input_ident #input_type_generics #as_view_where_clause {
-            pub fn as_view(&self) -> #input_ident #as_view_generics {
+            pub fn as_view(&self) -> #input_ident #as_view_type_generics {
                 #input_ident {
                     #(#other_field_idents: self.#other_field_idents,)*
                     #(#as_slice_nested_field_idents: self.#as_slice_nested_field_idents.as_view(),)*
@@ -222,21 +188,39 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
                 }
             }
 
-            pub fn cloned(&self) -> #input_ident #cloned_impl_generics #cloned_where_clause {
+            pub fn cloned(&self) -> #input_ident #cloned_type_generics #cloned_where_clause {
                 #input_ident {
                     #(#other_field_idents: self.#other_field_idents,)*
                     #(#as_slice_nested_field_idents: self.#as_slice_nested_field_idents.cloned(),)*
                     #(#as_slice_field_idents: self.#as_slice_field_idents.as_ref().to_vec(),)*
                 }
             }
+
+            pub fn compact<M: phantom_zone_math::modulus::ModulusOps>(&self, modulus: &M) -> #input_ident #compact_type_generics #compact_where_clause {
+                #input_ident {
+                    #(#other_field_idents: self.#other_field_idents,)*
+                    #(#as_slice_nested_field_idents: self.#as_slice_nested_field_idents.compact(modulus),)*
+                    #(#as_slice_field_idents: phantom_zone_math::util::compact::Compact::from_elems(modulus, &self.#as_slice_field_idents),)*
+                }
+            }
         }
 
         impl #input_impl_generics #input_ident #input_type_generics #as_mut_view_where_clause {
-            pub fn as_mut_view(&mut self) -> #input_ident #as_mut_view_generics {
+            pub fn as_mut_view(&mut self) -> #input_ident #as_mut_view_type_generics {
                 #input_ident {
                     #(#other_field_idents: self.#other_field_idents,)*
                     #(#as_slice_nested_field_idents: self.#as_slice_nested_field_idents.as_mut_view(),)*
                     #(#as_slice_field_idents: self.#as_slice_field_idents.as_mut(),)*
+                }
+            }
+        }
+
+        impl #input_ident #compact_type_generics {
+            pub fn uncompact<M: phantom_zone_math::modulus::ModulusOps>(&self, modulus: &M) -> #input_ident #uncompact_type_generics {
+                #input_ident {
+                    #(#other_field_idents: self.#other_field_idents,)*
+                    #(#as_slice_nested_field_idents: self.#as_slice_nested_field_idents.uncompact(modulus),)*
+                    #(#as_slice_field_idents: self.#as_slice_field_idents.to_elems(modulus),)*
                 }
             }
         }

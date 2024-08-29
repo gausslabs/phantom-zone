@@ -11,7 +11,7 @@ use phantom_zone_crypto::{
         },
         rlwe::{RlwePlaintext, RlwePlaintextOwned},
     },
-    scheme::blind_rotation::lmkcdey::{self, LmkcdeyKey, LmkcdeyParam},
+    scheme::blind_rotation::lmkcdey::{self, LmkcdeyKeyOwned, LmkcdeyParam},
     util::{distribution::NoiseDistribution, rng::LweRng},
 };
 use phantom_zone_math::{
@@ -25,9 +25,21 @@ use rand::RngCore;
 pub type FhewBoolParam = LmkcdeyParam;
 
 #[derive(Clone, Debug)]
-pub struct FhewBoolCiphertext<R: RingOps>(LweCiphertextOwned<R::Elem>, PhantomData<R>);
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FhewBoolCiphertext<R: RingOps> {
+    ct: LweCiphertextOwned<R::Elem>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    _marker: PhantomData<R>,
+}
 
 impl<R: RingOps> FhewBoolCiphertext<R> {
+    pub fn new(ct: LweCiphertextOwned<R::Elem>) -> Self {
+        Self {
+            ct,
+            _marker: PhantomData,
+        }
+    }
+
     pub fn encrypt<'a, T>(
         ring: &R,
         sk: impl Into<LweSecretKeyView<'a, T>>,
@@ -42,7 +54,7 @@ impl<R: RingOps> FhewBoolCiphertext<R> {
         let pt = LwePlaintext(NonNativePowerOfTwo::new(2).mod_switch(&(m as u64), ring));
         let mut ct = LweCiphertext::allocate(ring.ring_size());
         lwe::sk_encrypt(ring, &mut ct, sk, pt, noise_distribution, rng);
-        Self(ct, PhantomData)
+        Self::new(ct)
     }
 
     pub fn decrypt<'a, T>(&self, ring: &R, sk: impl Into<LweSecretKeyView<'a, T>>) -> bool
@@ -50,9 +62,9 @@ impl<R: RingOps> FhewBoolCiphertext<R> {
         R: ElemFrom<T>,
         T: 'a + Copy,
     {
-        let pt = lwe::decrypt(ring, sk, &self.0);
+        let pt = lwe::decrypt(ring, sk, &self.ct);
         let m = ring.mod_switch(&pt.0, &NonNativePowerOfTwo::new(2));
-        debug_assert!(m == 0 || m == 1);
+        assert!(m == 0 || m == 1);
         m == 1
     }
 }
@@ -62,14 +74,14 @@ pub struct FhewBoolEvaluator<R: RingOps, M: ModulusOps> {
     mod_ks: M,
     big_q_by_4: R::Elem,
     big_q_by_8: R::Elem,
-    bs_key: LmkcdeyKey<R::EvalPrep, M::Elem>,
+    bs_key: LmkcdeyKeyOwned<R::EvalPrep, M::Elem>,
     /// Contains tables for AND, NAND, OR (XOR), NOR (XNOR).
     luts: [RlwePlaintextOwned<R::Elem>; 4],
     scratch_bytes: usize,
 }
 
 impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
-    pub fn new(bs_key: LmkcdeyKey<R::EvalPrep, M::Elem>) -> Self {
+    pub fn new(bs_key: LmkcdeyKeyOwned<R::EvalPrep, M::Elem>) -> Self {
         let param = bs_key.param();
         let ring = <R as RingOps>::new(param.modulus, param.ring_size);
         let mod_ks = M::new(param.lwe_modulus);
@@ -133,32 +145,32 @@ impl<R: RingOps, M: ModulusOps> BoolEvaluator for FhewBoolEvaluator<R, M> {
     type Ciphertext = FhewBoolCiphertext<R>;
 
     fn bitnot_assign(&self, a: &mut Self::Ciphertext) {
-        self.ring.slice_neg_assign(a.0.as_mut());
-        self.ring.add_assign(a.0.b_mut(), &self.big_q_by_4);
+        self.ring.slice_neg_assign(a.ct.as_mut());
+        self.ring.add_assign(a.ct.b_mut(), &self.big_q_by_4);
     }
 
     fn bitand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(0, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<false>(0, a.ct.as_mut_view(), b.ct.as_view())
     }
 
     fn bitnand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(1, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<false>(1, a.ct.as_mut_view(), b.ct.as_view())
     }
 
     fn bitor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(2, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<false>(2, a.ct.as_mut_view(), b.ct.as_view())
     }
 
     fn bitnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(3, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<false>(3, a.ct.as_mut_view(), b.ct.as_view())
     }
 
     fn bitxor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<true>(2, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<true>(2, a.ct.as_mut_view(), b.ct.as_view())
     }
 
     fn bitxnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<true>(3, a.0.as_mut_view(), b.0.as_view())
+        self.bitop_assign::<true>(3, a.ct.as_mut_view(), b.ct.as_view())
     }
 }
 
@@ -167,7 +179,7 @@ mod dev {
     use crate::boolean::evaluator::fhew::{FhewBoolEvaluator, LmkcdeyParam};
     use phantom_zone_crypto::{
         core::lwe::LweSecretKeyOwned,
-        scheme::blind_rotation::lmkcdey::{self, LmkcdeyKey},
+        scheme::blind_rotation::lmkcdey::{self, LmkcdeyKeyOwned},
         util::rng::StdLweRng,
     };
     use phantom_zone_math::{modulus::ModulusOps, ring::RingOps};
@@ -184,7 +196,7 @@ mod dev {
                 &mut rng,
             );
             let mut scratch = ring.allocate_scratch(0, 3, 0);
-            let mut bs_key = LmkcdeyKey::allocate(param);
+            let mut bs_key = LmkcdeyKeyOwned::allocate(param);
             lmkcdey::bs_key_gen(
                 &ring,
                 &mod_ks,
@@ -194,7 +206,7 @@ mod dev {
                 scratch.borrow_mut(),
                 &mut rng,
             );
-            let mut bs_key_prep = LmkcdeyKey::allocate_eval(param, ring.eval_size());
+            let mut bs_key_prep = LmkcdeyKeyOwned::allocate_eval(param, ring.eval_size());
             lmkcdey::prepare_bs_key(&ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
             FhewBoolEvaluator::new(bs_key_prep)
         }

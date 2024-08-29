@@ -3,6 +3,7 @@ use phantom_zone_math::distribution::{DistributionSized, DistributionVariance, G
 use rand::{distributions::Distribution, Rng};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SecretDistribution {
     Gaussian(Gaussian),
     Ternary(Ternary),
@@ -71,6 +72,7 @@ impl DistributionVariance for SecretDistribution {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum NoiseDistribution {
     Gaussian(Gaussian),
 }

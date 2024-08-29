@@ -6,6 +6,7 @@ use crate::{
 use core::{borrow::Borrow, fmt::Debug};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DecompositionParam {
     pub log_base: usize,
     pub level: usize,
@@ -75,7 +76,6 @@ pub trait Decomposer<T: 'static + Copy + Debug + Send + Sync>: Clone + Debug + S
 }
 
 pub type NativeDecomposer = PowerOfTwoDecomposer<true>;
-
 pub type NonNativePowerOfTwoDecomposer = PowerOfTwoDecomposer<false>;
 
 #[derive(Clone, Copy, Debug)]

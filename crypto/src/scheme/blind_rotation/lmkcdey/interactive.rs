@@ -5,4 +5,7 @@ mod structure;
 mod test;
 
 pub use method::{aggregate_bs_key_shares, aggregate_pk_shares, bs_key_share_gen, pk_share_gen};
-pub use structure::{LmkcdeyInteractiveCrs, LmkcdeyInteractiveParam, LmkcdeyKeyShare};
+pub use structure::{
+    LmkcdeyInteractiveCrs, LmkcdeyInteractiveParam, LmkcdeyKeyShare, LmkcdeyKeyShareCompact,
+    LmkcdeyKeyShareOwned,
+};

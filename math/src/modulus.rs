@@ -2,6 +2,7 @@ use crate::{
     decomposer::Decomposer,
     distribution::{DistributionSized, Sampler},
     izip_eq,
+    util::serde::Serde,
 };
 use core::{borrow::Borrow, fmt::Debug, hash::Hash, iter::successors};
 use itertools::izip;
@@ -14,6 +15,7 @@ pub use power_of_two::{Native, NonNativePowerOfTwo};
 pub use prime::Prime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Modulus {
     Native(Native),
     NonNativePowerOfTwo(NonNativePowerOfTwo),
@@ -39,7 +41,7 @@ impl Modulus {
 }
 
 pub trait ElemOps: Clone + Debug + Send + Sync {
-    type Elem: 'static + Copy + Debug + Default + Send + Sync + Eq + Ord + Hash;
+    type Elem: 'static + Copy + Debug + Default + Eq + Ord + Hash + Send + Sync + Serde;
 }
 
 pub trait ElemFrom<T>: ElemOps {

@@ -9,6 +9,7 @@ use phantom_zone_math::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RgswDecompositionParam {
     pub log_base: usize,
     pub level_a: usize,
@@ -32,6 +33,7 @@ impl RgswDecompositionParam {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RgswCiphertext<S> {
     #[as_slice(nested)]
     cts: RlweCiphertextList<S>,

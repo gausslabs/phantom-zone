@@ -123,6 +123,7 @@ pub trait DistributionVariance {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Gaussian(pub f64);
 
 impl<T: FromPrimitive> Distribution<T> for Gaussian {
@@ -143,6 +144,7 @@ impl DistributionVariance for Gaussian {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Ternary;
 
 impl<T: Signed> DistributionSized<T> for Ternary {

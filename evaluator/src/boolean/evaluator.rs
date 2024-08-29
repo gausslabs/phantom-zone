@@ -1,9 +1,10 @@
 use core::fmt::Debug;
+use phantom_zone_math::util::serde::Serde;
 
 pub mod fhew;
 
 pub trait BoolEvaluator: Send + Sync {
-    type Ciphertext: Clone + Debug;
+    type Ciphertext: Clone + Debug + Serde;
 
     fn bitnot_assign(&self, a: &mut Self::Ciphertext);
 

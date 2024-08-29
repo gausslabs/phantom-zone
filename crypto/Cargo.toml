@@ -10,14 +10,19 @@ rand = { workspace = true }
 phantom-zone-derive = { path = "../derive" }
 phantom-zone-math = { path = "../math" }
 
+# serde
+serde = { workspace = true, optional = true, features = ["derive"] }
+
 [dev-dependencies]
 criterion = { workspace = true }
 phantom-zone-math = { path = "../math", features = ["dev"] }
 
 [features]
 default = []
+serde = ["dep:serde", "phantom-zone-math/serde"]
 dev = ["phantom-zone-math/dev"]
 
 [[bench]]
 name = "rlwe"
 harness = false
+required-features = ["dev"]

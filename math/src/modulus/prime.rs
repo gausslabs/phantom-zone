@@ -4,15 +4,19 @@ use crate::{
     modulus::{ElemFrom, ElemOps, ElemTo, Modulus, ModulusOps},
 };
 use core::ops::Deref;
-use num_bigint_dig::{prime::probably_prime, BigUint};
+use num_bigint_dig::BigUint;
 use num_traits::ToPrimitive;
 use rand::distributions::{Distribution, Uniform};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "SerdePrime", from = "SerdePrime")
+)]
 pub struct Prime {
     q: u64,
     q_half: u64,
-    q_twice: u64,
     log_q: usize,
     barrett_mu: u128,
     barrett_alpha: usize,
@@ -20,32 +24,17 @@ pub struct Prime {
 
 impl Prime {
     pub const fn new(q: u64) -> Self {
+        assert!(q > 1);
         let log_q = q.next_power_of_two().ilog2() as usize;
         let barrett_mu = (1u128 << (log_q * 2 + 3)) / (q as u128);
         let barrett_alpha = log_q + 3;
         Self {
             q,
             q_half: q >> 1,
-            q_twice: q << 1,
             log_q,
             barrett_mu,
             barrett_alpha,
         }
-    }
-
-    pub fn gen(bits: usize, two_adicity: usize) -> Self {
-        Self::gen_iter(bits, two_adicity).next().unwrap()
-    }
-
-    pub fn gen_iter(bits: usize, two_adicity: usize) -> impl Iterator<Item = Self> {
-        assert!(bits > two_adicity);
-        let min = 1 << (bits - two_adicity - 1);
-        let max = min << 1;
-        let candidates = (min..max).rev().map(move |hi| (hi << two_adicity) + 1);
-        candidates
-            .into_iter()
-            .filter(|v| is_prime(*v))
-            .map(Self::new)
     }
 
     #[inline(always)]
@@ -81,7 +70,6 @@ impl Prime {
     }
 
     pub fn multiplicative_generator(&self) -> u64 {
-        assert!(is_prime(self.q));
         let order = self.q - 1;
         (1..order)
             .find(|g| self.pow(*g, order >> 1) == order)
@@ -132,6 +120,24 @@ impl Prime {
         if *a >= self.q {
             *a -= self.q
         }
+    }
+}
+
+#[cfg(any(test, feature = "dev"))]
+impl Prime {
+    pub fn gen(bits: usize, two_adicity: usize) -> Self {
+        Self::gen_iter(bits, two_adicity).next().unwrap()
+    }
+
+    pub fn gen_iter(bits: usize, two_adicity: usize) -> impl Iterator<Item = Self> {
+        assert!(bits > two_adicity);
+        let min = 1 << (bits - two_adicity - 1);
+        let max = min << 1;
+        let candidates = (min..max).rev().map(move |hi| (hi << two_adicity) + 1);
+        candidates
+            .into_iter()
+            .filter(|v| is_prime(*v))
+            .map(Self::new)
     }
 }
 
@@ -215,8 +221,8 @@ impl ModulusOps for Prime {
 
     #[inline(always)]
     fn mul(&self, a: &Self::Elem, b: &Self::Elem) -> Self::Elem {
-        debug_assert!(*a < self.q_twice);
-        debug_assert!(*b < self.q_twice);
+        debug_assert!(*a < self.q << 1);
+        debug_assert!(*b < self.q << 1);
 
         self.reduce_u128(*a as u128 * *b as u128)
     }
@@ -312,7 +318,8 @@ impl TryFrom<Modulus> for Prime {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Shoup(u64, u64);
 
 impl Shoup {
@@ -340,6 +347,27 @@ impl Shoup {
     }
 }
 
+#[cfg(any(test, feature = "dev"))]
 pub(crate) fn is_prime(q: u64) -> bool {
-    probably_prime(&(q).into(), 20)
+    num_bigint_dig::prime::probably_prime(&(q).into(), 20)
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SerdePrime {
+    q: u64,
+}
+
+#[cfg(feature = "serde")]
+impl From<SerdePrime> for Prime {
+    fn from(value: SerdePrime) -> Self {
+        Self::new(value.q)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl From<Prime> for SerdePrime {
+    fn from(value: Prime) -> Self {
+        Self { q: value.q }
+    }
 }

@@ -23,7 +23,7 @@ jobs:
           cache-on-failure: true
 
       - name: Run test
-        run: cargo test --profile ci --workspace
+        run: cargo test --profile ci --workspace --all-features
 
   lint:
     name: Lint

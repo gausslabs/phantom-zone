@@ -6,9 +6,7 @@ use crate::{
 use num_complex::Complex64;
 
 pub type NoisyNativeRing = NoisyPowerOfTwoRing<true>;
-
 pub type NoisyNonNativePowerOfTwoRing = NoisyPowerOfTwoRing<false>;
-
 pub type NoisyPowerOfTwoRing<const NATIVE: bool> = power_of_two::PowerOfTwoRing<NATIVE, 1>;
 
 impl<const NATIVE: bool> RingOps for NoisyPowerOfTwoRing<NATIVE> {
