@@ -19,6 +19,10 @@ impl<'a, E: BoolEvaluator> FheBool<'a, E> {
         self.ct
     }
 
+    pub fn ct(&self) -> &E::Ciphertext {
+        &self.ct
+    }
+
     pub fn bitnot_assign(&mut self) {
         self.evaluator.bitnot_assign(&mut self.ct);
     }

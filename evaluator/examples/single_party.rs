@@ -59,7 +59,7 @@ fn encrypt<'a>(
 ) -> FheU8<'a, Evaluator> {
     let cts = from_fn(|idx| {
         let m = (m >> idx) & 1 == 1;
-        FhewBoolCiphertext::encrypt(
+        FhewBoolCiphertext::sk_encrypt(
             evaluator.ring(),
             sk,
             m,

@@ -30,7 +30,7 @@ fn fhew(c: &mut Criterion) {
         let cts = (0..2000)
             .map(|_| {
                 let m = rng.gen_bool(0.5);
-                FhewBoolCiphertext::encrypt(&ring, &sk, m, param.noise_distribution, &mut rng)
+                FhewBoolCiphertext::sk_encrypt(&ring, &sk, m, param.noise_distribution, &mut rng)
             })
             .collect_vec();
         let mut cts = cts.into_iter();

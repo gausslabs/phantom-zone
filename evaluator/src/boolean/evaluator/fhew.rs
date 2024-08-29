@@ -2,20 +2,24 @@
 //! blind rotation in 2022/198.
 
 use crate::boolean::evaluator::BoolEvaluator;
-use core::marker::PhantomData;
+use itertools::{izip, Itertools};
 use phantom_zone_crypto::{
     core::{
         lwe::{
             self, LweCiphertext, LweCiphertextMutView, LweCiphertextOwned, LweCiphertextView,
-            LwePlaintext, LweSecretKeyView,
+            LweDecryptionShare, LwePlaintext, LweSecretKeyView,
         },
-        rlwe::{RlwePlaintext, RlwePlaintextOwned},
+        rlwe::{self, RlweCiphertext, RlwePlaintext, RlwePlaintextOwned, RlwePublicKeyView},
     },
     scheme::blind_rotation::lmkcdey::{self, LmkcdeyKeyOwned, LmkcdeyParam},
-    util::{distribution::NoiseDistribution, rng::LweRng},
+    util::{
+        distribution::{NoiseDistribution, SecretDistribution},
+        rng::LweRng,
+    },
 };
 use phantom_zone_math::{
-    modulus::{ElemFrom, ModulusOps, NonNativePowerOfTwo},
+    izip_eq,
+    modulus::{ElemFrom, ModulusOps},
     poly::automorphism::AutomorphismMap,
     ring::RingOps,
     util::scratch::ScratchOwned,
@@ -26,21 +30,21 @@ pub type FhewBoolParam = LmkcdeyParam;
 
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct FhewBoolCiphertext<R: RingOps> {
-    ct: LweCiphertextOwned<R::Elem>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    _marker: PhantomData<R>,
-}
+pub struct FhewBoolCiphertext<E>(LweCiphertextOwned<E>);
 
-impl<R: RingOps> FhewBoolCiphertext<R> {
-    pub fn new(ct: LweCiphertextOwned<R::Elem>) -> Self {
-        Self {
-            ct,
-            _marker: PhantomData,
-        }
+impl<E> FhewBoolCiphertext<E> {
+    pub fn new(ct: LweCiphertextOwned<E>) -> Self {
+        Self(ct)
     }
 
-    pub fn encrypt<'a, T>(
+    pub fn allocate(ring_size: usize) -> Self
+    where
+        E: Default,
+    {
+        Self::new(LweCiphertext::allocate(ring_size))
+    }
+
+    pub fn sk_encrypt<'a, R, T>(
         ring: &R,
         sk: impl Into<LweSecretKeyView<'a, T>>,
         m: bool,
@@ -48,25 +52,125 @@ impl<R: RingOps> FhewBoolCiphertext<R> {
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> Self
     where
-        R: ElemFrom<T>,
+        E: Default,
+        R: RingOps<Elem = E> + ElemFrom<T>,
         T: 'a + Copy,
     {
-        let pt = LwePlaintext(NonNativePowerOfTwo::new(2).mod_switch(&(m as u64), ring));
-        let mut ct = LweCiphertext::allocate(ring.ring_size());
-        lwe::sk_encrypt(ring, &mut ct, sk, pt, noise_distribution, rng);
-        Self::new(ct)
+        let pt = LwePlaintext(encode(ring, m));
+        let mut ct = Self::allocate(ring.ring_size());
+        lwe::sk_encrypt(ring, &mut ct.0, sk, pt, noise_distribution, rng);
+        ct
     }
 
-    pub fn decrypt<'a, T>(&self, ring: &R, sk: impl Into<LweSecretKeyView<'a, T>>) -> bool
+    pub fn pk_encrypt<'a, R: RingOps<Elem = E>>(
+        ring: &R,
+        pk: impl Into<RlwePublicKeyView<'a, E>>,
+        m: bool,
+        u_distribution: SecretDistribution,
+        noise_distribution: NoiseDistribution,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
+    ) -> Self
     where
-        R: ElemFrom<T>,
+        E: 'a + Copy + Default,
+    {
+        Self::batched_pk_encrypt(ring, pk, [m], u_distribution, noise_distribution, rng)
+            .pop()
+            .unwrap()
+    }
+
+    pub fn batched_pk_encrypt<'a, R: RingOps<Elem = E>>(
+        ring: &R,
+        pk: impl Into<RlwePublicKeyView<'a, E>>,
+        ms: impl IntoIterator<Item = bool>,
+        u_distribution: SecretDistribution,
+        noise_distribution: NoiseDistribution,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
+    ) -> Vec<Self>
+    where
+        E: 'a + Copy + Default,
+    {
+        let pk = pk.into();
+        let ms = ms.into_iter().collect_vec();
+        let big_q_by_4 = encode(ring, true);
+        let mut cts = vec![Self::allocate(ring.ring_size()); ms.len()];
+        let mut pt = RlwePlaintext::allocate(ring.ring_size());
+        let mut ct_rlwe = RlweCiphertext::allocate(ring.ring_size());
+        let mut scratch = ring.allocate_scratch(0, 2, 0);
+        izip_eq!(
+            cts.chunks_mut(ring.ring_size()),
+            ms.chunks(ring.ring_size()),
+        )
+        .for_each(|(cts, ms)| {
+            izip!(pt.as_mut(), ms).for_each(|(pt, m)| {
+                if *m {
+                    *pt = big_q_by_4;
+                }
+            });
+            rlwe::pk_encrypt(
+                ring,
+                &mut ct_rlwe,
+                pk,
+                &pt,
+                u_distribution,
+                noise_distribution,
+                scratch.borrow_mut(),
+                rng,
+            );
+            izip!(0.., cts)
+                .for_each(|(idx, ct)| rlwe::sample_extract(ring, &mut ct.0, &ct_rlwe, idx))
+        });
+        cts
+    }
+
+    pub fn decrypt<'a, R, T>(&self, ring: &R, sk: impl Into<LweSecretKeyView<'a, T>>) -> bool
+    where
+        R: RingOps<Elem = E> + ElemFrom<T>,
         T: 'a + Copy,
     {
-        let pt = lwe::decrypt(ring, sk, &self.ct);
-        let m = ring.mod_switch(&pt.0, &NonNativePowerOfTwo::new(2));
-        assert!(m == 0 || m == 1);
-        m == 1
+        let pt = lwe::decrypt(ring, sk, &self.0);
+        decode(ring, pt.0)
     }
+
+    pub fn decrypt_share<'a, R, T>(
+        &self,
+        ring: &R,
+        sk: impl Into<LweSecretKeyView<'a, T>>,
+        noise_distribution: NoiseDistribution,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
+    ) -> LweDecryptionShare<E>
+    where
+        R: RingOps<Elem = E> + ElemFrom<T>,
+        T: 'a + Copy,
+    {
+        lwe::decrypt_share(ring, sk, &self.0, noise_distribution, rng)
+    }
+
+    pub fn aggregate_decryption_shares<'a, R: RingOps<Elem = E>>(
+        &self,
+        ring: &R,
+        dec_shares: impl IntoIterator<Item = &'a LweDecryptionShare<E>>,
+    ) -> bool
+    where
+        E: 'a,
+    {
+        let pt = lwe::aggregate_decryption_shares(ring, &self.0, dec_shares);
+        decode(ring, pt.0)
+    }
+}
+
+fn encode<R: RingOps>(ring: &R, m: bool) -> R::Elem {
+    if m {
+        ring.elem_from(ring.modulus().as_f64() / 4f64)
+    } else {
+        ring.zero()
+    }
+}
+
+fn decode<R: RingOps>(ring: &R, pt: R::Elem) -> bool {
+    let delta = 4f64 / ring.modulus().as_f64();
+    let m = (ring.to_u64(pt) as f64 * delta).round() as u64 & 0b11;
+    assert!(m == 0 || m == 1);
+    m == 1
 }
 
 pub struct FhewBoolEvaluator<R: RingOps, M: ModulusOps> {
@@ -116,6 +220,10 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         &self.ring
     }
 
+    pub fn mod_ks(&self) -> &M {
+        &self.mod_ks
+    }
+
     fn bitop_assign<const XOR: bool>(
         &self,
         lut_idx: usize,
@@ -142,35 +250,35 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
 }
 
 impl<R: RingOps, M: ModulusOps> BoolEvaluator for FhewBoolEvaluator<R, M> {
-    type Ciphertext = FhewBoolCiphertext<R>;
+    type Ciphertext = FhewBoolCiphertext<R::Elem>;
 
     fn bitnot_assign(&self, a: &mut Self::Ciphertext) {
-        self.ring.slice_neg_assign(a.ct.as_mut());
-        self.ring.add_assign(a.ct.b_mut(), &self.big_q_by_4);
+        self.ring.slice_neg_assign(a.0.as_mut());
+        self.ring.add_assign(a.0.b_mut(), &self.big_q_by_4);
     }
 
     fn bitand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(0, a.ct.as_mut_view(), b.ct.as_view())
+        self.bitop_assign::<false>(0, a.0.as_mut_view(), b.0.as_view())
     }
 
     fn bitnand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(1, a.ct.as_mut_view(), b.ct.as_view())
+        self.bitop_assign::<false>(1, a.0.as_mut_view(), b.0.as_view())
     }
 
     fn bitor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(2, a.ct.as_mut_view(), b.ct.as_view())
+        self.bitop_assign::<false>(2, a.0.as_mut_view(), b.0.as_view())
     }
 
     fn bitnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(3, a.ct.as_mut_view(), b.ct.as_view())
+        self.bitop_assign::<false>(3, a.0.as_mut_view(), b.0.as_view())
     }
 
     fn bitxor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<true>(2, a.ct.as_mut_view(), b.ct.as_view())
+        self.bitop_assign::<true>(2, a.0.as_mut_view(), b.0.as_view())
     }
 
     fn bitxnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<true>(3, a.ct.as_mut_view(), b.ct.as_view())
+        self.bitop_assign::<true>(3, a.0.as_mut_view(), b.0.as_view())
     }
 }
 
@@ -282,9 +390,9 @@ mod test {
         sk: &LweSecretKeyOwned<i32>,
         m: bool,
         noise_distribution: NoiseDistribution,
-    ) -> FhewBoolCiphertext<R> {
+    ) -> FhewBoolCiphertext<R::Elem> {
         let mut rng = StdLweRng::from_entropy();
-        FhewBoolCiphertext::encrypt(ring, sk, m, noise_distribution, &mut rng)
+        FhewBoolCiphertext::sk_encrypt(ring, sk, m, noise_distribution, &mut rng)
     }
 
     #[test]
