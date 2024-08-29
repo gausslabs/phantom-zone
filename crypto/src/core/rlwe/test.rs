@@ -14,8 +14,9 @@ use crate::{
 };
 use itertools::Itertools;
 use phantom_zone_math::{
-    decomposer::DecompositionParam,
+    decomposer::{Decomposer, DecompositionParam},
     distribution::{DistributionVariance, Gaussian, Sampler, Ternary},
+    izip_eq,
     modulus::{Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
@@ -321,6 +322,37 @@ impl<R: RingOps> Rlwe<R> {
         self.ring().slice_sub_assign(pt_noisy.as_mut(), pt.as_ref());
         let to_i64 = |pt: &_| self.ring().to_i64(*pt);
         pt_noisy.as_ref().iter().map(to_i64).collect()
+    }
+
+    pub fn noise_ks_key(
+        &self,
+        sk_from: &RlweSecretKeyOwned<i32>,
+        sk_to: &RlweSecretKeyOwned<i32>,
+        ks_key: &RlweKeySwitchKeyOwned<R::Elem>,
+    ) -> Vec<Vec<i64>> {
+        let ring = self.ring();
+        let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
+        let mut pt = RlwePlaintext::allocate(self.ring_size());
+        ring.slice_elem_from(pt.as_mut(), sk_from.as_ref());
+        izip_eq!(ks_key.ct_iter(), decomposer.gadget_iter())
+            .map(|(ks_key_i, beta_i)| {
+                let mut pt = pt.clone();
+                ring.slice_scalar_mul_assign(pt.as_mut(), &ring.neg(&beta_i));
+                self.noise(sk_to, &pt, &ks_key_i.cloned())
+            })
+            .collect()
+    }
+
+    pub fn noise_auto_key(
+        &self,
+        sk: &RlweSecretKeyOwned<i32>,
+        auto_key: &RlweAutoKeyOwned<R::Elem>,
+    ) -> Vec<Vec<i64>> {
+        let sk_auto = RlweSecretKey::new(
+            auto_key.auto_map().apply(sk.as_ref(), |&v| -v).collect(),
+            self.ring_size(),
+        );
+        self.noise_ks_key(&sk_auto, sk, &auto_key.ks_key().cloned())
     }
 }
 

@@ -238,17 +238,30 @@ fn bs_key_gen_stats() {
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
         let rgsw = RgswParam::from(*param).build::<R>();
+        let rlwe = rgsw.rlwe();
+        let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
         let ring = rgsw.ring();
 
         let (sk, sk_ks, _, bs_key) = bs_key_gen::<R>(param, crs, thread_rng());
         let sk = RlweSecretKey::from(sk);
         let embedding_factor = param.embedding_factor() as i64;
-        let mut noise = Stats::default();
+        let mut noise_ks_key = Stats::default();
+        let mut noise_ak = Stats::default();
+        let mut noise_brk = Stats::default();
+        noise_ks_key.extend(
+            lwe_ks
+                .ks_key_noise(&sk.clone().into(), &sk_ks, &bs_key.ks_key().cloned())
+                .into_iter()
+                .flatten(),
+        );
+        bs_key.aks().for_each(|ak| {
+            noise_ak.extend(rlwe.noise_auto_key(&sk, &ak.cloned()).into_iter().flatten())
+        });
         izip_eq!(sk_ks.as_ref(), bs_key.brks()).for_each(|(sk_ks_i, brk_i)| {
             let brk_i = brk_i.cloned();
             let mut pt = RlwePlaintext::allocate(ring.ring_size());
             ring.poly_set_monomial(pt.as_mut(), embedding_factor * *sk_ks_i as i64);
-            noise.extend(rgsw.noise(&sk, &pt, &brk_i).into_iter().flatten());
+            noise_brk.extend(rgsw.noise(&sk, &pt, &brk_i).into_iter().flatten());
         });
 
         let total_shares = param.total_shares as f64;
@@ -257,6 +270,8 @@ fn bs_key_gen_stats() {
         let var_noise = param.noise_distribution.variance();
         let var_noise_ct_pk =
             ring_size * var_sk * var_noise + (ring_size * var_sk + 1.0) * var_noise;
+        let var_ks_key = total_shares * var_noise;
+        let var_ak = total_shares * var_noise;
         let var_noise_brk = {
             let log_base = param.rgsw_by_rgsw_decomposition_param.log_base;
             let level_a = param.rgsw_by_rgsw_decomposition_param.level_a;
@@ -270,7 +285,11 @@ fn bs_key_gen_stats() {
             let var_ignored_b = ((ignored_b * ignored_b) as f64) / 12.0;
             total_shares * (var_noise_a + var_noise_b + var_ignored_a + var_ignored_b)
         };
-        assert!(noise.log2_std_dev() < var_noise_brk.sqrt().log2());
+        assert_eq!(noise_ks_key.mean().round(), 0.0);
+        assert_eq!(noise_ak.mean().round(), 0.0);
+        assert!((noise_ks_key.log2_std_dev() - var_ks_key.sqrt().log2()).abs() < 0.1);
+        assert!((noise_ak.log2_std_dev() - var_ak.sqrt().log2()).abs() < 0.1);
+        assert!(noise_brk.log2_std_dev() < var_noise_brk.sqrt().log2());
     }
 
     run::<NativeRing>(Native::native());

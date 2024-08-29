@@ -150,11 +150,8 @@ pub fn aggregate_bs_key_shares<R, M, S>(
         .for_each(|(ak, ak_share)| rlwe::unseed_auto_key(ring, ak, ak_share, &mut ak_rng));
     bs_key_shares[1..].iter().for_each(|bs_key_share| {
         izip_eq!(bs_key.aks_mut(), bs_key_share.aks()).for_each(|(mut ak, ak_share)| {
-            izip_eq!(
-                ak.as_ks_key_mut().ct_iter_mut(),
-                ak_share.as_ks_key().ct_iter()
-            )
-            .for_each(|(mut ct, ct_share)| ring.slice_add_assign(ct.b_mut(), ct_share.b()));
+            izip_eq!(ak.ks_key_mut().ct_iter_mut(), ak_share.ks_key().ct_iter())
+                .for_each(|(mut ct, ct_share)| ring.slice_add_assign(ct.b_mut(), ct_share.b()));
         });
     });
 
