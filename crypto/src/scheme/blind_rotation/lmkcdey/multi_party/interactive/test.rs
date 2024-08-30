@@ -293,6 +293,16 @@ fn bs_key_gen_stats() {
         assert!((noise_ak.log2_std_dev() - var_ak.sqrt().log2()).abs() < 0.1);
         assert!(noise_brk.log2_std_dev() < var_noise_brk.sqrt().log2());
 
+        let mut noise_ct_ks = Stats::default();
+        for _ in 0..1000 {
+            let mut rng = StdLweRng::from_entropy();
+            let mut ct = LweCiphertext::allocate(param.ring_size);
+            mod_ks.sample_uniform_into(ct.a_mut(), &mut rng);
+            let pt = mod_ks.neg(&mod_ks.slice_dot_elem_from(ct.a(), sk.as_ref()));
+            let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
+            noise_ct_ks.push(lwe_ks.noise(&sk_ks, &LwePlaintext(pt), &ct_ks));
+        }
+        assert!((noise_ct_ks.log2_std_dev() - 9.27).abs() < 0.1);
         if param.modulus.bits() == 54 {
             let mut noise_ct_auto = Stats::default();
             for _ in 0..1000 {
@@ -311,17 +321,6 @@ fn bs_key_gen_stats() {
                 });
             }
             assert!((noise_ct_auto.log2_std_dev() - 34.21).abs() < 0.05);
-
-            let mut noise_ct_ks = Stats::default();
-            for _ in 0..1000 {
-                let mut rng = StdLweRng::from_entropy();
-                let mut ct = LweCiphertext::allocate(param.ring_size);
-                mod_ks.sample_uniform_into(ct.a_mut(), &mut rng);
-                let pt = mod_ks.neg(&mod_ks.slice_dot_elem_from(ct.a(), sk.as_ref()));
-                let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
-                noise_ct_ks.push(lwe_ks.noise(&sk_ks, &LwePlaintext(pt), &ct_ks));
-            }
-            assert!((noise_ct_ks.log2_std_dev() - 9.27).abs() < 0.1);
         }
     }
 
