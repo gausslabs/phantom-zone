@@ -488,7 +488,7 @@ fn noise_stats() {
         let pk = rlwe.pk_gen(&sk, &mut rng);
         let mut noise_ct_sk = Stats::default();
         let mut noise_ct_pk = Stats::default();
-        for _ in 0..10000 {
+        for _ in 0..100000 {
             let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let pt = rlwe.encode(&m);
             let ct_sk = rlwe.sk_encrypt(&sk, &pt, &mut rng);
@@ -498,14 +498,16 @@ fn noise_stats() {
         }
 
         let ring_size = param.ring_size as f64;
-        let var_sk = param.sk_distribution.variance();
         let var_noise = param.noise_distribution.variance();
-        let var_noise_ct_pk =
-            ring_size * var_sk * var_noise + (ring_size * var_sk + 1.0) * var_noise;
+        let var_u = param.u_distribution.variance();
+        let var_sk = param.sk_distribution.variance();
+        let var_noise_pk = var_noise;
+        let var_noise_ct_sk = var_noise;
+        let var_noise_ct_pk = ring_size * (var_u * var_noise_pk + var_sk * var_noise) + var_noise;
         assert_eq!(noise_ct_sk.mean().round(), 0.0);
-        assert!((noise_ct_sk.log2_std_dev() - var_noise.sqrt().log2()).abs() < 0.01);
+        assert!((noise_ct_sk.log2_std_dev() - var_noise_ct_sk.sqrt().log2()).abs() < 0.01);
         assert_eq!(noise_ct_pk.mean().round(), 0.0);
-        assert!(noise_ct_pk.log2_std_dev() < var_noise_ct_pk.sqrt().log2());
+        assert!((noise_ct_pk.log2_std_dev() - var_noise_ct_pk.sqrt().log2()).abs() < 0.2);
     }
 
     run::<NativeRing>(test_param(Native::native()));

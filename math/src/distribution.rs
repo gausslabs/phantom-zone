@@ -2,9 +2,9 @@ use crate::{
     modulus::{ElemFrom, ElemOps, ModulusOps},
     ring::RingOps,
 };
-use core::{convert::identity, iter::repeat_with};
+use core::{convert::identity, iter::repeat_with, ops::Range};
 use itertools::{izip, Itertools};
-use num_traits::{FromPrimitive, PrimInt, Signed};
+use num_traits::{FromPrimitive, PrimInt, Signed, ToPrimitive};
 use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
     Rng, RngCore,
@@ -119,6 +119,13 @@ pub trait DistributionVariance {
         Self: Sized,
     {
         self.std_dev().log2()
+    }
+}
+
+impl<T: ToPrimitive> DistributionVariance for Range<T> {
+    fn variance(self) -> f64 {
+        let v = self.end.to_f64().unwrap() - self.start.to_f64().unwrap();
+        v * v / 12.0
     }
 }
 

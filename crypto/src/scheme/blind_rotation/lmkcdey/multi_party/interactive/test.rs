@@ -234,7 +234,7 @@ fn bs_key_gen_determinism() {
 }
 
 #[test]
-fn bs_key_gen_stats() {
+fn noise_stats() {
     fn run<R: RingOps>(modulus: impl Into<Modulus>) {
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
@@ -268,29 +268,32 @@ fn bs_key_gen_stats() {
 
         let total_shares = param.total_shares as f64;
         let ring_size = param.ring_size as f64;
-        let var_sk = total_shares * param.sk_distribution.variance();
         let var_noise = param.noise_distribution.variance();
-        let var_noise_ct_pk =
-            ring_size * var_sk * var_noise + (ring_size * var_sk + 1.0) * var_noise;
-        let var_ks_key = total_shares * var_noise;
-        let var_ak = total_shares * var_noise;
+        let var_u = param.u_distribution.variance();
+        let var_sk = total_shares * param.sk_distribution.variance();
+        let var_noise_pk = total_shares * var_noise;
+        let var_noise_pk_ct = ring_size * (var_u * var_noise_pk + var_sk * var_noise) + var_noise;
+        let var_noise_ks_key = total_shares * var_noise;
+        let var_noise_ak = total_shares * var_noise;
         let var_noise_brk = {
-            let log_base = param.rgsw_by_rgsw_decomposition_param.log_base;
             let level_a = param.rgsw_by_rgsw_decomposition_param.level_a;
             let level_b = param.rgsw_by_rgsw_decomposition_param.level_b;
-            let ignored_a = 1u64 << param.modulus.bits().saturating_sub(log_base * level_a);
-            let ignored_b = 1u64 << param.modulus.bits().saturating_sub(log_base * level_b);
-            let base = 1 << log_base;
-            let var_noise_a = ((level_a * base * base) as f64 * ring_size * var_noise_ct_pk) / 12.0;
-            let var_noise_b = ((level_b * base * base) as f64 * ring_size * var_noise_ct_pk) / 12.0;
-            let var_ignored_a = ((ignored_a * ignored_a) as f64 * ring_size * var_sk) / 12.0;
-            let var_ignored_b = ((ignored_b * ignored_b) as f64) / 12.0;
-            total_shares * (var_noise_a + var_noise_b + var_ignored_a + var_ignored_b)
+            let log_base = param.rgsw_by_rgsw_decomposition_param.log_base;
+            let log_ignored_a = param.modulus.bits().saturating_sub(log_base * level_a);
+            let log_ignored_b = param.modulus.bits().saturating_sub(log_base * level_b);
+            let var_uniform_base = (0..1 << log_base).variance();
+            let var_uniform_ignored_a = (0..1u64 << log_ignored_a).variance();
+            let var_uniform_ignored_b = (0..1u64 << log_ignored_b).variance();
+            let var_noise_a = level_a as f64 * ring_size * var_uniform_base * var_noise_pk_ct;
+            let var_noise_b = level_b as f64 * ring_size * var_uniform_base * var_noise_pk_ct;
+            let var_noise_ignored_a = ring_size * var_uniform_ignored_a * var_sk;
+            let var_noise_ignored_b = var_uniform_ignored_b;
+            total_shares * (var_noise_a + var_noise_b + var_noise_ignored_a + var_noise_ignored_b)
         };
         assert_eq!(noise_ks_key.mean().round(), 0.0);
         assert_eq!(noise_ak.mean().round(), 0.0);
-        assert!((noise_ks_key.log2_std_dev() - var_ks_key.sqrt().log2()).abs() < 0.1);
-        assert!((noise_ak.log2_std_dev() - var_ak.sqrt().log2()).abs() < 0.1);
+        assert!((noise_ks_key.log2_std_dev() - var_noise_ks_key.sqrt().log2()).abs() < 0.1);
+        assert!((noise_ak.log2_std_dev() - var_noise_ak.sqrt().log2()).abs() < 0.1);
         assert!(noise_brk.log2_std_dev() < var_noise_brk.sqrt().log2());
 
         let mut noise_ct_ks = Stats::default();
@@ -302,26 +305,45 @@ fn bs_key_gen_stats() {
             let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
             noise_ct_ks.push(lwe_ks.noise(&sk_ks, &LwePlaintext(pt), &ct_ks));
         }
-        assert!((noise_ct_ks.log2_std_dev() - 9.27).abs() < 0.1);
-        if param.modulus.bits() == 54 {
-            let mut noise_ct_auto = Stats::default();
-            for _ in 0..1000 {
-                let mut rng = StdLweRng::from_entropy();
-                let mut scratch = ring.allocate_scratch(0, 2, 0);
-                let mut pt = RlwePlaintext::allocate(param.ring_size);
-                let mut ct = RlweCiphertext::allocate(param.ring_size);
-                ring.sample_uniform_into(ct.a_mut(), &mut rng);
-                ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.as_ref(), scratch.borrow_mut());
-                ring.slice_neg_assign(pt.as_mut());
-                bs_key.aks().for_each(|ak| {
-                    let mut pt_auto = RlwePlaintext::allocate(param.ring_size);
-                    ring.poly_add_auto(pt_auto.as_mut(), pt.as_ref(), ak.auto_map());
-                    let ct_auto = rlwe.automorphism(&ak.cloned(), &ct);
-                    noise_ct_auto.extend(rlwe.noise(&sk, &pt_auto, &ct_auto));
-                });
-            }
-            assert!((noise_ct_auto.log2_std_dev() - 34.21).abs() < 0.05);
+        let var_noise_ct_ks = {
+            let level = param.lwe_ks_decomposition_param.level;
+            let log_base = param.lwe_ks_decomposition_param.log_base;
+            let log_ignored = param.lwe_modulus.bits().saturating_sub(log_base * level);
+            let var_uniform_base = (0..1u64 << log_base).variance();
+            let var_uniform_ignored = (0..1u64 << log_ignored).variance();
+            let var_noise = level as f64 * ring_size * var_uniform_base * var_noise_ks_key;
+            let var_noise_ignored = ring_size * var_uniform_ignored * var_sk;
+            var_noise + var_noise_ignored
+        };
+        assert!((noise_ct_ks.log2_std_dev() - var_noise_ct_ks.sqrt().log2()).abs() < 0.1);
+
+        let mut noise_ct_auto = Stats::default();
+        for _ in 0..1000 {
+            let mut rng = StdLweRng::from_entropy();
+            let mut scratch = ring.allocate_scratch(0, 2, 0);
+            let mut pt = RlwePlaintext::allocate(param.ring_size);
+            let mut ct = RlweCiphertext::allocate(param.ring_size);
+            ring.sample_uniform_into(ct.a_mut(), &mut rng);
+            ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.as_ref(), scratch.borrow_mut());
+            ring.slice_neg_assign(pt.as_mut());
+            bs_key.aks().for_each(|ak| {
+                let mut pt_auto = RlwePlaintext::allocate(param.ring_size);
+                ring.poly_add_auto(pt_auto.as_mut(), pt.as_ref(), ak.auto_map());
+                let ct_auto = rlwe.automorphism(&ak.cloned(), &ct);
+                noise_ct_auto.extend(rlwe.noise(&sk, &pt_auto, &ct_auto));
+            });
         }
+        let var_noise_ct_auto = {
+            let level = param.auto_decomposition_param.level;
+            let log_base = param.auto_decomposition_param.log_base;
+            let log_ignored = param.modulus.bits().saturating_sub(log_base * level);
+            let var_uniform_base = (0..1u64 << log_base).variance();
+            let var_uniform_ignored = (0..1u64 << log_ignored).variance();
+            let var_noise = level as f64 * ring_size * var_uniform_base * var_noise_ak;
+            let var_noise_ignored = ring_size * var_uniform_ignored * var_sk;
+            var_noise + var_noise_ignored
+        };
+        assert!((noise_ct_auto.log2_std_dev() - var_noise_ct_auto.sqrt().log2()).abs() < 0.05);
     }
 
     run::<NativeRing>(Native::native());
