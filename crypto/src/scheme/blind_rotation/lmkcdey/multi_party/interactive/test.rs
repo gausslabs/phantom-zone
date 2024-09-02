@@ -3,8 +3,8 @@ use crate::{
         lwe::{test::LweParam, LweCiphertext, LwePlaintext, LweSecretKey, LweSecretKeyOwned},
         rgsw::{test::RgswParam, RgswDecompositionParam},
         rlwe::{
-            RlweCiphertext, RlwePlaintext, RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey,
-            SeededRlwePublicKey,
+            test::RlweParam, RlweCiphertext, RlwePlaintext, RlwePublicKey, RlwePublicKeyOwned,
+            RlweSecretKey, SeededRlwePublicKey,
         },
     },
     scheme::blind_rotation::lmkcdey::{
@@ -12,6 +12,7 @@ use crate::{
         interactive::{
             self, LmkcdeyInteractiveCrs, LmkcdeyInteractiveKeyShare, LmkcdeyInteractiveParam,
         },
+        multi_party::test::LmkcdeyNoiseAnalysis,
         test::nand_lut,
         LmkcdeyKeyOwned, LmkcdeyParam,
     },
@@ -21,7 +22,7 @@ use core::{array::from_fn, iter::repeat_with};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    distribution::{DistributionVariance, Gaussian, Sampler, Ternary},
+    distribution::{Gaussian, Sampler, Ternary},
     izip_eq,
     modulus::{Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
     ring::{
@@ -31,6 +32,23 @@ use phantom_zone_math::{
     util::{dev::Stats, scratch::ScratchOwned},
 };
 use rand::{rngs::StdRng, thread_rng, RngCore, SeedableRng};
+
+impl From<LmkcdeyInteractiveParam> for RgswParam {
+    fn from(param: LmkcdeyInteractiveParam) -> Self {
+        RgswParam {
+            rlwe: RlweParam {
+                message_modulus: 4,
+                ciphertext_modulus: param.modulus,
+                ring_size: param.ring_size,
+                sk_distribution: param.sk_distribution,
+                noise_distribution: param.noise_distribution,
+                u_distribution: param.u_distribution,
+                ks_decomposition_param: param.auto_decomposition_param,
+            },
+            decomposition_param: param.rlwe_by_rgsw_decomposition_param,
+        }
+    }
+}
 
 fn test_param(modulus: impl Into<Modulus>) -> LmkcdeyInteractiveParam {
     let ring_size = 2048;
@@ -82,7 +100,7 @@ fn bs_key_gen<R: RingOps>(
     RlwePublicKeyOwned<R::Elem>,
     LmkcdeyKeyOwned<R::Elem, u64>,
 ) {
-    let rgsw = RgswParam::from(*param).build::<R>();
+    let rgsw = RgswParam::from(param).build::<R>();
     let rlwe = rgsw.rlwe();
     let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
     let ring = rgsw.ring();
@@ -172,9 +190,9 @@ fn interactive() {
     fn run<R1: RingOps, R2: RingOps<Elem = R1::Elem>>(modulus: impl Into<Modulus>) {
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
-        let rgsw = RgswParam::from(*param).build::<R2>();
+        let rgsw = RgswParam::from(param).build::<R2>();
         let rlwe = rgsw.rlwe();
-        let lwe = RgswParam::from(*param).rlwe.to_lwe().build::<R2>();
+        let lwe = RgswParam::from(param).rlwe.to_lwe().build::<R2>();
         let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
         let ring = rgsw.ring();
         let mod_ks = lwe_ks.modulus();
@@ -238,7 +256,7 @@ fn noise_stats() {
     fn run<R: RingOps>(modulus: impl Into<Modulus>) {
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
-        let rgsw = RgswParam::from(*param).build::<R>();
+        let rgsw = RgswParam::from(param).build::<R>();
         let rlwe = rgsw.rlwe();
         let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
         let ring = rgsw.ring();
@@ -246,55 +264,34 @@ fn noise_stats() {
 
         let (sk, sk_ks, _, bs_key) = bs_key_gen::<R>(param, crs, thread_rng());
         let sk = RlweSecretKey::from(sk);
-        let embedding_factor = param.embedding_factor() as i64;
+        let analysis = LmkcdeyNoiseAnalysis::new(param);
+
         let mut noise_ks_key = Stats::default();
-        let mut noise_ak = Stats::default();
-        let mut noise_brk = Stats::default();
         noise_ks_key.extend(
             lwe_ks
                 .ks_key_noise(&sk.clone().into(), &sk_ks, &bs_key.ks_key().cloned())
                 .into_iter()
                 .flatten(),
         );
+        assert_eq!(noise_ks_key.mean().round(), 0.0);
+        assert!((noise_ks_key.log2_std_dev() - analysis.log2_std_dev_noise_ks_key()).abs() < 0.1);
+
+        let mut noise_ak = Stats::default();
         bs_key.aks().for_each(|ak| {
             noise_ak.extend(rlwe.noise_auto_key(&sk, &ak.cloned()).into_iter().flatten())
         });
+        assert_eq!(noise_ak.mean().round(), 0.0);
+        assert!((noise_ak.log2_std_dev() - analysis.log2_std_dev_noise_ak()).abs() < 0.1);
+
+        let mut noise_brk = Stats::default();
         izip_eq!(sk_ks.as_ref(), bs_key.brks()).for_each(|(sk_ks_i, brk_i)| {
             let brk_i = brk_i.cloned();
+            let exp = param.embedding_factor() as i64 * *sk_ks_i as i64;
             let mut pt = RlwePlaintext::allocate(ring.ring_size());
-            ring.poly_set_monomial(pt.as_mut(), embedding_factor * *sk_ks_i as i64);
+            ring.poly_set_monomial(pt.as_mut(), exp);
             noise_brk.extend(rgsw.noise(&sk, &pt, &brk_i).into_iter().flatten());
         });
-
-        let total_shares = param.total_shares as f64;
-        let ring_size = param.ring_size as f64;
-        let var_noise = param.noise_distribution.variance();
-        let var_u = param.u_distribution.variance();
-        let var_sk = total_shares * param.sk_distribution.variance();
-        let var_noise_pk = total_shares * var_noise;
-        let var_noise_pk_ct = ring_size * (var_u * var_noise_pk + var_sk * var_noise) + var_noise;
-        let var_noise_ks_key = total_shares * var_noise;
-        let var_noise_ak = total_shares * var_noise;
-        let var_noise_brk = {
-            let level_a = param.rgsw_by_rgsw_decomposition_param.level_a;
-            let level_b = param.rgsw_by_rgsw_decomposition_param.level_b;
-            let log_base = param.rgsw_by_rgsw_decomposition_param.log_base;
-            let log_ignored_a = param.modulus.bits().saturating_sub(log_base * level_a);
-            let log_ignored_b = param.modulus.bits().saturating_sub(log_base * level_b);
-            let var_uniform_base = (0..1 << log_base).variance();
-            let var_uniform_ignored_a = (0..1u64 << log_ignored_a).variance();
-            let var_uniform_ignored_b = (0..1u64 << log_ignored_b).variance();
-            let var_noise_a = level_a as f64 * ring_size * var_uniform_base * var_noise_pk_ct;
-            let var_noise_b = level_b as f64 * ring_size * var_uniform_base * var_noise_pk_ct;
-            let var_noise_ignored_a = ring_size * var_uniform_ignored_a * var_sk;
-            let var_noise_ignored_b = var_uniform_ignored_b;
-            total_shares * (var_noise_a + var_noise_b + var_noise_ignored_a + var_noise_ignored_b)
-        };
-        assert_eq!(noise_ks_key.mean().round(), 0.0);
-        assert_eq!(noise_ak.mean().round(), 0.0);
-        assert!((noise_ks_key.log2_std_dev() - var_noise_ks_key.sqrt().log2()).abs() < 0.1);
-        assert!((noise_ak.log2_std_dev() - var_noise_ak.sqrt().log2()).abs() < 0.1);
-        assert!(noise_brk.log2_std_dev() < var_noise_brk.sqrt().log2());
+        assert!((noise_brk.log2_std_dev() - analysis.log2_std_dev_noise_brk()).abs() < 0.1);
 
         let mut noise_ct_ks = Stats::default();
         for _ in 0..1000 {
@@ -305,17 +302,7 @@ fn noise_stats() {
             let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
             noise_ct_ks.push(lwe_ks.noise(&sk_ks, &LwePlaintext(pt), &ct_ks));
         }
-        let var_noise_ct_ks = {
-            let level = param.lwe_ks_decomposition_param.level;
-            let log_base = param.lwe_ks_decomposition_param.log_base;
-            let log_ignored = param.lwe_modulus.bits().saturating_sub(log_base * level);
-            let var_uniform_base = (0..1u64 << log_base).variance();
-            let var_uniform_ignored = (0..1u64 << log_ignored).variance();
-            let var_noise = level as f64 * ring_size * var_uniform_base * var_noise_ks_key;
-            let var_noise_ignored = ring_size * var_uniform_ignored * var_sk;
-            var_noise + var_noise_ignored
-        };
-        assert!((noise_ct_ks.log2_std_dev() - var_noise_ct_ks.sqrt().log2()).abs() < 0.1);
+        assert!((noise_ct_ks.log2_std_dev() - analysis.log2_std_dev_noise_ct_ks()).abs() < 0.1);
 
         let mut noise_ct_auto = Stats::default();
         for _ in 0..1000 {
@@ -333,17 +320,7 @@ fn noise_stats() {
                 noise_ct_auto.extend(rlwe.noise(&sk, &pt_auto, &ct_auto));
             });
         }
-        let var_noise_ct_auto = {
-            let level = param.auto_decomposition_param.level;
-            let log_base = param.auto_decomposition_param.log_base;
-            let log_ignored = param.modulus.bits().saturating_sub(log_base * level);
-            let var_uniform_base = (0..1u64 << log_base).variance();
-            let var_uniform_ignored = (0..1u64 << log_ignored).variance();
-            let var_noise = level as f64 * ring_size * var_uniform_base * var_noise_ak;
-            let var_noise_ignored = ring_size * var_uniform_ignored * var_sk;
-            var_noise + var_noise_ignored
-        };
-        assert!((noise_ct_auto.log2_std_dev() - var_noise_ct_auto.sqrt().log2()).abs() < 0.05);
+        assert!((noise_ct_auto.log2_std_dev() - analysis.log2_std_dev_noise_ct_auto()).abs() < 0.1);
     }
 
     run::<NativeRing>(Native::native());
@@ -360,7 +337,7 @@ fn serialize_deserialize() {
         let mut rng = StdLweRng::from_entropy();
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::<StdRng>::sample(&mut rng);
-        let rgsw = RgswParam::from(*param).build::<R>();
+        let rgsw = RgswParam::from(param).build::<R>();
         let rlwe = rgsw.rlwe();
         let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
         let ring = rgsw.ring();
