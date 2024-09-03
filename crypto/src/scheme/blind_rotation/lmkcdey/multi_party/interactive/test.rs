@@ -12,7 +12,6 @@ use crate::{
         interactive::{
             self, LmkcdeyInteractiveCrs, LmkcdeyInteractiveKeyShare, LmkcdeyInteractiveParam,
         },
-        multi_party::test::LmkcdeyNoiseAnalysis,
         test::nand_lut,
         LmkcdeyKeyOwned, LmkcdeyParam,
     },
@@ -253,7 +252,15 @@ fn bs_key_gen_determinism() {
 
 #[test]
 fn noise_stats() {
-    fn run<R: RingOps>(modulus: impl Into<Modulus>) {
+    struct NoiseStdDev {
+        log2_ks_key: f64,
+        log2_ak: f64,
+        log2_brk: f64,
+        log2_ct_ks: f64,
+        log2_ct_auto: f64,
+    }
+
+    fn run<R: RingOps>(modulus: impl Into<Modulus>, noise_std_dev: NoiseStdDev) {
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
         let rgsw = RgswParam::from(param).build::<R>();
@@ -264,7 +271,6 @@ fn noise_stats() {
 
         let (sk, sk_ks, _, bs_key) = bs_key_gen::<R>(param, crs, thread_rng());
         let sk = RlweSecretKey::from(sk);
-        let analysis = LmkcdeyNoiseAnalysis::new(param);
 
         let mut noise_ks_key = Stats::default();
         noise_ks_key.extend(
@@ -274,14 +280,14 @@ fn noise_stats() {
                 .flatten(),
         );
         assert_eq!(noise_ks_key.mean().round(), 0.0);
-        assert!((noise_ks_key.log2_std_dev() - analysis.log2_std_dev_noise_ks_key()).abs() < 0.1);
+        assert!((noise_ks_key.log2_std_dev() - noise_std_dev.log2_ks_key).abs() < 0.1);
 
         let mut noise_ak = Stats::default();
         bs_key.aks().for_each(|ak| {
             noise_ak.extend(rlwe.noise_auto_key(&sk, &ak.cloned()).into_iter().flatten())
         });
         assert_eq!(noise_ak.mean().round(), 0.0);
-        assert!((noise_ak.log2_std_dev() - analysis.log2_std_dev_noise_ak()).abs() < 0.1);
+        assert!((noise_ak.log2_std_dev() - noise_std_dev.log2_ak).abs() < 0.1);
 
         let mut noise_brk = Stats::default();
         izip_eq!(sk_ks.as_ref(), bs_key.brks()).for_each(|(sk_ks_i, brk_i)| {
@@ -291,7 +297,7 @@ fn noise_stats() {
             ring.poly_set_monomial(pt.as_mut(), exp);
             noise_brk.extend(rgsw.noise(&sk, &pt, &brk_i).into_iter().flatten());
         });
-        assert!((noise_brk.log2_std_dev() - analysis.log2_std_dev_noise_brk()).abs() < 0.1);
+        assert!((noise_brk.log2_std_dev() - noise_std_dev.log2_brk).abs() < 0.1);
 
         let mut noise_ct_ks = Stats::default();
         for _ in 0..1000 {
@@ -302,7 +308,7 @@ fn noise_stats() {
             let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
             noise_ct_ks.push(lwe_ks.noise(&sk_ks, &LwePlaintext(pt), &ct_ks));
         }
-        assert!((noise_ct_ks.log2_std_dev() - analysis.log2_std_dev_noise_ct_ks()).abs() < 0.1);
+        assert!((noise_ct_ks.log2_std_dev() - noise_std_dev.log2_ct_ks).abs() < 0.1);
 
         let mut noise_ct_auto = Stats::default();
         for _ in 0..1000 {
@@ -320,12 +326,39 @@ fn noise_stats() {
                 noise_ct_auto.extend(rlwe.noise(&sk, &pt_auto, &ct_auto));
             });
         }
-        assert!((noise_ct_auto.log2_std_dev() - analysis.log2_std_dev_noise_ct_auto()).abs() < 0.1);
+        assert!((noise_ct_auto.log2_std_dev() - noise_std_dev.log2_ct_auto).abs() < 0.1);
     }
 
-    run::<NativeRing>(Native::native());
-    run::<NonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(54));
-    run::<PrimeRing>(Prime::gen(54, 12));
+    run::<NativeRing>(
+        Native::native(),
+        NoiseStdDev {
+            log2_ks_key: 2.673556423990145,
+            log2_ak: 2.673556423990145,
+            log2_brk: 27.500045507048082,
+            log2_ct_ks: 9.273649333233724,
+            log2_ct_auto: 44.20751875305761,
+        },
+    );
+    run::<NonNativePowerOfTwoRing>(
+        NonNativePowerOfTwo::new(54),
+        NoiseStdDev {
+            log2_ks_key: 2.673556423990145,
+            log2_ak: 2.673556423990145,
+            log2_brk: 20.53468701198804,
+            log2_ct_ks: 9.273649333233724,
+            log2_ct_auto: 34.211094105080484,
+        },
+    );
+    run::<PrimeRing>(
+        Prime::gen(54, 12),
+        NoiseStdDev {
+            log2_ks_key: 2.673556423990145,
+            log2_ak: 2.673556423990145,
+            log2_brk: 20.53468701198804,
+            log2_ct_ks: 9.273649333233724,
+            log2_ct_auto: 34.211094105080484,
+        },
+    );
 }
 
 #[cfg(feature = "serde")]
