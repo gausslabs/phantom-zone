@@ -25,6 +25,7 @@ pub struct Prime {
 impl Prime {
     pub const fn new(q: u64) -> Self {
         assert!(q > 1);
+        assert!(q.next_power_of_two().ilog2() <= 62);
         let log_q = q.next_power_of_two().ilog2() as usize;
         let barrett_mu = (1u128 << (log_q * 2 + 3)) / (q as u128);
         let barrett_alpha = log_q + 3;
@@ -130,9 +131,14 @@ impl Prime {
     }
 
     pub fn gen_iter(bits: usize, two_adicity: usize) -> impl Iterator<Item = Self> {
+        assert!(bits <= 62);
         assert!(bits > two_adicity);
-        let min = 1 << (bits - two_adicity - 1);
-        let max = min << 1;
+        let min = 1u64 << (bits - two_adicity - 1);
+        let max = if min.leading_zeros() == 0 {
+            u64::MAX
+        } else {
+            min << 1
+        };
         let candidates = (min..max).rev().map(move |hi| (hi << two_adicity) + 1);
         candidates
             .into_iter()
