@@ -27,6 +27,7 @@ use phantom_zone_math::{
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LmkcdeyParam {
     // Rlwe param
+    pub message_bits: usize,
     pub modulus: Modulus,
     pub ring_size: usize,
     pub sk_distribution: SecretDistribution,
@@ -46,6 +47,14 @@ pub struct LmkcdeyParam {
 }
 
 impl LmkcdeyParam {
+    pub fn encoded_one(&self) -> f64 {
+        self.modulus.as_f64() / (1 << self.message_bits) as f64
+    }
+
+    pub fn encoded_half(&self) -> f64 {
+        self.encoded_one() / 2.0
+    }
+
     pub fn embedding_factor(&self) -> usize {
         2 * self.ring_size / self.q
     }
