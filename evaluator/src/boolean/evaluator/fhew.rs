@@ -9,7 +9,10 @@ use phantom_zone_crypto::{
             self, LweCiphertext, LweCiphertextMutView, LweCiphertextOwned, LweCiphertextView,
             LweDecryptionShare, LwePlaintext, LweSecretKeyView,
         },
-        rlwe::{self, RlweCiphertext, RlwePlaintext, RlwePlaintextOwned, RlwePublicKeyView},
+        rlwe::{
+            self, RlweCiphertext, RlwePlaintext, RlwePlaintextOwned, RlwePlaintextView,
+            RlwePublicKeyView,
+        },
     },
     scheme::blind_rotation::lmkcdey::{self, LmkcdeyKeyOwned, LmkcdeyParam},
     util::{
@@ -91,7 +94,7 @@ impl<E> FhewBoolCiphertext<E> {
     {
         let pk = pk.into();
         let ms = ms.into_iter().collect_vec();
-        let big_q_by_4 = encode(ring, true);
+        let encoded_one = encode(ring, true);
         let mut cts = vec![Self::allocate(ring.ring_size()); ms.len()];
         let mut pt = RlwePlaintext::allocate(ring.ring_size());
         let mut ct_rlwe = RlweCiphertext::allocate(ring.ring_size());
@@ -101,11 +104,8 @@ impl<E> FhewBoolCiphertext<E> {
             ms.chunks(ring.ring_size()),
         )
         .for_each(|(cts, ms)| {
-            izip!(pt.as_mut(), ms).for_each(|(pt, m)| {
-                if *m {
-                    *pt = big_q_by_4;
-                }
-            });
+            izip!(pt.as_mut(), ms)
+                .for_each(|(pt, m)| *pt = if *m { encoded_one } else { ring.zero() });
             rlwe::pk_encrypt(
                 ring,
                 &mut ct_rlwe,
@@ -173,14 +173,33 @@ fn decode<R: RingOps>(ring: &R, pt: R::Elem) -> bool {
     m == 1
 }
 
+/// Arbitrary boolean gate with `N + 1` fan-in and single fan-out.
+///
+/// In `FhewBoolEvaluator::evaluator`, it calls `FhewBoolGate::preprocess` to
+/// perform linear operation on inputs, and the output should be written to the
+/// first input `a`, then it performs `lmkcdey::bootstrap` on the preprocessed
+/// `a` with `FhewBoolGate::table`, finally calls `FhewBoolGate::postprocess`.
+pub trait FhewBoolGate<R: RingOps, const N: usize> {
+    fn preprocess(
+        &self,
+        ring: &R,
+        a: LweCiphertextMutView<R::Elem>,
+        b: [LweCiphertextView<R::Elem>; N],
+    );
+
+    fn postprocess(&self, ring: &R, a: LweCiphertextMutView<R::Elem>);
+
+    fn table(&self) -> RlwePlaintextView<R::Elem>;
+}
+
 pub struct FhewBoolEvaluator<R: RingOps, M: ModulusOps> {
     ring: R,
     mod_ks: M,
-    big_q_by_4: R::Elem,
-    big_q_by_8: R::Elem,
     bs_key: LmkcdeyKeyOwned<R::EvalPrep, M::Elem>,
     /// Contains tables for AND, NAND, OR (XOR), NOR (XNOR).
-    luts: [RlwePlaintextOwned<R::Elem>; 4],
+    tables: [RlwePlaintextOwned<R::Elem>; 4],
+    encoded_one: R::Elem,
+    encoded_half: R::Elem,
     scratch_bytes: usize,
 }
 
@@ -189,11 +208,11 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         let param = bs_key.param();
         let ring = <R as RingOps>::new(param.modulus, param.ring_size);
         let mod_ks = M::new(param.lwe_modulus);
-        let big_q_by_4 = ring.elem_from(param.modulus.as_f64() / 4f64);
-        let big_q_by_8 = ring.elem_from(param.modulus.as_f64() / 8f64);
-        let luts = {
+        let encoded_one = ring.elem_from(param.encoded_one());
+        let encoded_half = ring.elem_from(param.encoded_half());
+        let tables = {
             let auto_map = AutomorphismMap::new(param.q / 2, param.q - param.g);
-            let lut_value = [big_q_by_8, ring.neg(&big_q_by_8)];
+            let lut_value = [encoded_half, ring.neg(&encoded_half)];
             let log_q_by_8 = (param.q / 8).ilog2() as usize;
             [[1, 1, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 1, 1]].map(|lut| {
                 let f = |(sign, idx)| lut_value[sign as usize ^ lut[idx >> log_q_by_8]];
@@ -204,10 +223,10 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         Self {
             ring,
             mod_ks,
-            big_q_by_4,
-            big_q_by_8,
             bs_key,
-            luts,
+            tables,
+            encoded_one,
+            encoded_half,
             scratch_bytes,
         }
     }
@@ -224,28 +243,26 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         &self.mod_ks
     }
 
-    fn bitop_assign<const XOR: bool>(
+    pub fn evaluate<const N: usize>(
         &self,
-        lut_idx: usize,
-        mut a: LweCiphertextMutView<R::Elem>,
-        b: LweCiphertextView<R::Elem>,
+        gate: &impl FhewBoolGate<R, N>,
+        a: &mut FhewBoolCiphertext<R::Elem>,
+        b: [&FhewBoolCiphertext<R::Elem>; N],
     ) {
-        if XOR {
-            self.ring.slice_sub_assign(a.as_mut(), b.as_ref());
-            self.ring.slice_double_assign(a.as_mut());
-        } else {
-            self.ring.slice_add_assign(a.as_mut(), b.as_ref())
-        }
-        let lut = &self.luts[lut_idx];
+        gate.preprocess(self.ring(), a.0.as_mut_view(), b.map(|b| b.0.as_view()));
         lmkcdey::bootstrap(
-            &self.ring,
-            &self.mod_ks,
-            &mut a,
+            self.ring(),
+            self.mod_ks(),
+            a.0.as_mut_view(),
             &self.bs_key,
-            lut,
+            gate.table(),
             ScratchOwned::allocate(self.scratch_bytes).borrow_mut(),
         );
-        self.ring.add_assign(a.b_mut(), &self.big_q_by_8);
+        gate.postprocess(self.ring(), a.0.as_mut_view());
+    }
+
+    fn binary_gate<const XOR: bool>(&self, idx: usize) -> BinaryGate<R::Elem, XOR> {
+        BinaryGate::<_, XOR>::new(self.tables[idx].as_view(), self.encoded_half)
     }
 }
 
@@ -254,31 +271,75 @@ impl<R: RingOps, M: ModulusOps> BoolEvaluator for FhewBoolEvaluator<R, M> {
 
     fn bitnot_assign(&self, a: &mut Self::Ciphertext) {
         self.ring.slice_neg_assign(a.0.as_mut());
-        self.ring.add_assign(a.0.b_mut(), &self.big_q_by_4);
+        self.ring.add_assign(a.0.b_mut(), &self.encoded_one);
     }
 
     fn bitand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(0, a.0.as_mut_view(), b.0.as_view())
+        let gate = self.binary_gate::<false>(0);
+        self.evaluate(&gate, a, [b])
     }
 
     fn bitnand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(1, a.0.as_mut_view(), b.0.as_view())
+        let gate = self.binary_gate::<false>(1);
+        self.evaluate(&gate, a, [b])
     }
 
     fn bitor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(2, a.0.as_mut_view(), b.0.as_view())
+        let gate = self.binary_gate::<false>(2);
+        self.evaluate(&gate, a, [b])
     }
 
     fn bitnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(3, a.0.as_mut_view(), b.0.as_view())
+        let gate = self.binary_gate::<false>(3);
+        self.evaluate(&gate, a, [b])
     }
 
     fn bitxor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<true>(2, a.0.as_mut_view(), b.0.as_view())
+        let gate = self.binary_gate::<true>(2);
+        self.evaluate(&gate, a, [b])
     }
 
     fn bitxnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<true>(3, a.0.as_mut_view(), b.0.as_view())
+        let gate = self.binary_gate::<true>(3);
+        self.evaluate(&gate, a, [b])
+    }
+}
+
+struct BinaryGate<'a, T, const XOR: bool> {
+    table: RlwePlaintextView<'a, T>,
+    encoded_half: T,
+}
+
+impl<'a, T, const XOR: bool> BinaryGate<'a, T, XOR> {
+    fn new(table: RlwePlaintextView<'a, T>, encoded_half: T) -> Self {
+        Self {
+            table,
+            encoded_half,
+        }
+    }
+}
+
+impl<'a, R: RingOps, const XOR: bool> FhewBoolGate<R, 1> for BinaryGate<'a, R::Elem, XOR> {
+    fn preprocess(
+        &self,
+        ring: &R,
+        mut a: LweCiphertextMutView<R::Elem>,
+        [b]: [LweCiphertextView<R::Elem>; 1],
+    ) {
+        if XOR {
+            ring.slice_sub_assign(a.as_mut(), b.as_ref());
+            ring.slice_double_assign(a.as_mut());
+        } else {
+            ring.slice_add_assign(a.as_mut(), b.as_ref())
+        }
+    }
+
+    fn postprocess(&self, ring: &R, mut a: LweCiphertextMutView<R::Elem>) {
+        ring.add_assign(a.b_mut(), &self.encoded_half);
+    }
+
+    fn table(&self) -> RlwePlaintextView<R::Elem> {
+        self.table
     }
 }
 
@@ -325,14 +386,18 @@ mod dev {
 mod test {
     use crate::boolean::{
         evaluator::{
-            fhew::{self, FhewBoolCiphertext, LmkcdeyParam},
+            fhew::{self, FhewBoolCiphertext, FhewBoolGate, LmkcdeyParam},
             BoolEvaluator,
         },
         test::tt,
     };
     use core::array::from_fn;
     use phantom_zone_crypto::{
-        core::{lwe::LweSecretKeyOwned, rgsw::RgswDecompositionParam},
+        core::{
+            lwe::{LweCiphertextMutView, LweCiphertextView, LweSecretKeyOwned},
+            rgsw::RgswDecompositionParam,
+            rlwe::{RlwePlaintext, RlwePlaintextOwned, RlwePlaintextView},
+        },
         util::{
             distribution::{NoiseDistribution, SecretDistribution},
             rng::StdLweRng,
@@ -342,6 +407,7 @@ mod test {
         decomposer::DecompositionParam,
         distribution::Gaussian,
         modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
+        poly::automorphism::AutomorphismMap,
         ring::{
             NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
             NonNativePowerOfTwoRing, PrimeRing, RingOps,
@@ -351,10 +417,11 @@ mod test {
 
     type FhewBoolEvaluator<R> = fhew::FhewBoolEvaluator<R, NonNativePowerOfTwoRing>;
 
-    fn test_param(big_q: impl Into<Modulus>) -> LmkcdeyParam {
+    fn test_param(modulus: impl Into<Modulus>) -> LmkcdeyParam {
         let ring_size = 1024;
         LmkcdeyParam {
-            modulus: big_q.into(),
+            message_bits: 2,
+            modulus: modulus.into(),
             ring_size,
             sk_distribution: Gaussian(3.19).into(),
             noise_distribution: Gaussian(3.19).into(),
@@ -488,6 +555,76 @@ mod test {
                 let [ct_a, ct_b, ct_c] = &[a, b, c].map(encrypt);
                 assert_decrypted_to!(ct_a.carrying_add(ct_b, ct_c), tt::CARRYING_ADD[m]);
                 assert_decrypted_to!(ct_a.borrowing_sub(ct_b, ct_c), tt::BORROWING_SUB[m]);
+            }
+        }
+
+        run::<NoisyNativeRing>(test_param(Native::native()));
+        run::<NoisyNonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
+        run::<NativeRing>(test_param(Native::native()));
+        run::<NonNativePowerOfTwoRing>(test_param(NonNativePowerOfTwo::new(50)));
+        run::<NoisyPrimeRing>(test_param(Prime::gen(50, 11)));
+        run::<PrimeRing>(test_param(Prime::gen(50, 11)));
+    }
+
+    #[test]
+    fn custom_gate() {
+        /// Majority gate in Table 1 of 2020/086.
+        struct MajorityGate<T> {
+            table: RlwePlaintextOwned<T>,
+            encoded_half: T,
+        }
+
+        impl<T: Copy> MajorityGate<T> {
+            fn new<R: RingOps<Elem = T>>(ring: &R, param: &LmkcdeyParam) -> Self {
+                let encoded_half = ring.elem_from(param.encoded_half());
+                let table = {
+                    let auto_map = AutomorphismMap::new(param.q / 2, param.q - param.g);
+                    let lut_value = [encoded_half, ring.neg(&encoded_half)];
+                    let log_q_by_8 = (param.q / 8).ilog2() as usize;
+                    let f =
+                        |(sign, idx)| lut_value[sign as usize ^ [1, 1, 1, 0][idx >> log_q_by_8]];
+                    RlwePlaintext::new(auto_map.iter().map(f).collect(), param.q / 2)
+                };
+                Self {
+                    table,
+                    encoded_half,
+                }
+            }
+        }
+
+        impl<R: RingOps> FhewBoolGate<R, 2> for MajorityGate<R::Elem> {
+            fn preprocess(
+                &self,
+                ring: &R,
+                mut a: LweCiphertextMutView<R::Elem>,
+                [b, c]: [LweCiphertextView<R::Elem>; 2],
+            ) {
+                ring.slice_add_assign(a.as_mut(), b.as_ref());
+                ring.slice_add_assign(a.as_mut(), c.as_ref());
+            }
+
+            fn postprocess(&self, ring: &R, mut a: LweCiphertextMutView<R::Elem>) {
+                ring.add_assign(a.b_mut(), &self.encoded_half);
+            }
+
+            fn table(&self) -> RlwePlaintextView<R::Elem> {
+                self.table.as_view()
+            }
+        }
+
+        fn run<R: RingOps>(param: LmkcdeyParam) {
+            let sk = sk_gen(param.ring_size, param.sk_distribution);
+            let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, thread_rng());
+            let encrypt = |m| encrypt(&evaluator.ring, &sk, m, param.noise_distribution);
+            let majority_gate = MajorityGate::new(evaluator.ring(), &param);
+            for m in 0..1 << 3 {
+                let [a, b, c] = from_fn(|i| (m >> i) & 1 == 1);
+                let [mut ct_a, ct_b, ct_c] = [a, b, c].map(encrypt);
+                evaluator.evaluate(&majority_gate, &mut ct_a, [&ct_b, &ct_c]);
+                assert_eq!(
+                    (a & b) | (b & c) | (c & a),
+                    ct_a.decrypt(evaluator.ring(), &sk)
+                )
             }
         }
 

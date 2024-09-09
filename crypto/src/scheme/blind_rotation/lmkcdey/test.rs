@@ -25,7 +25,7 @@ impl From<LmkcdeyParam> for RgswParam {
     fn from(param: LmkcdeyParam) -> Self {
         RgswParam {
             rlwe: RlweParam {
-                message_modulus: 4,
+                message_modulus: 1 << param.message_bits,
                 ciphertext_modulus: param.modulus,
                 ring_size: param.ring_size,
                 sk_distribution: param.sk_distribution,
@@ -41,7 +41,7 @@ impl From<LmkcdeyParam> for RgswParam {
 impl From<LmkcdeyParam> for LweParam {
     fn from(param: LmkcdeyParam) -> Self {
         LweParam {
-            message_modulus: 4,
+            message_modulus: 1 << param.message_bits,
             ciphertext_modulus: param.lwe_modulus,
             dimension: param.lwe_dimension,
             sk_distribution: param.lwe_sk_distribution,
@@ -54,6 +54,7 @@ impl From<LmkcdeyParam> for LweParam {
 fn test_param(modulus: impl Into<Modulus>, embedding_factor: usize) -> LmkcdeyParam {
     let ring_size = 1024;
     LmkcdeyParam {
+        message_bits: 2,
         modulus: modulus.into(),
         ring_size,
         sk_distribution: Gaussian(3.19).into(),
@@ -81,10 +82,14 @@ fn test_param(modulus: impl Into<Modulus>, embedding_factor: usize) -> LmkcdeyPa
     }
 }
 
-pub fn nand_lut<R: RingOps>(ring: &R, q: usize, g: usize) -> RlwePlaintextOwned<R::Elem> {
-    let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
+pub fn nand_nc_lut<R: RingOps>(
+    ring: &R,
+    q: usize,
+    g: usize,
+    encoded_half: R::Elem,
+) -> RlwePlaintextOwned<R::Elem> {
     let auto_map = AutomorphismMap::new(q / 2, q - g);
-    let lut_value = [big_q_by_8, ring.neg(&big_q_by_8)];
+    let lut_value = [encoded_half, ring.neg(&encoded_half)];
     let log_q_by_8 = (q / 8).ilog2() as usize;
     let f = |(sign, idx)| lut_value[sign as usize ^ [0, 0, 0, 1][idx >> log_q_by_8]];
     RlwePlaintext::new(auto_map.iter().map(f).collect(), q / 2)
@@ -122,8 +127,8 @@ fn bootstrap() {
         let sk = sk.into();
 
         let mut scratch = ScratchOwned::allocate(bs_key.param().scratch_bytes(ring, mod_ks));
-        let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
-        let nand_lut = nand_lut(ring, param.q, param.g);
+        let encoded_half = ring.elem_from(param.encoded_half());
+        let nand_nc_lut = nand_nc_lut(ring, param.q, param.g, encoded_half);
         for m in 0..1 << 2 {
             let [a, b] = from_fn(|i| (m >> i) & 1 == 1);
             let ct_a = lwe.sk_encrypt(&sk, lwe.encode(a as _), &mut rng);
@@ -134,10 +139,10 @@ fn bootstrap() {
                 mod_ks,
                 &mut ct,
                 &bs_key,
-                &nand_lut,
+                &nand_nc_lut,
                 scratch.borrow_mut(),
             );
-            *ct.b_mut() = ring.add(ct.b(), &big_q_by_8);
+            *ct.b_mut() = ring.add(ct.b(), &encoded_half);
             assert_eq!(!(a & b) as u64, lwe.decode(lwe.decrypt(&sk, &ct)));
         }
     }

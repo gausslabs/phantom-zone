@@ -12,7 +12,7 @@ use crate::{
         interactive::{
             self, LmkcdeyInteractiveCrs, LmkcdeyInteractiveKeyShare, LmkcdeyInteractiveParam,
         },
-        test::nand_lut,
+        test::nand_nc_lut,
         LmkcdeyKeyOwned, LmkcdeyParam,
     },
     util::rng::StdLweRng,
@@ -36,7 +36,7 @@ impl From<LmkcdeyInteractiveParam> for RgswParam {
     fn from(param: LmkcdeyInteractiveParam) -> Self {
         RgswParam {
             rlwe: RlweParam {
-                message_modulus: 4,
+                message_modulus: 1 << param.message_bits,
                 ciphertext_modulus: param.modulus,
                 ring_size: param.ring_size,
                 sk_distribution: param.sk_distribution,
@@ -53,6 +53,7 @@ fn test_param(modulus: impl Into<Modulus>) -> LmkcdeyInteractiveParam {
     let ring_size = 2048;
     LmkcdeyInteractiveParam {
         param: LmkcdeyParam {
+            message_bits: 2,
             modulus: modulus.into(),
             ring_size,
             sk_distribution: Ternary.into(),
@@ -204,8 +205,8 @@ fn interactive() {
             bs_key_prep
         };
 
-        let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
-        let nand_lut = nand_lut(ring, param.q, param.g);
+        let encoded_half = ring.elem_from(ring.modulus().as_f64() / 8f64);
+        let nand_nc_lut = nand_nc_lut(ring, param.q, param.g, encoded_half);
         let mut scratch = ScratchOwned::allocate(bs_key.param().scratch_bytes(ring, mod_ks));
         let mut rng = StdLweRng::from_entropy();
         for m in 0..1 << 2 {
@@ -220,10 +221,10 @@ fn interactive() {
                 mod_ks,
                 &mut ct,
                 &bs_key,
-                &nand_lut,
+                &nand_nc_lut,
                 scratch.borrow_mut(),
             );
-            *ct.b_mut() = ring.add(ct.b(), &big_q_by_8);
+            *ct.b_mut() = ring.add(ct.b(), &encoded_half);
             assert_eq!(!(a & b) as u64, lwe.decode(lwe.decrypt(&sk, &ct)));
         }
     }

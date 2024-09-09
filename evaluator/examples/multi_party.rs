@@ -34,6 +34,7 @@ use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 const PARAM: LmkcdeyInteractiveParam = LmkcdeyInteractiveParam {
     param: LmkcdeyParam {
+        message_bits: 2,
         modulus: Modulus::PowerOfTwo(64),
         ring_size: 2048,
         sk_distribution: SecretDistribution::Ternary(Ternary),

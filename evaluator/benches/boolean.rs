@@ -37,9 +37,10 @@ fn fhew(c: &mut Criterion) {
         Box::new(move || evaluator.bitnand_assign(&mut cts.next().unwrap(), &cts.next().unwrap()))
     }
 
-    fn test_param(big_q: impl Into<Modulus>, ring_size: usize, q: usize) -> FhewBoolParam {
+    fn test_param(modulus: impl Into<Modulus>, ring_size: usize, q: usize) -> FhewBoolParam {
         FhewBoolParam {
-            modulus: big_q.into(),
+            message_bits: 2,
+            modulus: modulus.into(),
             ring_size,
             sk_distribution: Gaussian(3.19).into(),
             noise_distribution: Gaussian(3.19).into(),
