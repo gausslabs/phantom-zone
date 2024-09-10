@@ -308,18 +308,27 @@ impl Sampler for Prime {}
 
 impl From<Prime> for Modulus {
     fn from(value: Prime) -> Self {
-        Self::Prime(value)
+        Self::Prime(value.q)
     }
 }
 
 impl TryFrom<Modulus> for Prime {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: Modulus) -> Result<Self, Self::Error> {
-        if let Modulus::Prime(prime) = value {
-            Ok(prime)
-        } else {
-            Err(())
+        match value {
+            Modulus::Prime(prime) => {
+                if (1..1 << 62).contains(&prime) {
+                    Ok(Self::new(prime))
+                } else {
+                    Err(format!(
+                        "unsupported prime `{prime}`, expected in range `1..1 << 62`"
+                    ))
+                }
+            }
+            _ => Err(format!(
+                "invalid modulus `{value:?}`, expected `Modulus::Prime(prime)`"
+            )),
         }
     }
 }
