@@ -175,10 +175,11 @@ fn decode<R: RingOps>(ring: &R, pt: R::Elem) -> bool {
 
 /// Arbitrary boolean gate with `N + 1` fan-in and single fan-out.
 ///
-/// In `FhewBoolEvaluator::evaluator`, it calls `FhewBoolGate::preprocess` to
-/// perform linear operation on inputs, and the output should be written to the
-/// first input `a`, then it performs `lmkcdey::bootstrap` on the preprocessed
-/// `a` with `FhewBoolGate::table`, finally calls `FhewBoolGate::postprocess`.
+/// `FhewBoolEvaluator::evaluator` uses `FhewBoolGate::preprocess` to
+///  preprocess input boolean ciphertexts and write the output in `a`.
+/// `a` is then fed to bootstrap `lmkcdey::bootstrap` with lookup table
+/// `FhewBoolGate::table`. The output ciphertext is postprocessed with
+/// `FhewBoolGate::postprocess`
 pub trait FhewBoolGate<R: RingOps, const N: usize> {
     fn preprocess(
         &self,
