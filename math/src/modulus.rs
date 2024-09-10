@@ -17,25 +17,25 @@ pub use prime::Prime;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Modulus {
-    Native(Native),
-    NonNativePowerOfTwo(NonNativePowerOfTwo),
-    Prime(Prime),
+    PowerOfTwo(usize),
+    Prime(u64),
 }
 
 impl Modulus {
     pub fn bits(&self) -> usize {
-        match self {
-            Self::Native(inner) => inner.bits(),
-            Self::NonNativePowerOfTwo(inner) => inner.bits(),
-            Self::Prime(inner) => inner.bits(),
+        match *self {
+            Self::PowerOfTwo(bits) => bits,
+            Self::Prime(prime) => prime
+                .checked_next_power_of_two()
+                .map(u64::ilog2)
+                .unwrap_or(u64::BITS) as _,
         }
     }
 
     pub fn as_f64(&self) -> f64 {
-        match self {
-            Self::Native(inner) => inner.as_f64(),
-            Self::NonNativePowerOfTwo(inner) => inner.as_f64(),
-            Self::Prime(inner) => inner.as_f64(),
+        match *self {
+            Self::PowerOfTwo(bits) => 2f64.powi(bits as _),
+            Self::Prime(prime) => prime as f64,
         }
     }
 }

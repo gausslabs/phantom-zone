@@ -17,7 +17,7 @@ use phantom_zone_evaluator::boolean::{
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::Gaussian,
-    modulus::{Modulus, Native, NonNativePowerOfTwo},
+    modulus::Modulus,
     ring::{NoisyNativeRing, NonNativePowerOfTwoRing},
 };
 use rand::{RngCore, SeedableRng};
@@ -26,7 +26,7 @@ type Evaluator = FhewBoolEvaluator<NoisyNativeRing, NonNativePowerOfTwoRing>;
 
 const PARAM: FhewBoolParam = FhewBoolParam {
     message_bits: 2,
-    modulus: Modulus::Native(Native::native()),
+    modulus: Modulus::PowerOfTwo(64),
     ring_size: 2048,
     sk_distribution: SecretDistribution::Gaussian(Gaussian(3.19)),
     noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
@@ -39,7 +39,7 @@ const PARAM: FhewBoolParam = FhewBoolParam {
         level_a: 1,
         level_b: 1,
     },
-    lwe_modulus: Modulus::NonNativePowerOfTwo(NonNativePowerOfTwo::new(16)),
+    lwe_modulus: Modulus::PowerOfTwo(16),
     lwe_dimension: 620,
     lwe_sk_distribution: SecretDistribution::Gaussian(Gaussian(3.19)),
     lwe_noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),

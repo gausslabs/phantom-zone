@@ -212,34 +212,26 @@ impl<const NATIVE: bool> Sampler for PowerOfTwo<NATIVE> {}
 
 impl<const NATIVE: bool> From<PowerOfTwo<NATIVE>> for Modulus {
     fn from(value: PowerOfTwo<NATIVE>) -> Self {
-        if NATIVE {
-            Self::Native(PowerOfTwo {
-                bits: value.bits,
-                mask: value.mask,
-            })
-        } else {
-            Self::NonNativePowerOfTwo(PowerOfTwo {
-                bits: value.bits,
-                mask: value.mask,
-            })
-        }
+        Self::PowerOfTwo(value.bits)
     }
 }
 
 impl<const NATIVE: bool> TryFrom<Modulus> for PowerOfTwo<NATIVE> {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: Modulus) -> Result<Self, Self::Error> {
         match value {
-            Modulus::Native(value) if NATIVE => Ok(PowerOfTwo {
-                bits: value.bits,
-                mask: value.mask,
-            }),
-            Modulus::NonNativePowerOfTwo(value) if !NATIVE => Ok(PowerOfTwo {
-                bits: value.bits,
-                mask: value.mask,
-            }),
-            _ => Err(()),
+            Modulus::PowerOfTwo(bits) => match (NATIVE, bits) {
+                (true, 64) => Ok(PowerOfTwo::new(64)),
+                (true, _) => Err(format!("unsupported bits `{bits}`, expected `64`")),
+                (false, 1..64) => Ok(PowerOfTwo::new(bits)),
+                (false, _) => Err(format!(
+                    "unsupported bits `{bits}`, expected in range `1..64`"
+                )),
+            },
+            _ => Err(format!(
+                "invalid modulus `{value:?}`, expected `Modulus::PowerOfTwo(bits)`"
+            )),
         }
     }
 }
