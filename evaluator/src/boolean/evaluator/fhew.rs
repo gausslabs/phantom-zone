@@ -15,10 +15,7 @@ use phantom_zone_crypto::{
         },
     },
     scheme::blind_rotation::lmkcdey::{self, LmkcdeyKeyOwned, LmkcdeyParam},
-    util::{
-        distribution::{NoiseDistribution, SecretDistribution},
-        rng::LweRng,
-    },
+    util::{distribution::NoiseDistribution, rng::LweRng},
 };
 use phantom_zone_math::{
     izip_eq,
@@ -48,10 +45,10 @@ impl<E> FhewBoolCiphertext<E> {
     }
 
     pub fn sk_encrypt<'a, R, T>(
+        param: &LmkcdeyParam,
         ring: &R,
         sk: impl Into<LweSecretKeyView<'a, T>>,
         m: bool,
-        noise_distribution: NoiseDistribution,
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> Self
     where
@@ -61,32 +58,30 @@ impl<E> FhewBoolCiphertext<E> {
     {
         let pt = LwePlaintext(encode(ring, m));
         let mut ct = Self::allocate(ring.ring_size());
-        lwe::sk_encrypt(ring, &mut ct.0, sk, pt, noise_distribution, rng);
+        lwe::sk_encrypt(ring, &mut ct.0, sk, pt, param.noise_distribution, rng);
         ct
     }
 
     pub fn pk_encrypt<'a, R: RingOps<Elem = E>>(
+        param: &LmkcdeyParam,
         ring: &R,
         pk: impl Into<RlwePublicKeyView<'a, E>>,
         m: bool,
-        u_distribution: SecretDistribution,
-        noise_distribution: NoiseDistribution,
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> Self
     where
         E: 'a + Copy + Default,
     {
-        Self::batched_pk_encrypt(ring, pk, [m], u_distribution, noise_distribution, rng)
+        Self::batched_pk_encrypt(param, ring, pk, [m], rng)
             .pop()
             .unwrap()
     }
 
     pub fn batched_pk_encrypt<'a, R: RingOps<Elem = E>>(
+        param: &LmkcdeyParam,
         ring: &R,
         pk: impl Into<RlwePublicKeyView<'a, E>>,
         ms: impl IntoIterator<Item = bool>,
-        u_distribution: SecretDistribution,
-        noise_distribution: NoiseDistribution,
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> Vec<Self>
     where
@@ -111,8 +106,8 @@ impl<E> FhewBoolCiphertext<E> {
                 &mut ct_rlwe,
                 pk,
                 &pt,
-                u_distribution,
-                noise_distribution,
+                param.u_distribution,
+                param.noise_distribution,
                 scratch.borrow_mut(),
                 rng,
             );
@@ -399,14 +394,11 @@ mod test {
             rgsw::RgswDecompositionParam,
             rlwe::{RlwePlaintext, RlwePlaintextOwned, RlwePlaintextView},
         },
-        util::{
-            distribution::{NoiseDistribution, SecretDistribution},
-            rng::StdLweRng,
-        },
+        util::{distribution::SecretDistribution, rng::StdLweRng},
     };
     use phantom_zone_math::{
         decomposer::DecompositionParam,
-        distribution::Gaussian,
+        distribution::{Gaussian, Ternary},
         modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
         poly::automorphism::AutomorphismMap,
         ring::{
@@ -426,6 +418,7 @@ mod test {
             ring_size,
             sk_distribution: Gaussian(3.19).into(),
             noise_distribution: Gaussian(3.19).into(),
+            u_distribution: Ternary.into(),
             auto_decomposition_param: DecompositionParam {
                 log_base: 24,
                 level: 1,
@@ -454,13 +447,13 @@ mod test {
     }
 
     fn encrypt<R: RingOps>(
+        param: &LmkcdeyParam,
         ring: &R,
         sk: &LweSecretKeyOwned<i32>,
         m: bool,
-        noise_distribution: NoiseDistribution,
     ) -> FhewBoolCiphertext<R::Elem> {
         let mut rng = StdLweRng::from_entropy();
-        FhewBoolCiphertext::sk_encrypt(ring, sk, m, noise_distribution, &mut rng)
+        FhewBoolCiphertext::sk_encrypt(param, ring, sk, m, &mut rng)
     }
 
     #[test]
@@ -470,7 +463,7 @@ mod test {
             let sk = sk_gen(param.ring_size, param.sk_distribution);
             for _ in 0..100 {
                 for m in [false, true] {
-                    let ct = encrypt(&ring, &sk, m, param.noise_distribution);
+                    let ct = encrypt(&param, &ring, &sk, m);
                     assert_eq!(m, ct.decrypt(&ring, &sk))
                 }
             }
@@ -489,13 +482,13 @@ mod test {
         fn run<R: RingOps>(param: LmkcdeyParam) {
             let sk = sk_gen(param.ring_size, param.sk_distribution);
             let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, thread_rng());
-            let encrypt = |m| encrypt(&evaluator.ring, &sk, m, param.noise_distribution);
+            let encrypt = |m| encrypt(evaluator.param(), evaluator.ring(), &sk, m);
             macro_rules! assert_decrypted_to {
                 ($ct_a:ident.$op:ident($($ct_b:ident)?), $c:expr) => {
                     paste::paste! {
                         let mut ct_a = $ct_a.clone();
                         evaluator.[<$op _assign>](&mut ct_a $(, $ct_b)?);
-                        assert_eq!(ct_a.decrypt(&evaluator.ring, &sk), $c);
+                        assert_eq!(ct_a.decrypt(evaluator.ring(), &sk), $c);
                     }
                 };
             }
@@ -529,7 +522,7 @@ mod test {
         fn run<R: RingOps>(param: LmkcdeyParam) {
             let sk = sk_gen(param.ring_size, param.sk_distribution);
             let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, thread_rng());
-            let encrypt = |m| encrypt(&evaluator.ring, &sk, m, param.noise_distribution);
+            let encrypt = |m| encrypt(evaluator.param(), evaluator.ring(), &sk, m);
             macro_rules! assert_decrypted_to {
                 ($ct_a:ident.$op:ident($ct_b:ident $(, $ct_c:ident)?), $c:expr) => {
                     paste::paste! {
@@ -537,8 +530,8 @@ mod test {
                         let ct_d = evaluator.[<$op _assign>](&mut ct_a, $ct_b $(, $ct_c)?);
                         assert_eq!(
                             (
-                                ct_a.decrypt(&evaluator.ring, &sk),
-                                ct_d.decrypt(&evaluator.ring, &sk),
+                                ct_a.decrypt(evaluator.ring(), &sk),
+                                ct_d.decrypt(evaluator.ring(), &sk),
                             ),
                             $c,
                         );
@@ -616,7 +609,7 @@ mod test {
         fn run<R: RingOps>(param: LmkcdeyParam) {
             let sk = sk_gen(param.ring_size, param.sk_distribution);
             let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, thread_rng());
-            let encrypt = |m| encrypt(&evaluator.ring, &sk, m, param.noise_distribution);
+            let encrypt = |m| encrypt(evaluator.param(), evaluator.ring(), &sk, m);
             let majority_gate = MajorityGate::new(evaluator.ring(), &param);
             for m in 0..1 << 3 {
                 let [a, b, c] = from_fn(|i| (m >> i) & 1 == 1);

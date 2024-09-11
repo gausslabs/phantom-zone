@@ -16,7 +16,7 @@ use phantom_zone_evaluator::boolean::{
 };
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    distribution::Gaussian,
+    distribution::{Gaussian, Ternary},
     modulus::Modulus,
     ring::{NoisyNativeRing, NonNativePowerOfTwoRing},
 };
@@ -30,6 +30,7 @@ const PARAM: FhewBoolParam = FhewBoolParam {
     ring_size: 2048,
     sk_distribution: SecretDistribution::Gaussian(Gaussian(3.19)),
     noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
+    u_distribution: SecretDistribution::Ternary(Ternary),
     auto_decomposition_param: DecompositionParam {
         log_base: 24,
         level: 1,
@@ -60,13 +61,7 @@ fn encrypt<'a>(
 ) -> FheU8<'a, Evaluator> {
     let cts = from_fn(|idx| {
         let m = (m >> idx) & 1 == 1;
-        FhewBoolCiphertext::sk_encrypt(
-            evaluator.ring(),
-            sk,
-            m,
-            evaluator.param().noise_distribution,
-            rng,
-        )
+        FhewBoolCiphertext::sk_encrypt(evaluator.param(), evaluator.ring(), sk, m, rng)
     });
     FheU8::from_cts(evaluator, cts)
 }

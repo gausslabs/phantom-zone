@@ -39,6 +39,7 @@ const PARAM: LmkcdeyInteractiveParam = LmkcdeyInteractiveParam {
         ring_size: 2048,
         sk_distribution: SecretDistribution::Ternary(Ternary),
         noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
+        u_distribution: SecretDistribution::Ternary(Ternary),
         auto_decomposition_param: DecompositionParam {
             log_base: 24,
             level: 1,
@@ -60,7 +61,6 @@ const PARAM: LmkcdeyInteractiveParam = LmkcdeyInteractiveParam {
         g: 5,
         w: 10,
     },
-    u_distribution: SecretDistribution::Ternary(Ternary),
     rgsw_by_rgsw_decomposition_param: RgswDecompositionParam {
         log_base: 6,
         level_a: 7,
@@ -218,11 +218,10 @@ impl<R: RingOps, M: ModulusOps> Server<R, M> {
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> FheU8<FhewBoolEvaluator<R, M>> {
         let cts = FhewBoolCiphertext::batched_pk_encrypt(
+            self.evaluator.param(),
             self.evaluator.ring(),
             &self.pk,
             (0..8).map(|idx| (m >> idx) & 1 == 1),
-            self.param.u_distribution,
-            self.param.noise_distribution,
             rng,
         );
         FheU8::from_cts(&self.evaluator, cts.try_into().unwrap())

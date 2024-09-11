@@ -58,6 +58,7 @@ fn test_param(modulus: impl Into<Modulus>) -> LmkcdeyInteractiveParam {
             ring_size,
             sk_distribution: Ternary.into(),
             noise_distribution: Gaussian(3.19).into(),
+            u_distribution: Ternary.into(),
             auto_decomposition_param: DecompositionParam {
                 log_base: 24,
                 level: 1,
@@ -79,7 +80,6 @@ fn test_param(modulus: impl Into<Modulus>) -> LmkcdeyInteractiveParam {
             g: 5,
             w: 10,
         },
-        u_distribution: Ternary.into(),
         rgsw_by_rgsw_decomposition_param: RgswDecompositionParam {
             log_base: 6,
             level_a: 7,

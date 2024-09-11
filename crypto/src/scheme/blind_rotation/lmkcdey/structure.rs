@@ -32,6 +32,7 @@ pub struct LmkcdeyParam {
     pub ring_size: usize,
     pub sk_distribution: SecretDistribution,
     pub noise_distribution: NoiseDistribution,
+    pub u_distribution: SecretDistribution,
     pub auto_decomposition_param: DecompositionParam,
     pub rlwe_by_rgsw_decomposition_param: RgswDecompositionParam,
     // Lwe param

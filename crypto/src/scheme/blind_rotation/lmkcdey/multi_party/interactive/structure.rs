@@ -5,7 +5,7 @@ use crate::{
         rlwe::{SeededRlweAutoKey, SeededRlweAutoKeyMutView, SeededRlweAutoKeyView},
     },
     scheme::blind_rotation::lmkcdey::LmkcdeyParam,
-    util::{distribution::SecretDistribution, rng::LweRng},
+    util::rng::LweRng,
 };
 use core::{
     fmt::{self, Debug, Formatter},
@@ -25,7 +25,6 @@ use rand::{RngCore, SeedableRng};
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LmkcdeyInteractiveParam {
     pub param: LmkcdeyParam,
-    pub u_distribution: SecretDistribution,
     pub rgsw_by_rgsw_decomposition_param: RgswDecompositionParam,
     pub total_shares: usize,
 }

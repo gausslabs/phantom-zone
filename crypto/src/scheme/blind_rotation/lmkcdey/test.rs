@@ -30,7 +30,7 @@ impl From<LmkcdeyParam> for RgswParam {
                 ring_size: param.ring_size,
                 sk_distribution: param.sk_distribution,
                 noise_distribution: param.noise_distribution,
-                u_distribution: Ternary.into(),
+                u_distribution: param.u_distribution,
                 ks_decomposition_param: param.auto_decomposition_param,
             },
             decomposition_param: param.rlwe_by_rgsw_decomposition_param,
@@ -59,6 +59,7 @@ fn test_param(modulus: impl Into<Modulus>, embedding_factor: usize) -> LmkcdeyPa
         ring_size,
         sk_distribution: Gaussian(3.19).into(),
         noise_distribution: Gaussian(3.19).into(),
+        u_distribution: Ternary.into(),
         auto_decomposition_param: DecompositionParam {
             log_base: 24,
             level: 1,
