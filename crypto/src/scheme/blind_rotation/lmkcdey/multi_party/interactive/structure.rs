@@ -262,12 +262,12 @@ impl<T1: Default, T2: Default, S: SeedableRng> LmkcdeyInteractiveKeyShareOwned<T
             let init_range = chunk_size * share_idx..chunk_size * (share_idx + 1);
             (0..param.lwe_dimension)
                 .map(|idx| {
-                    let rlwe_by_rgsw_decomposition_param = if init_range.contains(&idx) {
+                    let decomposition_param = if init_range.contains(&idx) {
                         param.rlwe_by_rgsw_decomposition_param
                     } else {
                         param.rgsw_by_rgsw_decomposition_param
                     };
-                    RgswCiphertext::allocate(param.ring_size, rlwe_by_rgsw_decomposition_param)
+                    RgswCiphertext::allocate(param.ring_size, decomposition_param)
                 })
                 .collect()
         };

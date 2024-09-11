@@ -4,7 +4,7 @@ use crate::{
 };
 use core::{convert::identity, iter::repeat_with, ops::Range};
 use itertools::{izip, Itertools};
-use num_traits::{FromPrimitive, PrimInt, Signed, ToPrimitive};
+use num_traits::{FromPrimitive, PrimInt, Signed};
 use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
     Rng, RngCore,
@@ -122,10 +122,14 @@ pub trait DistributionVariance {
     }
 }
 
-impl<T: ToPrimitive> DistributionVariance for Range<T> {
+impl DistributionVariance for Range<u64> {
     fn variance(self) -> f64 {
-        let v = self.end.to_f64().unwrap() - self.start.to_f64().unwrap();
-        v * v / 12.0
+        if self.is_empty() || self.start + 1 == self.end {
+            0.0
+        } else {
+            let v = (self.end - self.start) as f64;
+            v * v / 12.0
+        }
     }
 }
 
