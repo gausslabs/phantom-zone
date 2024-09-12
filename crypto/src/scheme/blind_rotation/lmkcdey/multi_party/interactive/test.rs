@@ -336,7 +336,7 @@ fn bootstrap_three_way() {
         }
     }
 
-    run::<NativeRing, NativeRing>(P4_MSG1_LUT3_PADD1_128);
+    run::<NativeRing, NoisyNativeRing>(P4_MSG1_LUT3_PADD1_128);
 }
 
 #[test]
