@@ -162,7 +162,7 @@ mod test {
                     RingOps::new(NonNativePowerOfTwo::new(log_q).into(), 1 << log_ring_size);
                 for log_b in 12..16 {
                     let prec_loss = poly_mul_prec_loss(log_ring_size, log_q, log_b);
-                    let uniform_b = Uniform::new(0, 1u64 << log_b);
+                    let uniform_b = Uniform::new(-(1i64 << (log_b - 1)), 1i64 << (log_b - 1));
                     for _ in 0..100 {
                         let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                         let b = ring.sample_vec(ring.ring_size(), uniform_b, &mut rng);
@@ -180,7 +180,7 @@ mod test {
             let ring: NoisyNativeRing = RingOps::new(Native::native().into(), 1 << log_ring_size);
             for log_b in 12..16 {
                 let prec_loss = poly_mul_prec_loss(log_ring_size, 64, log_b);
-                let uniform_b = Uniform::new(0, 1u64 << log_b);
+                let uniform_b = Uniform::new(-(1i64 << (log_b - 1)), 1i64 << (log_b - 1));
                 for _ in 0..100 {
                     let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                     let b = ring.sample_vec(ring.ring_size(), uniform_b, &mut rng);
