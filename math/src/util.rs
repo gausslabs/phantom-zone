@@ -49,6 +49,14 @@ pub mod dev {
     use rand::{rngs::StdRng, SeedableRng};
     use std::{env, time::Instant};
 
+    // Number of repetition for time-consuming tests taking more than 1 second.
+    pub fn time_consuming_test_repetition() -> usize {
+        env::var("PZ_TIME_CONSUMING_TEST_REPETITION")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10)
+    }
+
     #[derive(Clone, Copy, Debug)]
     pub struct StatsSampler {
         sample_size: usize,

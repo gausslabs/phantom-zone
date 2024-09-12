@@ -51,6 +51,7 @@ jobs:
       - name: Run test
         run: cargo test --profile ci --workspace --all-features
         env:
+          PZ_TIME_CONSUMING_TEST_REPETITION: 10
           PZ_STATS_SAMPLE_SIZE: 1000000
           PZ_STATS_TIMEOUT: 30
 

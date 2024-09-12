@@ -20,7 +20,10 @@ use crate::{
         rng::StdLweRng,
     },
 };
-use core::{array::from_fn, iter::repeat_with};
+use core::{
+    array::from_fn,
+    iter::{repeat, repeat_with},
+};
 use itertools::{chain, izip, Itertools};
 use phantom_zone_math::{
     decomposer::DecompositionParam,
@@ -33,12 +36,11 @@ use phantom_zone_math::{
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
     util::{
-        dev::{Stats, StatsSampler},
+        dev::{time_consuming_test_repetition, Stats, StatsSampler},
         scratch::ScratchOwned,
     },
 };
 use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, RngCore, SeedableRng};
-use std::iter::repeat;
 
 fn test_param(modulus: impl Into<Modulus>) -> LmkcdeyInteractiveParam {
     let ring_size = 2048;
@@ -283,7 +285,6 @@ fn general_lut<R: RingOps, const N: usize>(
 }
 
 #[test]
-#[ignore = "taking an hour to test"]
 fn bootstrap_three_way() {
     fn run<R1: RingOps, R2: RingOps<Elem = R1::Elem>>(param: LmkcdeyInteractiveParam) {
         let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
@@ -317,7 +318,7 @@ fn bootstrap_three_way() {
             let pt = rlwe.encode(&vec![m; ring.ring_size()]);
             rlwe.sample_extract(&rlwe.pk_encrypt(&pk, &pt, &mut rng), 0)
         });
-        for _ in 0..1000 {
+        for _ in 0..time_consuming_test_repetition() {
             [(a, ct_a), (b, ct_b), (c, ct_c)] = [[1, 2, 4], [2, 4, 1], [4, 1, 2]].map(|scalars| {
                 let m = lc(&[a, b, c], &scalars) as usize;
                 let mut ct = lwe.lc([&ct_a, &ct_b, &ct_c], scalars);
