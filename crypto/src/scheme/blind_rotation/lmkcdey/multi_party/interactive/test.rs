@@ -3,8 +3,8 @@ use crate::{
         lwe::{test::LweParam, LweCiphertext, LwePlaintext, LweSecretKey, LweSecretKeyOwned},
         rgsw::{test::RgswParam, RgswDecompositionParam},
         rlwe::{
-            test::RlweParam, RlweCiphertext, RlwePlaintext, RlwePublicKey, RlwePublicKeyOwned,
-            RlweSecretKey, SeededRlwePublicKey,
+            RlweCiphertext, RlwePlaintext, RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey,
+            SeededRlwePublicKey,
         },
     },
     scheme::blind_rotation::lmkcdey::{
@@ -21,7 +21,7 @@ use core::{array::from_fn, iter::repeat_with};
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    distribution::{Gaussian, Sampler, Ternary},
+    distribution::{DistributionVariance, Gaussian, Sampler, Ternary},
     izip_eq,
     modulus::{Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
     ring::{
@@ -31,23 +31,6 @@ use phantom_zone_math::{
     util::{dev::Stats, scratch::ScratchOwned},
 };
 use rand::{rngs::StdRng, thread_rng, RngCore, SeedableRng};
-
-impl From<LmkcdeyInteractiveParam> for RgswParam {
-    fn from(param: LmkcdeyInteractiveParam) -> Self {
-        RgswParam {
-            rlwe: RlweParam {
-                message_modulus: 1 << param.message_bits,
-                ciphertext_modulus: param.modulus,
-                ring_size: param.ring_size,
-                sk_distribution: param.sk_distribution,
-                noise_distribution: param.noise_distribution,
-                u_distribution: param.u_distribution,
-                ks_decomposition_param: param.auto_decomposition_param,
-            },
-            decomposition_param: param.rlwe_by_rgsw_decomposition_param,
-        }
-    }
-}
 
 fn test_param(modulus: impl Into<Modulus>) -> LmkcdeyInteractiveParam {
     let ring_size = 2048;
@@ -100,7 +83,7 @@ fn bs_key_gen<R: RingOps>(
     RlwePublicKeyOwned<R::Elem>,
     LmkcdeyKeyOwned<R::Elem, u64>,
 ) {
-    let rgsw = RgswParam::from(param).build::<R>();
+    let rgsw = RgswParam::from(*param).build::<R>();
     let rlwe = rgsw.rlwe();
     let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
     let ring = rgsw.ring();
@@ -190,9 +173,9 @@ fn interactive() {
     fn run<R1: RingOps, R2: RingOps<Elem = R1::Elem>>(modulus: impl Into<Modulus>) {
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
-        let rgsw = RgswParam::from(param).build::<R2>();
+        let rgsw = RgswParam::from(*param).build::<R2>();
         let rlwe = rgsw.rlwe();
-        let lwe = RgswParam::from(param).rlwe.to_lwe().build::<R2>();
+        let lwe = RgswParam::from(*param).rlwe.to_lwe().build::<R2>();
         let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
         let ring = rgsw.ring();
         let mod_ks = lwe_ks.modulus();
@@ -251,113 +234,179 @@ fn bs_key_gen_determinism() {
     run::<PrimeRing>(Prime::gen(54, 12));
 }
 
-#[test]
-fn noise_stats() {
-    struct NoiseStdDev {
-        log2_ks_key: f64,
-        log2_ak: f64,
-        log2_brk: f64,
-        log2_ct_ks: f64,
-        log2_ct_auto: f64,
+struct NoiseStdDev {
+    log2_brk: f64,
+    log2_ct_ks: f64,
+    log2_ct_auto: f64,
+    log2_ct_rlwe_by_rgsw: f64,
+}
+
+fn run_noise_stats<R: RingOps>(param: LmkcdeyInteractiveParam, noise_std_dev: NoiseStdDev) {
+    let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
+    let rgsw = RgswParam::from(*param).build::<R>();
+    let rlwe = rgsw.rlwe();
+    let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
+    let ring = rgsw.ring();
+    let mod_ks = lwe_ks.modulus();
+
+    let (sk, sk_ks, _, bs_key) = bs_key_gen::<R>(param, crs, thread_rng());
+    let sk = RlweSecretKey::from(sk);
+
+    let noise_var_ks_key = param.total_shares as f64 * param.lwe_noise_distribution.variance();
+    let mut noise_ks_key = Stats::default();
+    noise_ks_key.extend(
+        lwe_ks
+            .ks_key_noise(&sk.clone().into(), &sk_ks, &bs_key.ks_key().cloned())
+            .into_iter()
+            .flatten(),
+    );
+    assert_eq!(noise_ks_key.mean().round(), 0.0);
+    assert!((noise_ks_key.log2_std_dev() - noise_var_ks_key.sqrt().log2()).abs() < 0.1);
+
+    let noise_var_ak = param.total_shares as f64 * param.noise_distribution.variance();
+    let mut noise_ak = Stats::default();
+    bs_key.aks().for_each(|ak| {
+        noise_ak.extend(rlwe.noise_auto_key(&sk, &ak.cloned()).into_iter().flatten())
+    });
+    assert_eq!(noise_ak.mean().round(), 0.0);
+    assert!((noise_ak.log2_std_dev() - noise_var_ak.sqrt().log2()).abs() < 0.1);
+
+    let mut noise_brk = Stats::default();
+    izip_eq!(sk_ks.as_ref(), bs_key.brks()).for_each(|(sk_ks_i, brk_i)| {
+        let exp = param.embedding_factor() as i64 * *sk_ks_i as i64;
+        let mut pt = RlwePlaintext::allocate(ring.ring_size());
+        ring.poly_set_monomial(pt.as_mut(), exp);
+        noise_brk.extend(rgsw.noise(&sk, &pt, &brk_i.cloned()).into_iter().flatten());
+    });
+    assert!((noise_brk.log2_std_dev() - noise_std_dev.log2_brk).abs() < 0.1);
+
+    let mut noise_ct_ks = Stats::default();
+    for _ in 0..1000 {
+        let mut rng = StdLweRng::from_entropy();
+        let mut ct = LweCiphertext::allocate(param.ring_size);
+        mod_ks.sample_uniform_into(ct.a_mut(), &mut rng);
+        let pt = mod_ks.neg(&mod_ks.slice_dot_elem_from(ct.a(), sk.as_ref()));
+        let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
+        noise_ct_ks.push(lwe_ks.noise(&sk_ks, &LwePlaintext(pt), &ct_ks));
     }
+    assert!((noise_ct_ks.log2_std_dev() - noise_std_dev.log2_ct_ks).abs() < 0.1);
 
-    fn run<R: RingOps>(modulus: impl Into<Modulus>, noise_std_dev: NoiseStdDev) {
-        let param = test_param(modulus);
-        let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
-        let rgsw = RgswParam::from(param).build::<R>();
-        let rlwe = rgsw.rlwe();
-        let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
-        let ring = rgsw.ring();
-        let mod_ks = lwe_ks.modulus();
-
-        let (sk, sk_ks, _, bs_key) = bs_key_gen::<R>(param, crs, thread_rng());
-        let sk = RlweSecretKey::from(sk);
-
-        let mut noise_ks_key = Stats::default();
-        noise_ks_key.extend(
-            lwe_ks
-                .ks_key_noise(&sk.clone().into(), &sk_ks, &bs_key.ks_key().cloned())
-                .into_iter()
-                .flatten(),
-        );
-        assert_eq!(noise_ks_key.mean().round(), 0.0);
-        assert!((noise_ks_key.log2_std_dev() - noise_std_dev.log2_ks_key).abs() < 0.1);
-
-        let mut noise_ak = Stats::default();
+    let mut noise_ct_auto = Stats::default();
+    for _ in 0..1000 {
+        let mut rng = StdLweRng::from_entropy();
+        let mut scratch = ring.allocate_scratch(0, 2, 0);
+        let mut pt = RlwePlaintext::allocate(param.ring_size);
+        let mut ct = RlweCiphertext::allocate(param.ring_size);
+        ring.sample_uniform_into(ct.a_mut(), &mut rng);
+        ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.as_ref(), scratch.borrow_mut());
+        ring.slice_neg_assign(pt.as_mut());
         bs_key.aks().for_each(|ak| {
-            noise_ak.extend(rlwe.noise_auto_key(&sk, &ak.cloned()).into_iter().flatten())
+            let mut pt_auto = RlwePlaintext::allocate(param.ring_size);
+            ring.poly_add_auto(pt_auto.as_mut(), pt.as_ref(), ak.auto_map());
+            let ct_auto = rlwe.automorphism(&ak.cloned(), &ct);
+            noise_ct_auto.extend(rlwe.noise(&sk, &pt_auto, &ct_auto));
         });
-        assert_eq!(noise_ak.mean().round(), 0.0);
-        assert!((noise_ak.log2_std_dev() - noise_std_dev.log2_ak).abs() < 0.1);
-
-        let mut noise_brk = Stats::default();
-        izip_eq!(sk_ks.as_ref(), bs_key.brks()).for_each(|(sk_ks_i, brk_i)| {
-            let brk_i = brk_i.cloned();
-            let exp = param.embedding_factor() as i64 * *sk_ks_i as i64;
-            let mut pt = RlwePlaintext::allocate(ring.ring_size());
-            ring.poly_set_monomial(pt.as_mut(), exp);
-            noise_brk.extend(rgsw.noise(&sk, &pt, &brk_i).into_iter().flatten());
-        });
-        assert!((noise_brk.log2_std_dev() - noise_std_dev.log2_brk).abs() < 0.1);
-
-        let mut noise_ct_ks = Stats::default();
-        for _ in 0..1000 {
-            let mut rng = StdLweRng::from_entropy();
-            let mut ct = LweCiphertext::allocate(param.ring_size);
-            mod_ks.sample_uniform_into(ct.a_mut(), &mut rng);
-            let pt = mod_ks.neg(&mod_ks.slice_dot_elem_from(ct.a(), sk.as_ref()));
-            let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
-            noise_ct_ks.push(lwe_ks.noise(&sk_ks, &LwePlaintext(pt), &ct_ks));
-        }
-        assert!((noise_ct_ks.log2_std_dev() - noise_std_dev.log2_ct_ks).abs() < 0.1);
-
-        let mut noise_ct_auto = Stats::default();
-        for _ in 0..1000 {
-            let mut rng = StdLweRng::from_entropy();
-            let mut scratch = ring.allocate_scratch(0, 2, 0);
-            let mut pt = RlwePlaintext::allocate(param.ring_size);
-            let mut ct = RlweCiphertext::allocate(param.ring_size);
-            ring.sample_uniform_into(ct.a_mut(), &mut rng);
-            ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.as_ref(), scratch.borrow_mut());
-            ring.slice_neg_assign(pt.as_mut());
-            bs_key.aks().for_each(|ak| {
-                let mut pt_auto = RlwePlaintext::allocate(param.ring_size);
-                ring.poly_add_auto(pt_auto.as_mut(), pt.as_ref(), ak.auto_map());
-                let ct_auto = rlwe.automorphism(&ak.cloned(), &ct);
-                noise_ct_auto.extend(rlwe.noise(&sk, &pt_auto, &ct_auto));
-            });
-        }
-        assert!((noise_ct_auto.log2_std_dev() - noise_std_dev.log2_ct_auto).abs() < 0.1);
     }
+    assert!((noise_ct_auto.log2_std_dev() - noise_std_dev.log2_ct_auto).abs() < 0.1);
 
-    run::<NativeRing>(
-        Native::native(),
+    let mut noise_ct_rlwe_by_rgsw = Stats::default();
+    for _ in 0..1 {
+        let mut rng = StdLweRng::from_entropy();
+        let mut scratch = ring.allocate_scratch(0, 2, 0);
+        let mut pt = RlwePlaintext::allocate(param.ring_size);
+        let mut ct = RlweCiphertext::allocate(param.ring_size);
+        ring.sample_uniform_into(ct.a_mut(), &mut rng);
+        ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.as_ref(), scratch.borrow_mut());
+        ring.slice_neg_assign(pt.as_mut());
+        izip_eq!(sk_ks.as_ref(), bs_key.brks()).for_each(|(sk_ks_i, brk_i)| {
+            let mut pt_by_brk_i = pt.clone();
+            let exp = param.embedding_factor() as i64 * *sk_ks_i as i64;
+            ring.poly_mul_monomial(pt_by_brk_i.as_mut(), exp);
+            let ct_by_brk_i = rgsw.rlwe_by_rgsw(&ct, &brk_i.cloned());
+            noise_ct_rlwe_by_rgsw.extend(rlwe.noise(&sk, &pt_by_brk_i, &ct_by_brk_i));
+        });
+    }
+    assert!(
+        (noise_ct_rlwe_by_rgsw.log2_std_dev() - noise_std_dev.log2_ct_rlwe_by_rgsw).abs() < 0.1
+    );
+}
+
+#[test]
+fn noise_stats_test_param() {
+    run_noise_stats::<NativeRing>(
+        test_param(Native::native()),
         NoiseStdDev {
-            log2_ks_key: 2.673556423990145,
-            log2_ak: 2.673556423990145,
             log2_brk: 27.500045507048082,
             log2_ct_ks: 9.273649333233724,
             log2_ct_auto: 44.20751875305761,
+            log2_ct_rlwe_by_rgsw: 51.18317420521815,
         },
     );
-    run::<NonNativePowerOfTwoRing>(
-        NonNativePowerOfTwo::new(54),
+    run_noise_stats::<NonNativePowerOfTwoRing>(
+        test_param(NonNativePowerOfTwo::new(54)),
         NoiseStdDev {
-            log2_ks_key: 2.673556423990145,
-            log2_ak: 2.673556423990145,
             log2_brk: 20.53468701198804,
             log2_ct_ks: 9.273649333233724,
             log2_ct_auto: 34.211094105080484,
+            log2_ct_rlwe_by_rgsw: 41.75913415851187,
         },
     );
-    run::<PrimeRing>(
-        Prime::gen(54, 12),
+    run_noise_stats::<PrimeRing>(
+        test_param(Prime::gen(54, 12)),
         NoiseStdDev {
-            log2_ks_key: 2.673556423990145,
-            log2_ak: 2.673556423990145,
             log2_brk: 20.53468701198804,
             log2_ct_ks: 9.273649333233724,
             log2_ct_auto: 34.211094105080484,
+            log2_ct_rlwe_by_rgsw: 41.73815728744025,
+        },
+    );
+}
+
+#[test]
+fn noise_stats_p4_msg1_lut3_padd1_128() {
+    let param = LmkcdeyInteractiveParam {
+        param: LmkcdeyParam {
+            message_bits: 4,
+            modulus: Native::native().into(),
+            ring_size: 1 << 13,
+            sk_distribution: Ternary.into(),
+            noise_distribution: Gaussian(3.19).into(),
+            u_distribution: Ternary.into(),
+            auto_decomposition_param: DecompositionParam {
+                log_base: 10,
+                level: 2,
+            },
+            rlwe_by_rgsw_decomposition_param: RgswDecompositionParam {
+                log_base: 17,
+                level_a: 2,
+                level_b: 1,
+            },
+            lwe_modulus: NonNativePowerOfTwo::new(25).into(),
+            lwe_dimension: 925,
+            lwe_sk_distribution: Ternary.into(),
+            lwe_noise_distribution: Gaussian(5.1).into(),
+            lwe_ks_decomposition_param: DecompositionParam {
+                log_base: 25,
+                level: 1,
+            },
+            q: 1 << 14,
+            g: 5,
+            w: 20,
+        },
+        rgsw_by_rgsw_decomposition_param: RgswDecompositionParam {
+            log_base: 7,
+            level_a: 7,
+            level_b: 6,
+        },
+        total_shares: 4,
+    };
+    run_noise_stats::<NativeRing>(
+        param,
+        NoiseStdDev {
+            log2_brk: 23.5661513432981,
+            log2_ct_ks: 23.241907226180423, // TODO: sage says 18.0580160099479
+            log2_ct_auto: 49.2075187496394,
+            log2_ct_rlwe_by_rgsw: 45.7576924069851, // TODO: sage says 46.2576924069851
         },
     );
 }
@@ -371,7 +420,7 @@ fn serialize_deserialize() {
         let mut rng = StdLweRng::from_entropy();
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::<StdRng>::sample(&mut rng);
-        let rgsw = RgswParam::from(param).build::<R>();
+        let rgsw = RgswParam::from(*param).build::<R>();
         let rlwe = rgsw.rlwe();
         let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
         let ring = rgsw.ring();

@@ -51,14 +51,17 @@ impl Ffnt {
         }
     }
 
+    #[inline(always)]
     pub fn ring_size(&self) -> usize {
         self.ring_size
     }
 
+    #[inline(always)]
     pub fn fft_size(&self) -> usize {
         self.fft_size
     }
 
+    #[inline(always)]
     pub fn fft_scratch_size(&self) -> usize {
         self.fft_scratch_size
     }
@@ -67,7 +70,7 @@ impl Ffnt {
         &self,
         b: &mut [Complex64],
         a: &[T],
-        to_f64: impl Fn(&T) -> f64,
+        to_f64: impl FnMut(&T) -> f64,
         scratch: &mut [Complex64],
     ) {
         self.fold_twist(b, a, to_f64);
@@ -78,7 +81,7 @@ impl Ffnt {
         &self,
         b: &mut [Complex64],
         a: &[T],
-        to_f64: impl Fn(&T) -> f64,
+        to_f64: impl FnMut(&T) -> f64,
         scratch: &mut [Complex64],
     ) {
         self.forward(b, a, to_f64, scratch);
@@ -89,7 +92,7 @@ impl Ffnt {
         &self,
         b: &mut [T],
         a: &mut [Complex64],
-        from_f64: impl Fn(f64) -> T,
+        from_f64: impl FnMut(f64) -> T,
         scratch: &mut [Complex64],
     ) {
         self.ifft.process_with_scratch(a, scratch);
@@ -100,7 +103,7 @@ impl Ffnt {
         &self,
         b: &mut [T],
         a: &mut [Complex64],
-        from_f64: impl Fn(f64) -> T,
+        from_f64: impl FnMut(f64) -> T,
         scratch: &mut [Complex64],
     ) {
         self.normalize(a);
@@ -111,7 +114,7 @@ impl Ffnt {
         &self,
         b: &mut [T],
         a: &mut [Complex64],
-        add_from_f64: impl Fn(&mut T, f64),
+        add_from_f64: impl FnMut(&mut T, f64),
         scratch: &mut [Complex64],
     ) {
         self.ifft.process_with_scratch(a, scratch);
@@ -122,7 +125,7 @@ impl Ffnt {
         &self,
         b: &mut [T],
         a: &mut [Complex64],
-        add_from_f64: impl Fn(&mut T, f64),
+        add_from_f64: impl FnMut(&mut T, f64),
         scratch: &mut [Complex64],
     ) {
         self.normalize(a);
@@ -133,7 +136,7 @@ impl Ffnt {
         a.iter_mut().for_each(|a| *a *= self.fft_size_inv);
     }
 
-    fn fold_twist<T>(&self, b: &mut [Complex64], a: &[T], to_f64: impl Fn(&T) -> f64) {
+    fn fold_twist<T>(&self, b: &mut [Complex64], a: &[T], mut to_f64: impl FnMut(&T) -> f64) {
         debug_assert_eq!(a.len(), self.ring_size);
         debug_assert_eq!(b.len(), self.fft_size);
         if a.len() == 1 {
@@ -145,7 +148,7 @@ impl Ffnt {
         }
     }
 
-    fn unfold_untwist<T>(&self, b: &mut [T], a: &[Complex64], from_f64: impl Fn(f64) -> T) {
+    fn unfold_untwist<T>(&self, b: &mut [T], a: &[Complex64], mut from_f64: impl FnMut(f64) -> T) {
         debug_assert_eq!(a.len(), self.fft_size);
         debug_assert_eq!(b.len(), self.ring_size);
         if b.len() == 1 {
@@ -164,7 +167,7 @@ impl Ffnt {
         &self,
         b: &mut [T],
         a: &[Complex64],
-        add_from_f64: impl Fn(&mut T, f64),
+        mut add_from_f64: impl FnMut(&mut T, f64),
     ) {
         debug_assert_eq!(a.len(), self.fft_size);
         debug_assert_eq!(b.len(), self.ring_size);
