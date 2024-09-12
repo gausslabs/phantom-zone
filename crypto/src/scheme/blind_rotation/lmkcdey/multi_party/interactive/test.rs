@@ -28,7 +28,10 @@ use phantom_zone_math::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
-    util::{dev::Stats, scratch::ScratchOwned},
+    util::{
+        dev::{Stats, StatsSampler},
+        scratch::ScratchOwned,
+    },
 };
 use rand::{rngs::StdRng, thread_rng, RngCore, SeedableRng};
 
@@ -253,52 +256,51 @@ fn run_noise_stats<R: RingOps>(param: LmkcdeyInteractiveParam, noise_std_dev: No
     let sk = &RlweSecretKey::from(sk.cloned());
 
     let noise_var_ks_key = param.total_shares as f64 * param.lwe_noise_distribution.variance();
-    let noise_ks_key = Stats::sample_once(|| {
-        lwe_ks
-            .ks_key_noise(&sk.clone().into(), sk_ks, &bs_key.ks_key().cloned())
-            .into_iter()
-            .flatten()
-    });
+    let noise_ks_key = lwe_ks
+        .ks_key_noise(&sk.clone().into(), sk_ks, &bs_key.ks_key().cloned())
+        .into_iter()
+        .flatten()
+        .collect::<Stats<_>>();
     assert_eq!(noise_ks_key.mean().round(), 0.0);
     assert!((noise_ks_key.log2_std_dev() - noise_var_ks_key.sqrt().log2()).abs() < 0.1);
 
     let noise_var_ak = param.total_shares as f64 * param.noise_distribution.variance();
-    let noise_ak = Stats::sample_once(|| {
-        bs_key
-            .aks()
-            .flat_map(|ak| rlwe.noise_auto_key(sk, &ak.cloned()))
-            .flatten()
-    });
+    let noise_ak = bs_key
+        .aks()
+        .flat_map(|ak| rlwe.noise_auto_key(sk, &ak.cloned()))
+        .flatten()
+        .collect::<Stats<_>>();
     assert_eq!(noise_ak.mean().round(), 0.0);
     assert!((noise_ak.log2_std_dev() - noise_var_ak.sqrt().log2()).abs() < 0.1);
 
-    let noise_brk = Stats::sample_once(|| {
-        izip_eq!(sk_ks.as_ref(), bs_key.brks())
-            .flat_map(|(sk_ks_i, brk_i)| {
-                let exp = param.embedding_factor() as i64 * *sk_ks_i as i64;
-                let mut pt = RlwePlaintext::allocate(ring.ring_size());
-                ring.poly_set_monomial(pt.as_mut(), exp);
-                rgsw.noise(sk, &pt, &brk_i.cloned())
-            })
-            .flatten()
-    });
+    let noise_brk = izip_eq!(sk_ks.as_ref(), bs_key.brks())
+        .flat_map(|(sk_ks_i, brk_i)| {
+            let exp = param.embedding_factor() as i64 * *sk_ks_i as i64;
+            let mut pt = RlwePlaintext::allocate(ring.ring_size());
+            ring.poly_set_monomial(pt.as_mut(), exp);
+            rgsw.noise(sk, &pt, &brk_i.cloned())
+        })
+        .flatten()
+        .collect::<Stats<_>>();
     assert!((noise_brk.log2_std_dev() - noise_std_dev.log2_brk).abs() < 0.1);
 
-    let mut rng = StdLweRng::from_entropy();
-    let noise_ct_ks = Stats::sample(|| {
-        let mut ct = LweCiphertext::allocate(param.ring_size);
-        mod_ks.sample_uniform_into(ct.a_mut(), &mut rng);
-        let pt = mod_ks.neg(&mod_ks.slice_dot_elem_from(ct.a(), sk.as_ref()));
-        let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
-        [lwe_ks.noise(sk_ks, &LwePlaintext(pt), &ct_ks)]
-    });
+    let noise_ct_ks = StatsSampler::default()
+        .sample_size(1000)
+        .without_timeout()
+        .sample(|rng| {
+            let mut ct = LweCiphertext::allocate(param.ring_size);
+            mod_ks.sample_uniform_into(ct.a_mut(), rng);
+            let pt = mod_ks.neg(&mod_ks.slice_dot_elem_from(ct.a(), sk.as_ref()));
+            let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
+            [lwe_ks.noise(sk_ks, &LwePlaintext(pt), &ct_ks)]
+        });
     assert!((noise_ct_ks.log2_std_dev() - noise_std_dev.log2_ct_ks).abs() < 0.1);
 
-    let noise_ct_auto = Stats::sample(|| {
+    let noise_ct_auto = StatsSampler::default().sample(|rng| {
         let mut scratch = ring.allocate_scratch(0, 2, 0);
         let mut pt = RlwePlaintext::allocate(param.ring_size);
         let mut ct = RlweCiphertext::allocate(param.ring_size);
-        ring.sample_uniform_into(ct.a_mut(), &mut rng);
+        ring.sample_uniform_into(ct.a_mut(), rng);
         ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.as_ref(), scratch.borrow_mut());
         ring.slice_neg_assign(pt.as_mut());
         bs_key.aks().flat_map(move |ak| {
@@ -310,11 +312,11 @@ fn run_noise_stats<R: RingOps>(param: LmkcdeyInteractiveParam, noise_std_dev: No
     });
     assert!((noise_ct_auto.log2_std_dev() - noise_std_dev.log2_ct_auto).abs() < 0.1);
 
-    let noise_ct_rlwe_by_rgsw = Stats::sample(|| {
+    let noise_ct_rlwe_by_rgsw = StatsSampler::default().sample(|rng| {
         let mut scratch = ring.allocate_scratch(0, 2, 0);
         let mut pt = RlwePlaintext::allocate(param.ring_size);
         let mut ct = RlweCiphertext::allocate(param.ring_size);
-        ring.sample_uniform_into(ct.a_mut(), &mut rng);
+        ring.sample_uniform_into(ct.a_mut(), rng);
         ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.as_ref(), scratch.borrow_mut());
         ring.slice_neg_assign(pt.as_mut());
         izip_eq!(sk_ks.as_ref(), bs_key.brks()).flat_map(move |(sk_ks_i, brk_i)| {

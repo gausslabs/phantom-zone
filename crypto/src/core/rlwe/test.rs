@@ -22,7 +22,7 @@ use phantom_zone_math::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
-    util::dev::Stats,
+    util::dev::StatsSampler,
 };
 use rand::{RngCore, SeedableRng};
 
@@ -486,13 +486,13 @@ fn noise_stats() {
         let rlwe = param.build::<R>();
         let sk = rlwe.sk_gen(&mut rng);
         let pk = rlwe.pk_gen(&sk, &mut rng);
-        let noise_ct_sk = Stats::sample(|| {
+        let noise_ct_sk = StatsSampler::default().sample(|_| {
             let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let pt = rlwe.encode(&m);
             let ct_sk = rlwe.sk_encrypt(&sk, &pt, &mut rng);
             rlwe.noise(&sk, &pt, &ct_sk)
         });
-        let noise_ct_pk = Stats::sample(|| {
+        let noise_ct_pk = StatsSampler::default().sample(|_| {
             let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let pt = rlwe.encode(&m);
             let ct_pk = rlwe.pk_encrypt(&pk, &pt, &mut rng);

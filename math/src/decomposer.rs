@@ -240,7 +240,7 @@ mod test {
             PrimeDecomposer,
         },
         modulus::{ModulusOps, Native, NonNativePowerOfTwo, Prime},
-        util::dev::Stats,
+        util::dev::StatsSampler,
     };
     use rand::thread_rng;
 
@@ -304,14 +304,13 @@ mod test {
     #[test]
     fn decompose_stats() {
         fn run<D: Decomposer<u64>>(modulus: impl ModulusOps<Elem = u64>) {
-            let mut rng = thread_rng();
             let param = DecompositionParam {
                 log_base: 10,
                 level: 5,
             };
             let decomposer = D::new(modulus.modulus(), param);
-            let stats = Stats::sample(|| {
-                let a = modulus.sample_uniform(&mut rng);
+            let stats = StatsSampler::default().sample_size(10000000).sample(|rng| {
+                let a = modulus.sample_uniform(rng);
                 decomposer.decompose_iter(a).map(|v| modulus.to_i64(v))
             });
             // Signed decomposition outputs limbs uniformly distributed in range [-B/2, B/2).
