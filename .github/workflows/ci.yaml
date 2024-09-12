@@ -50,6 +50,9 @@ jobs:
 
       - name: Run test
         run: cargo test --profile ci --workspace --all-features
+        env:
+          PZ_STATS_TARGET_SAMPLE_SIZE: 100000
+          PZ_STATS_TIMEOUT: 15
 
   lint:
     name: Lint

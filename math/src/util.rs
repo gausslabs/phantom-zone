@@ -46,13 +46,62 @@ macro_rules! izip_eq {
 pub mod dev {
     use core::iter::Sum;
     use num_traits::AsPrimitive;
+    use std::{env, time::Instant};
 
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     pub struct Stats<T> {
         samples: Vec<T>,
     }
 
+    impl<T> Default for Stats<T> {
+        fn default() -> Self {
+            Self {
+                samples: Vec::with_capacity(Self::target_sample_size()),
+            }
+        }
+    }
+
+    impl<T> Stats<T> {
+        fn target_sample_size() -> usize {
+            env::var("PZ_STATS_TARGET_SAMPLE_SIZE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1000000)
+        }
+
+        fn timeout() -> u64 {
+            env::var("PZ_STATS_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30)
+        }
+    }
+
     impl<T: AsPrimitive<f64> + for<'a> Sum<&'a T>> Stats<T> {
+        pub fn sample<I: IntoIterator<Item = T>>(mut f: impl FnMut() -> I) -> Self
+        where
+            T: Default,
+        {
+            let start = Instant::now();
+            let timeout = Self::timeout();
+            let mut stats = Self::default();
+            while start.elapsed().as_secs() < timeout
+                && stats.samples.len() < stats.samples.capacity()
+            {
+                stats.extend(f())
+            }
+            stats
+        }
+
+        pub fn sample_once<I: IntoIterator<Item = T>>(mut f: impl FnMut() -> I) -> Self
+        where
+            T: Default,
+        {
+            let mut stats = Self::default();
+            stats.extend(f());
+            stats
+        }
+
         pub fn mean(&self) -> f64 {
             T::sum(self.samples.iter()).as_() / self.samples.len() as f64
         }

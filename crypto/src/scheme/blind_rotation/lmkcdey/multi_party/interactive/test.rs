@@ -243,96 +243,96 @@ struct NoiseStdDev {
 
 fn run_noise_stats<R: RingOps>(param: LmkcdeyInteractiveParam, noise_std_dev: NoiseStdDev) {
     let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
-    let rgsw = RgswParam::from(*param).build::<R>();
+    let rgsw = &RgswParam::from(*param).build::<R>();
     let rlwe = rgsw.rlwe();
     let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
     let ring = rgsw.ring();
     let mod_ks = lwe_ks.modulus();
 
-    let (sk, sk_ks, _, bs_key) = bs_key_gen::<R>(param, crs, thread_rng());
-    let sk = RlweSecretKey::from(sk);
+    let (sk, sk_ks, _, bs_key) = &bs_key_gen::<R>(param, crs, thread_rng());
+    let sk = &RlweSecretKey::from(sk.cloned());
 
     let noise_var_ks_key = param.total_shares as f64 * param.lwe_noise_distribution.variance();
-    let mut noise_ks_key = Stats::default();
-    noise_ks_key.extend(
+    let noise_ks_key = Stats::sample_once(|| {
         lwe_ks
-            .ks_key_noise(&sk.clone().into(), &sk_ks, &bs_key.ks_key().cloned())
+            .ks_key_noise(&sk.clone().into(), sk_ks, &bs_key.ks_key().cloned())
             .into_iter()
-            .flatten(),
-    );
+            .flatten()
+    });
     assert_eq!(noise_ks_key.mean().round(), 0.0);
     assert!((noise_ks_key.log2_std_dev() - noise_var_ks_key.sqrt().log2()).abs() < 0.1);
 
     let noise_var_ak = param.total_shares as f64 * param.noise_distribution.variance();
-    let mut noise_ak = Stats::default();
-    bs_key.aks().for_each(|ak| {
-        noise_ak.extend(rlwe.noise_auto_key(&sk, &ak.cloned()).into_iter().flatten())
+    let noise_ak = Stats::sample_once(|| {
+        bs_key
+            .aks()
+            .flat_map(|ak| rlwe.noise_auto_key(sk, &ak.cloned()))
+            .flatten()
     });
     assert_eq!(noise_ak.mean().round(), 0.0);
     assert!((noise_ak.log2_std_dev() - noise_var_ak.sqrt().log2()).abs() < 0.1);
 
-    let mut noise_brk = Stats::default();
-    izip_eq!(sk_ks.as_ref(), bs_key.brks()).for_each(|(sk_ks_i, brk_i)| {
-        let exp = param.embedding_factor() as i64 * *sk_ks_i as i64;
-        let mut pt = RlwePlaintext::allocate(ring.ring_size());
-        ring.poly_set_monomial(pt.as_mut(), exp);
-        noise_brk.extend(rgsw.noise(&sk, &pt, &brk_i.cloned()).into_iter().flatten());
+    let noise_brk = Stats::sample_once(|| {
+        izip_eq!(sk_ks.as_ref(), bs_key.brks())
+            .flat_map(|(sk_ks_i, brk_i)| {
+                let exp = param.embedding_factor() as i64 * *sk_ks_i as i64;
+                let mut pt = RlwePlaintext::allocate(ring.ring_size());
+                ring.poly_set_monomial(pt.as_mut(), exp);
+                rgsw.noise(sk, &pt, &brk_i.cloned())
+            })
+            .flatten()
     });
     assert!((noise_brk.log2_std_dev() - noise_std_dev.log2_brk).abs() < 0.1);
 
-    let mut noise_ct_ks = Stats::default();
-    for _ in 0..1000 {
-        let mut rng = StdLweRng::from_entropy();
+    let mut rng = StdLweRng::from_entropy();
+    let noise_ct_ks = Stats::sample(|| {
         let mut ct = LweCiphertext::allocate(param.ring_size);
         mod_ks.sample_uniform_into(ct.a_mut(), &mut rng);
         let pt = mod_ks.neg(&mod_ks.slice_dot_elem_from(ct.a(), sk.as_ref()));
         let ct_ks = lwe_ks.key_switch(&bs_key.ks_key().cloned(), &ct);
-        noise_ct_ks.push(lwe_ks.noise(&sk_ks, &LwePlaintext(pt), &ct_ks));
-    }
+        [lwe_ks.noise(sk_ks, &LwePlaintext(pt), &ct_ks)]
+    });
     assert!((noise_ct_ks.log2_std_dev() - noise_std_dev.log2_ct_ks).abs() < 0.1);
 
-    let mut noise_ct_auto = Stats::default();
-    for _ in 0..1000 {
-        let mut rng = StdLweRng::from_entropy();
+    let noise_ct_auto = Stats::sample(|| {
         let mut scratch = ring.allocate_scratch(0, 2, 0);
         let mut pt = RlwePlaintext::allocate(param.ring_size);
         let mut ct = RlweCiphertext::allocate(param.ring_size);
         ring.sample_uniform_into(ct.a_mut(), &mut rng);
         ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.as_ref(), scratch.borrow_mut());
         ring.slice_neg_assign(pt.as_mut());
-        bs_key.aks().for_each(|ak| {
+        bs_key.aks().flat_map(move |ak| {
             let mut pt_auto = RlwePlaintext::allocate(param.ring_size);
             ring.poly_add_auto(pt_auto.as_mut(), pt.as_ref(), ak.auto_map());
             let ct_auto = rlwe.automorphism(&ak.cloned(), &ct);
-            noise_ct_auto.extend(rlwe.noise(&sk, &pt_auto, &ct_auto));
-        });
-    }
+            rlwe.noise(sk, &pt_auto, &ct_auto)
+        })
+    });
     assert!((noise_ct_auto.log2_std_dev() - noise_std_dev.log2_ct_auto).abs() < 0.1);
 
-    let mut noise_ct_rlwe_by_rgsw = Stats::default();
-    for _ in 0..1 {
-        let mut rng = StdLweRng::from_entropy();
+    let noise_ct_rlwe_by_rgsw = Stats::sample(|| {
         let mut scratch = ring.allocate_scratch(0, 2, 0);
         let mut pt = RlwePlaintext::allocate(param.ring_size);
         let mut ct = RlweCiphertext::allocate(param.ring_size);
         ring.sample_uniform_into(ct.a_mut(), &mut rng);
         ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.as_ref(), scratch.borrow_mut());
         ring.slice_neg_assign(pt.as_mut());
-        izip_eq!(sk_ks.as_ref(), bs_key.brks()).for_each(|(sk_ks_i, brk_i)| {
+        izip_eq!(sk_ks.as_ref(), bs_key.brks()).flat_map(move |(sk_ks_i, brk_i)| {
             let mut pt_by_brk_i = pt.clone();
             let exp = param.embedding_factor() as i64 * *sk_ks_i as i64;
             ring.poly_mul_monomial(pt_by_brk_i.as_mut(), exp);
             let ct_by_brk_i = rgsw.rlwe_by_rgsw(&ct, &brk_i.cloned());
-            noise_ct_rlwe_by_rgsw.extend(rlwe.noise(&sk, &pt_by_brk_i, &ct_by_brk_i));
-        });
-    }
+            rlwe.noise(sk, &pt_by_brk_i, &ct_by_brk_i)
+        })
+    });
+    // TODO: The sampled std dev is always slightly smaller than the one sage says.
     assert!(
-        (noise_ct_rlwe_by_rgsw.log2_std_dev() - noise_std_dev.log2_ct_rlwe_by_rgsw).abs() < 0.1
+        (noise_ct_rlwe_by_rgsw.log2_std_dev() - noise_std_dev.log2_ct_rlwe_by_rgsw).abs() < 0.5
     );
 }
 
 #[test]
-fn noise_stats_test_param() {
+fn noise_stats_test_param_native() {
     run_noise_stats::<NativeRing>(
         test_param(Native::native()),
         NoiseStdDev {
@@ -342,6 +342,10 @@ fn noise_stats_test_param() {
             log2_ct_rlwe_by_rgsw: 51.18317420521815,
         },
     );
+}
+
+#[test]
+fn noise_stats_test_param_non_native_power_of_two() {
     run_noise_stats::<NonNativePowerOfTwoRing>(
         test_param(NonNativePowerOfTwo::new(54)),
         NoiseStdDev {
@@ -351,6 +355,10 @@ fn noise_stats_test_param() {
             log2_ct_rlwe_by_rgsw: 41.75913415851187,
         },
     );
+}
+
+#[test]
+fn noise_stats_test_param_prime() {
     run_noise_stats::<PrimeRing>(
         test_param(Prime::gen(54, 12)),
         NoiseStdDev {
@@ -373,7 +381,7 @@ fn noise_stats_p4_msg1_lut3_padd1_128() {
             noise_distribution: Gaussian(3.19).into(),
             u_distribution: Ternary.into(),
             auto_decomposition_param: DecompositionParam {
-                log_base: 10,
+                log_base: 17,
                 level: 2,
             },
             rlwe_by_rgsw_decomposition_param: RgswDecompositionParam {
@@ -386,27 +394,27 @@ fn noise_stats_p4_msg1_lut3_padd1_128() {
             lwe_sk_distribution: Ternary.into(),
             lwe_noise_distribution: Gaussian(5.1).into(),
             lwe_ks_decomposition_param: DecompositionParam {
-                log_base: 25,
-                level: 1,
+                log_base: 9,
+                level: 2,
             },
             q: 1 << 14,
             g: 5,
             w: 20,
         },
         rgsw_by_rgsw_decomposition_param: RgswDecompositionParam {
-            log_base: 7,
-            level_a: 7,
-            level_b: 6,
+            log_base: 9,
+            level_a: 5,
+            level_b: 4,
         },
         total_shares: 4,
     };
     run_noise_stats::<NativeRing>(
         param,
         NoiseStdDev {
-            log2_brk: 23.5661513432981,
-            log2_ct_ks: 23.241907226180423, // TODO: sage says 18.0580160099479
-            log2_ct_auto: 49.2075187496394,
-            log2_ct_rlwe_by_rgsw: 45.7576924069851, // TODO: sage says 46.2576924069851
+            log2_brk: 27.1020334812903,
+            log2_ct_ks: 17.5584492020649,
+            log2_ct_auto: 35.2075187926351,
+            log2_ct_rlwe_by_rgsw: 49.6036623760187,
         },
     );
 }

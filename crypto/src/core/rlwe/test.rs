@@ -486,16 +486,18 @@ fn noise_stats() {
         let rlwe = param.build::<R>();
         let sk = rlwe.sk_gen(&mut rng);
         let pk = rlwe.pk_gen(&sk, &mut rng);
-        let mut noise_ct_sk = Stats::default();
-        let mut noise_ct_pk = Stats::default();
-        for _ in 0..100000 {
+        let noise_ct_sk = Stats::sample(|| {
             let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let pt = rlwe.encode(&m);
             let ct_sk = rlwe.sk_encrypt(&sk, &pt, &mut rng);
+            rlwe.noise(&sk, &pt, &ct_sk)
+        });
+        let noise_ct_pk = Stats::sample(|| {
+            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
+            let pt = rlwe.encode(&m);
             let ct_pk = rlwe.pk_encrypt(&pk, &pt, &mut rng);
-            noise_ct_sk.extend(rlwe.noise(&sk, &pt, &ct_sk));
-            noise_ct_pk.extend(rlwe.noise(&sk, &pt, &ct_pk));
-        }
+            rlwe.noise(&sk, &pt, &ct_pk)
+        });
 
         let ring_size = param.ring_size as f64;
         let var_noise = param.noise_distribution.variance();
