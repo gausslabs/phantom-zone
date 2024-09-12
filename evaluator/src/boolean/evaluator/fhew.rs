@@ -186,9 +186,9 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         let encoded_half = ring.elem_from(param.encoded_half());
         let tables = {
             let auto_map = AutomorphismMap::new(param.q / 2, param.q - param.g);
-            let lut_value = [encoded_half, ring.neg(&encoded_half)];
+            let lut_value = [ring.neg(&encoded_half), encoded_half];
             let log_q_by_8 = (param.q / 8).ilog2() as usize;
-            [[1, 1, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 1, 1]].map(|lut| {
+            [[0, 0, 0, 1], [1, 1, 1, 0], [0, 1, 1, 1], [1, 0, 0, 0]].map(|lut| {
                 let f = |(sign, idx)| lut_value[sign as usize ^ lut[idx >> log_q_by_8]];
                 RlwePlaintext::new(auto_map.iter().map(f).collect(), param.q / 2)
             })

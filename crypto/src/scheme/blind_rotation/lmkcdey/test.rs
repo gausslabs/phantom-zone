@@ -83,21 +83,21 @@ fn test_param(modulus: impl Into<Modulus>, embedding_factor: usize) -> LmkcdeyPa
     }
 }
 
-pub fn nand_nc_lut<R: RingOps>(
+pub fn nand_lut<R: RingOps>(
     ring: &R,
     q: usize,
     g: usize,
     encoded_half: R::Elem,
 ) -> RlwePlaintextOwned<R::Elem> {
     let auto_map = AutomorphismMap::new(q / 2, q - g);
-    let lut_value = [encoded_half, ring.neg(&encoded_half)];
+    let lut_value = [ring.neg(&encoded_half), encoded_half];
     let log_q_by_8 = (q / 8).ilog2() as usize;
-    let f = |(sign, idx)| lut_value[sign as usize ^ [0, 0, 0, 1][idx >> log_q_by_8]];
+    let f = |(sign, idx)| lut_value[sign as usize ^ [1, 1, 1, 0][idx >> log_q_by_8]];
     RlwePlaintext::new(auto_map.iter().map(f).collect(), q / 2)
 }
 
 #[test]
-fn bootstrap() {
+fn bootstrap_nand() {
     fn run<R: RingOps>(modulus: impl Into<Modulus>, embedding_factor: usize) {
         let mut rng = StdLweRng::from_entropy();
         let param = test_param(modulus, embedding_factor);
@@ -129,7 +129,7 @@ fn bootstrap() {
 
         let mut scratch = ScratchOwned::allocate(bs_key.param().scratch_bytes(ring, mod_ks));
         let encoded_half = ring.elem_from(param.encoded_half());
-        let nand_nc_lut = nand_nc_lut(ring, param.q, param.g, encoded_half);
+        let nand_lut = nand_lut(ring, param.q, param.g, encoded_half);
         for m in 0..1 << 2 {
             let [a, b] = from_fn(|i| (m >> i) & 1 == 1);
             let ct_a = lwe.sk_encrypt(&sk, lwe.encode(a as _), &mut rng);
@@ -140,7 +140,7 @@ fn bootstrap() {
                 mod_ks,
                 &mut ct,
                 &bs_key,
-                &nand_nc_lut,
+                &nand_lut,
                 scratch.borrow_mut(),
             );
             *ct.b_mut() = ring.add(ct.b(), &encoded_half);

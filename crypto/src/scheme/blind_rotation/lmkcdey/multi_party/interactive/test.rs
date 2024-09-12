@@ -3,8 +3,8 @@ use crate::{
         lwe::{test::LweParam, LweCiphertext, LwePlaintext, LweSecretKey, LweSecretKeyOwned},
         rgsw::{test::RgswParam, RgswDecompositionParam},
         rlwe::{
-            RlweCiphertext, RlwePlaintext, RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey,
-            SeededRlwePublicKey,
+            RlweCiphertext, RlwePlaintext, RlwePlaintextOwned, RlwePublicKey, RlwePublicKeyOwned,
+            RlweSecretKey, SeededRlwePublicKey,
         },
     },
     scheme::blind_rotation::lmkcdey::{
@@ -12,18 +12,22 @@ use crate::{
         interactive::{
             self, LmkcdeyInteractiveCrs, LmkcdeyInteractiveKeyShare, LmkcdeyInteractiveParam,
         },
-        test::nand_nc_lut,
+        test::nand_lut,
         LmkcdeyKeyOwned, LmkcdeyParam,
     },
-    util::rng::StdLweRng,
+    util::{
+        distribution::{NoiseDistribution, SecretDistribution},
+        rng::StdLweRng,
+    },
 };
 use core::{array::from_fn, iter::repeat_with};
-use itertools::{izip, Itertools};
+use itertools::{chain, izip, Itertools};
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::{DistributionVariance, Gaussian, Sampler, Ternary},
     izip_eq,
     modulus::{Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
+    poly::automorphism::AutomorphismMap,
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
@@ -33,7 +37,8 @@ use phantom_zone_math::{
         scratch::ScratchOwned,
     },
 };
-use rand::{rngs::StdRng, thread_rng, RngCore, SeedableRng};
+use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, RngCore, SeedableRng};
+use std::iter::repeat;
 
 fn test_param(modulus: impl Into<Modulus>) -> LmkcdeyInteractiveParam {
     let ring_size = 2048;
@@ -74,6 +79,43 @@ fn test_param(modulus: impl Into<Modulus>) -> LmkcdeyInteractiveParam {
         total_shares: 4,
     }
 }
+
+const P4_MSG1_LUT3_PADD1_128: LmkcdeyInteractiveParam = LmkcdeyInteractiveParam {
+    param: LmkcdeyParam {
+        message_bits: 4,
+        modulus: Modulus::PowerOfTwo(64),
+        ring_size: 1 << 13,
+        sk_distribution: SecretDistribution::Ternary(Ternary),
+        noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
+        u_distribution: SecretDistribution::Ternary(Ternary),
+        auto_decomposition_param: DecompositionParam {
+            log_base: 17,
+            level: 2,
+        },
+        rlwe_by_rgsw_decomposition_param: RgswDecompositionParam {
+            log_base: 17,
+            level_a: 2,
+            level_b: 1,
+        },
+        lwe_modulus: Modulus::PowerOfTwo(25),
+        lwe_dimension: 925,
+        lwe_sk_distribution: SecretDistribution::Ternary(Ternary),
+        lwe_noise_distribution: NoiseDistribution::Gaussian(Gaussian(5.1)),
+        lwe_ks_decomposition_param: DecompositionParam {
+            log_base: 9,
+            level: 2,
+        },
+        q: 1 << 14,
+        g: 5,
+        w: 20,
+    },
+    rgsw_by_rgsw_decomposition_param: RgswDecompositionParam {
+        log_base: 9,
+        level_a: 5,
+        level_b: 4,
+    },
+    total_shares: 4,
+};
 
 #[allow(clippy::type_complexity)]
 fn bs_key_gen<R: RingOps>(
@@ -172,7 +214,7 @@ fn bs_key_gen<R: RingOps>(
 }
 
 #[test]
-fn interactive() {
+fn bootstrap_nand() {
     fn run<R1: RingOps, R2: RingOps<Elem = R1::Elem>>(modulus: impl Into<Modulus>) {
         let param = test_param(modulus);
         let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
@@ -191,8 +233,8 @@ fn interactive() {
             bs_key_prep
         };
 
-        let encoded_half = ring.elem_from(ring.modulus().as_f64() / 8f64);
-        let nand_nc_lut = nand_nc_lut(ring, param.q, param.g, encoded_half);
+        let encoded_half = ring.elem_from(param.encoded_half());
+        let nand_lut = nand_lut(ring, param.q, param.g, encoded_half);
         let mut scratch = ScratchOwned::allocate(bs_key.param().scratch_bytes(ring, mod_ks));
         let mut rng = StdLweRng::from_entropy();
         for m in 0..1 << 2 {
@@ -207,7 +249,7 @@ fn interactive() {
                 mod_ks,
                 &mut ct,
                 &bs_key,
-                &nand_nc_lut,
+                &nand_lut,
                 scratch.borrow_mut(),
             );
             *ct.b_mut() = ring.add(ct.b(), &encoded_half);
@@ -218,6 +260,82 @@ fn interactive() {
     run::<NativeRing, NoisyNativeRing>(Native::native());
     run::<NonNativePowerOfTwoRing, NoisyNonNativePowerOfTwoRing>(NonNativePowerOfTwo::new(54));
     run::<PrimeRing, NoisyPrimeRing>(Prime::gen(54, 12));
+}
+
+fn general_lut<R: RingOps, const N: usize>(
+    ring: &R,
+    q: usize,
+    g: usize,
+    table: [u64; N],
+    encoded_one: R::Elem,
+) -> RlwePlaintextOwned<R::Elem> {
+    debug_assert_eq!(q % N, 0);
+    let auto_map = AutomorphismMap::new(q / 2, q - g);
+    let repetition = q / 2 / N;
+    let table = table.map(|v| [ring.zero(), encoded_one][v as usize]);
+    let lut = chain![
+        repeat(table[0]).take(repetition / 2),
+        table[1..].iter().flat_map(|v| repeat(*v).take(repetition)),
+        repeat(ring.neg(&table[0])).take(repetition / 2),
+    ]
+    .collect_vec();
+    RlwePlaintext::new(auto_map.apply(&lut, |v| ring.neg(v)).collect(), q / 2)
+}
+
+#[test]
+#[ignore = "taking an hour to test"]
+fn bootstrap_three_way() {
+    fn run<R1: RingOps, R2: RingOps<Elem = R1::Elem>>(param: LmkcdeyInteractiveParam) {
+        let crs = LmkcdeyInteractiveCrs::sample(thread_rng());
+        let rgsw = RgswParam::from(*param).build::<R2>();
+        let rlwe = rgsw.rlwe();
+        let lwe = RgswParam::from(*param).rlwe.to_lwe().build::<R2>();
+        let lwe_ks = LweParam::from(*param).build::<NonNativePowerOfTwoRing>();
+        let ring = rgsw.ring();
+        let mod_ks = lwe_ks.modulus();
+
+        let (sk, _, pk, bs_key) = bs_key_gen::<R1>(param, crs, thread_rng());
+        let bs_key = {
+            let mut scratch = ring.allocate_scratch(0, 3, 0);
+            let mut bs_key_prep = LmkcdeyKeyOwned::allocate_eval(*bs_key.param(), ring.eval_size());
+            lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
+            bs_key_prep
+        };
+
+        let table = {
+            let mut table = [1, 1, 1, 1, 0, 0, 0, 0];
+            table[1..7].shuffle(&mut thread_rng());
+            table
+        };
+        let encoded_one = ring.elem_from(param.encoded_one());
+        let general_lut = general_lut(ring, param.q, param.g, table, encoded_one);
+        let lc = |a: &[_], b: &[_]| izip_eq!(a, b).map(|(a, b)| *a * *b).sum::<u64>();
+        let mut scratch = ScratchOwned::allocate(bs_key.param().scratch_bytes(ring, mod_ks));
+        let mut rng = StdLweRng::from_entropy();
+        let [mut a, mut b, mut c] = [1, 1, 0];
+        let [mut ct_a, mut ct_b, mut ct_c] = [a, b, c].map(|m| {
+            let pt = rlwe.encode(&vec![m; ring.ring_size()]);
+            rlwe.sample_extract(&rlwe.pk_encrypt(&pk, &pt, &mut rng), 0)
+        });
+        for _ in 0..1000 {
+            [(a, ct_a), (b, ct_b), (c, ct_c)] = [[1, 2, 4], [2, 4, 1], [4, 1, 2]].map(|scalars| {
+                let m = lc(&[a, b, c], &scalars) as usize;
+                let mut ct = lwe.lc([&ct_a, &ct_b, &ct_c], scalars);
+                lmkcdey::bootstrap(
+                    ring,
+                    mod_ks,
+                    &mut ct,
+                    &bs_key,
+                    &general_lut,
+                    scratch.borrow_mut(),
+                );
+                assert_eq!(table[m], lwe.decode(lwe.decrypt(&sk, &ct)));
+                (table[m], ct)
+            });
+        }
+    }
+
+    run::<NativeRing, NativeRing>(P4_MSG1_LUT3_PADD1_128);
 }
 
 #[test]
@@ -374,44 +492,8 @@ fn noise_stats_test_param_prime() {
 
 #[test]
 fn noise_stats_p4_msg1_lut3_padd1_128() {
-    let param = LmkcdeyInteractiveParam {
-        param: LmkcdeyParam {
-            message_bits: 4,
-            modulus: Native::native().into(),
-            ring_size: 1 << 13,
-            sk_distribution: Ternary.into(),
-            noise_distribution: Gaussian(3.19).into(),
-            u_distribution: Ternary.into(),
-            auto_decomposition_param: DecompositionParam {
-                log_base: 17,
-                level: 2,
-            },
-            rlwe_by_rgsw_decomposition_param: RgswDecompositionParam {
-                log_base: 17,
-                level_a: 2,
-                level_b: 1,
-            },
-            lwe_modulus: NonNativePowerOfTwo::new(25).into(),
-            lwe_dimension: 925,
-            lwe_sk_distribution: Ternary.into(),
-            lwe_noise_distribution: Gaussian(5.1).into(),
-            lwe_ks_decomposition_param: DecompositionParam {
-                log_base: 9,
-                level: 2,
-            },
-            q: 1 << 14,
-            g: 5,
-            w: 20,
-        },
-        rgsw_by_rgsw_decomposition_param: RgswDecompositionParam {
-            log_base: 9,
-            level_a: 5,
-            level_b: 4,
-        },
-        total_shares: 4,
-    };
     run_noise_stats::<NativeRing>(
-        param,
+        P4_MSG1_LUT3_PADD1_128,
         NoiseStdDev {
             log2_brk: 27.1020334812903,
             log2_ct_ks: 17.5584492020649,

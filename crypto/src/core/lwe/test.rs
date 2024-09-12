@@ -12,7 +12,7 @@ use phantom_zone_math::{
     decomposer::{Decomposer, DecompositionParam},
     distribution::Gaussian,
     izip_eq,
-    modulus::{Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
+    modulus::{ElemFrom, Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
     ring::{NativeRing, NonNativePowerOfTwoRing, PrimeRing},
 };
 use rand::{RngCore, SeedableRng};
@@ -145,6 +145,22 @@ impl<M: ModulusOps> Lwe<M> {
         self.modulus()
             .slice_add_assign(ct_c.as_mut(), ct_b.as_ref());
         ct_c
+    }
+
+    pub fn lc<'a, T>(
+        &self,
+        cts: impl IntoIterator<Item = &'a LweCiphertextOwned<M::Elem>>,
+        scalars: impl IntoIterator<Item = T>,
+    ) -> LweCiphertextOwned<M::Elem>
+    where
+        M: ElemFrom<T>,
+    {
+        let modulus = self.modulus();
+        let mut ct_lc = LweCiphertext::allocate(self.dimension());
+        izip_eq!(cts, scalars).for_each(|(ct, scalar)| {
+            modulus.slice_scalar_fma(ct_lc.as_mut(), ct.as_ref(), &modulus.elem_from(scalar))
+        });
+        ct_lc
     }
 
     pub fn noise(
