@@ -9,11 +9,6 @@ use num_traits::ToPrimitive;
 use rand::distributions::{Distribution, Uniform};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(into = "SerdePrime", from = "SerdePrime")
-)]
 pub struct Prime {
     q: u64,
     q_half: u64,
@@ -365,24 +360,4 @@ impl Shoup {
 #[cfg(any(test, feature = "dev"))]
 pub(crate) fn is_prime(q: u64) -> bool {
     num_bigint_dig::prime::probably_prime(&(q).into(), 20)
-}
-
-#[cfg(feature = "serde")]
-#[derive(serde::Serialize, serde::Deserialize)]
-struct SerdePrime {
-    q: u64,
-}
-
-#[cfg(feature = "serde")]
-impl From<SerdePrime> for Prime {
-    fn from(value: SerdePrime) -> Self {
-        Self::new(value.q)
-    }
-}
-
-#[cfg(feature = "serde")]
-impl From<Prime> for SerdePrime {
-    fn from(value: Prime) -> Self {
-        Self { q: value.q }
-    }
 }
