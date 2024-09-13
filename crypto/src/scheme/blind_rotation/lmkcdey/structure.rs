@@ -176,6 +176,8 @@ pub struct LmkcdeyKey<S1, S2, A> {
     param: LmkcdeyParam,
     ks_key: LweKeySwitchKey<S2>,
     brks: Vec<RgswCiphertext<S1>>,
+    /// `ak_{-g}` is stored in `ak[0]` because we don't need `ak_{g^0}`, while
+    /// `ak_{g^i}` is stored in `ak[i]` for `i` in `[1, w]`.
     aks: Vec<RlweAutoKey<S1, A>>,
     log_g_map: LogGMap,
 }
