@@ -23,13 +23,13 @@ use rand::{RngCore, SeedableRng};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct LmkcdeyInteractiveParam {
+pub struct LmkcdeyMpiParam {
     pub param: LmkcdeyParam,
     pub rgsw_by_rgsw_decomposition_param: RgswDecompositionParam,
     pub total_shares: usize,
 }
 
-impl Deref for LmkcdeyInteractiveParam {
+impl Deref for LmkcdeyMpiParam {
     type Target = LmkcdeyParam;
 
     fn deref(&self) -> &Self::Target {
@@ -45,13 +45,13 @@ impl Deref for LmkcdeyInteractiveParam {
         deserialize = "S::Seed: serde::Deserialize<'de>"
     ))
 )]
-pub struct LmkcdeyInteractiveCrs<S: SeedableRng> {
+pub struct LmkcdeyMpiCrs<S: SeedableRng> {
     seed: S::Seed,
     #[cfg_attr(feature = "serde", serde(skip))]
     _marker: PhantomData<S>,
 }
 
-impl<S: SeedableRng> LmkcdeyInteractiveCrs<S> {
+impl<S: SeedableRng> LmkcdeyMpiCrs<S> {
     pub fn new(seed: S::Seed) -> Self {
         Self {
             seed,
@@ -66,7 +66,7 @@ impl<S: SeedableRng> LmkcdeyInteractiveCrs<S> {
     }
 }
 
-impl<S: RngCore + SeedableRng<Seed: Clone>> LmkcdeyInteractiveCrs<S> {
+impl<S: RngCore + SeedableRng<Seed: Clone>> LmkcdeyMpiCrs<S> {
     pub fn pk_rng<R: RngCore + SeedableRng>(&self, rng: &mut R) -> LweRng<R, S> {
         let private = R::from_rng(rng).unwrap();
         let seedable = self.hierarchical_rng(&[0]);
@@ -120,7 +120,7 @@ impl<S: RngCore + SeedableRng<Seed: Clone>> LmkcdeyInteractiveCrs<S> {
     }
 }
 
-impl<S: SeedableRng<Seed: Clone>> Clone for LmkcdeyInteractiveCrs<S> {
+impl<S: SeedableRng<Seed: Clone>> Clone for LmkcdeyMpiCrs<S> {
     fn clone(&self) -> Self {
         Self {
             seed: self.seed.clone(),
@@ -129,25 +129,24 @@ impl<S: SeedableRng<Seed: Clone>> Clone for LmkcdeyInteractiveCrs<S> {
     }
 }
 
-impl<S: SeedableRng<Seed: Copy>> Copy for LmkcdeyInteractiveCrs<S> {}
+impl<S: SeedableRng<Seed: Copy>> Copy for LmkcdeyMpiCrs<S> {}
 
-impl<S: SeedableRng<Seed: Debug>> Debug for LmkcdeyInteractiveCrs<S> {
+impl<S: SeedableRng<Seed: Debug>> Debug for LmkcdeyMpiCrs<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LmkcdeyInteractiveCrs")
+        f.debug_struct("LmkcdeyMpiCrs")
             .field("seed", &self.seed)
             .finish()
     }
 }
 
-impl<S: SeedableRng<Seed: PartialEq>> PartialEq for LmkcdeyInteractiveCrs<S> {
+impl<S: SeedableRng<Seed: PartialEq>> PartialEq for LmkcdeyMpiCrs<S> {
     fn eq(&self, other: &Self) -> bool {
         self.seed.eq(&other.seed)
     }
 }
 
-pub type LmkcdeyInteractiveKeyShareOwned<T1, T2, S> =
-    LmkcdeyInteractiveKeyShare<Vec<T1>, Vec<T2>, S>;
-pub type LmkcdeyInteractiveKeyShareCompact<S> = LmkcdeyInteractiveKeyShare<Compact, Compact, S>;
+pub type LmkcdeyMpiKeyShareOwned<T1, T2, S> = LmkcdeyMpiKeyShare<Vec<T1>, Vec<T2>, S>;
+pub type LmkcdeyMpiKeyShareCompact<S> = LmkcdeyMpiKeyShare<Compact, Compact, S>;
 
 #[cfg_attr(
     feature = "serde",
@@ -157,19 +156,19 @@ pub type LmkcdeyInteractiveKeyShareCompact<S> = LmkcdeyInteractiveKeyShare<Compa
         deserialize = "S1: serde::Deserialize<'de>, S2: serde::Deserialize<'de>, S::Seed: serde::Deserialize<'de>"
     ))
 )]
-pub struct LmkcdeyInteractiveKeyShare<S1, S2, S: SeedableRng> {
-    param: LmkcdeyInteractiveParam,
-    crs: LmkcdeyInteractiveCrs<S>,
+pub struct LmkcdeyMpiKeyShare<S1, S2, S: SeedableRng> {
+    param: LmkcdeyMpiParam,
+    crs: LmkcdeyMpiCrs<S>,
     share_idx: usize,
     ks_key: SeededLweKeySwitchKey<S2>,
     brks: Vec<RgswCiphertext<S1>>,
     aks: Vec<SeededRlweAutoKey<S1>>,
 }
 
-impl<S1, S2, S: SeedableRng> LmkcdeyInteractiveKeyShare<S1, S2, S> {
+impl<S1, S2, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, S> {
     fn new(
-        param: LmkcdeyInteractiveParam,
-        crs: LmkcdeyInteractiveCrs<S>,
+        param: LmkcdeyMpiParam,
+        crs: LmkcdeyMpiCrs<S>,
         share_idx: usize,
         ks_key: SeededLweKeySwitchKey<S2>,
         brks: Vec<RgswCiphertext<S1>>,
@@ -187,11 +186,11 @@ impl<S1, S2, S: SeedableRng> LmkcdeyInteractiveKeyShare<S1, S2, S> {
         }
     }
 
-    pub fn param(&self) -> &LmkcdeyInteractiveParam {
+    pub fn param(&self) -> &LmkcdeyMpiParam {
         &self.param
     }
 
-    pub fn crs(&self) -> &LmkcdeyInteractiveCrs<S> {
+    pub fn crs(&self) -> &LmkcdeyMpiCrs<S> {
         &self.crs
     }
 
@@ -200,7 +199,7 @@ impl<S1, S2, S: SeedableRng> LmkcdeyInteractiveKeyShare<S1, S2, S> {
     }
 }
 
-impl<S1: AsSlice, S2: AsSlice, S: SeedableRng> LmkcdeyInteractiveKeyShare<S1, S2, S> {
+impl<S1: AsSlice, S2: AsSlice, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, S> {
     pub fn ks_key(&self) -> SeededLweKeySwitchKeyView<S2::Elem> {
         self.ks_key.as_view()
     }
@@ -217,11 +216,11 @@ impl<S1: AsSlice, S2: AsSlice, S: SeedableRng> LmkcdeyInteractiveKeyShare<S1, S2
         &self,
         ring: &impl ModulusOps<Elem = S1::Elem>,
         mod_ks: &impl ModulusOps<Elem = S2::Elem>,
-    ) -> LmkcdeyInteractiveKeyShareCompact<S>
+    ) -> LmkcdeyMpiKeyShareCompact<S>
     where
         S::Seed: Clone,
     {
-        LmkcdeyInteractiveKeyShare::new(
+        LmkcdeyMpiKeyShare::new(
             self.param,
             self.crs.clone(),
             self.share_idx,
@@ -232,7 +231,7 @@ impl<S1: AsSlice, S2: AsSlice, S: SeedableRng> LmkcdeyInteractiveKeyShare<S1, S2
     }
 }
 
-impl<S1: AsMutSlice, S2: AsMutSlice, S: SeedableRng> LmkcdeyInteractiveKeyShare<S1, S2, S> {
+impl<S1: AsMutSlice, S2: AsMutSlice, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, S> {
     pub(crate) fn ks_key_mut(&mut self) -> SeededLweKeySwitchKeyMutView<S2::Elem> {
         self.ks_key.as_mut_view()
     }
@@ -246,12 +245,8 @@ impl<S1: AsMutSlice, S2: AsMutSlice, S: SeedableRng> LmkcdeyInteractiveKeyShare<
     }
 }
 
-impl<T1: Default, T2: Default, S: SeedableRng> LmkcdeyInteractiveKeyShareOwned<T1, T2, S> {
-    pub fn allocate(
-        param: LmkcdeyInteractiveParam,
-        crs: LmkcdeyInteractiveCrs<S>,
-        share_idx: usize,
-    ) -> Self {
+impl<T1: Default, T2: Default, S: SeedableRng> LmkcdeyMpiKeyShareOwned<T1, T2, S> {
+    pub fn allocate(param: LmkcdeyMpiParam, crs: LmkcdeyMpiCrs<S>, share_idx: usize) -> Self {
         let ks_key = SeededLweKeySwitchKey::allocate(
             param.ring_size,
             param.lwe_dimension,
@@ -281,18 +276,18 @@ impl<T1: Default, T2: Default, S: SeedableRng> LmkcdeyInteractiveKeyShareOwned<T
     }
 }
 
-impl<S: SeedableRng> LmkcdeyInteractiveKeyShareCompact<S> {
+impl<S: SeedableRng> LmkcdeyMpiKeyShareCompact<S> {
     pub fn uncompact<M1, M2>(
         &self,
         ring: &M1,
         mod_ks: &M2,
-    ) -> LmkcdeyInteractiveKeyShareOwned<M1::Elem, M2::Elem, S>
+    ) -> LmkcdeyMpiKeyShareOwned<M1::Elem, M2::Elem, S>
     where
         M1: ModulusOps,
         M2: ModulusOps,
         S::Seed: Clone,
     {
-        LmkcdeyInteractiveKeyShare::new(
+        LmkcdeyMpiKeyShare::new(
             self.param,
             self.crs.clone(),
             self.share_idx,
@@ -303,11 +298,9 @@ impl<S: SeedableRng> LmkcdeyInteractiveKeyShareCompact<S> {
     }
 }
 
-impl<T1: Clone, T2: Clone, S: SeedableRng<Seed: Clone>> Clone
-    for LmkcdeyInteractiveKeyShare<T1, T2, S>
-{
+impl<T1: Clone, T2: Clone, S: SeedableRng<Seed: Clone>> Clone for LmkcdeyMpiKeyShare<T1, T2, S> {
     fn clone(&self) -> Self {
-        LmkcdeyInteractiveKeyShare::new(
+        LmkcdeyMpiKeyShare::new(
             self.param,
             self.crs.clone(),
             self.share_idx,
@@ -318,11 +311,9 @@ impl<T1: Clone, T2: Clone, S: SeedableRng<Seed: Clone>> Clone
     }
 }
 
-impl<T1: Debug, T2: Debug, S: SeedableRng<Seed: Debug>> Debug
-    for LmkcdeyInteractiveKeyShare<T1, T2, S>
-{
+impl<T1: Debug, T2: Debug, S: SeedableRng<Seed: Debug>> Debug for LmkcdeyMpiKeyShare<T1, T2, S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LmkcdeyInteractiveKeyShare")
+        f.debug_struct("LmkcdeyMpiKeyShare")
             .field("param", &self.param)
             .field("crs", &self.crs)
             .field("share_idx", &self.share_idx)
@@ -334,7 +325,7 @@ impl<T1: Debug, T2: Debug, S: SeedableRng<Seed: Debug>> Debug
 }
 
 impl<T1: PartialEq, T2: PartialEq, S: SeedableRng<Seed: PartialEq>> PartialEq
-    for LmkcdeyInteractiveKeyShare<T1, T2, S>
+    for LmkcdeyMpiKeyShare<T1, T2, S>
 {
     fn eq(&self, other: &Self) -> bool {
         (

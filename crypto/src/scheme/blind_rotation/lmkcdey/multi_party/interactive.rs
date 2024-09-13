@@ -6,6 +6,6 @@ mod test;
 
 pub use method::{aggregate_bs_key_shares, aggregate_pk_shares, bs_key_share_gen, pk_share_gen};
 pub use structure::{
-    LmkcdeyInteractiveCrs, LmkcdeyInteractiveKeyShare, LmkcdeyInteractiveKeyShareCompact,
-    LmkcdeyInteractiveKeyShareOwned, LmkcdeyInteractiveParam,
+    LmkcdeyMpiCrs, LmkcdeyMpiKeyShare, LmkcdeyMpiKeyShareCompact, LmkcdeyMpiKeyShareOwned,
+    LmkcdeyMpiParam,
 };

@@ -8,9 +8,7 @@ use crate::{
         },
     },
     scheme::blind_rotation::lmkcdey::{
-        interactive::structure::{
-            LmkcdeyInteractiveCrs, LmkcdeyInteractiveKeyShareOwned, LmkcdeyInteractiveParam,
-        },
+        interactive::structure::{LmkcdeyMpiCrs, LmkcdeyMpiKeyShareOwned, LmkcdeyMpiParam},
         structure::LmkcdeyKeyOwned,
     },
 };
@@ -31,8 +29,8 @@ use rand::{RngCore, SeedableRng};
 pub fn pk_share_gen<'a, 'b, R, S, T>(
     ring: &R,
     pk: impl Into<SeededRlwePublicKeyMutView<'a, R::Elem>>,
-    param: &LmkcdeyInteractiveParam,
-    crs: &LmkcdeyInteractiveCrs<S>,
+    param: &LmkcdeyMpiParam,
+    crs: &LmkcdeyMpiCrs<S>,
     sk: impl Into<RlweSecretKeyView<'b, T>>,
     scratch: Scratch,
     rng: &mut (impl RngCore + SeedableRng),
@@ -48,7 +46,7 @@ pub fn pk_share_gen<'a, 'b, R, S, T>(
 pub fn bs_key_share_gen<'a, 'b, 'c, R, M, S, T>(
     ring: &R,
     mod_ks: &M,
-    bs_key_share: &mut LmkcdeyInteractiveKeyShareOwned<R::Elem, M::Elem, S>,
+    bs_key_share: &mut LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem, S>,
     sk: impl Into<RlweSecretKeyView<'a, T>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
     sk_ks: impl Into<LweSecretKeyView<'c, T>>,
@@ -111,8 +109,8 @@ pub fn aggregate_bs_key_shares<R, M, S>(
     ring: &R,
     mod_ks: &M,
     bs_key: &mut LmkcdeyKeyOwned<R::Elem, M::Elem>,
-    crs: &LmkcdeyInteractiveCrs<S>,
-    bs_key_shares: &[LmkcdeyInteractiveKeyShareOwned<R::Elem, M::Elem, S>],
+    crs: &LmkcdeyMpiCrs<S>,
+    bs_key_shares: &[LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem, S>],
     mut scratch: Scratch,
 ) where
     R: RingOps,
@@ -182,7 +180,7 @@ pub fn aggregate_bs_key_shares<R, M, S>(
 pub fn aggregate_pk_shares<'a, R, S>(
     ring: &R,
     pk: impl Into<RlwePublicKeyMutView<'a, R::Elem>>,
-    crs: &LmkcdeyInteractiveCrs<S>,
+    crs: &LmkcdeyMpiCrs<S>,
     pk_shares: &[SeededRlwePublicKeyOwned<R::Elem>],
 ) where
     R: RingOps,
