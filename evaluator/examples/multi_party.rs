@@ -1,38 +1,11 @@
 use core::{array::from_fn, num::Wrapping};
 use itertools::Itertools;
 use num_traits::NumOps;
-use phantom_zone_crypto::{
-    core::{
-        lwe::{LweDecryptionShare, LweSecretKey, LweSecretKeyOwned},
-        rgsw::RgswDecompositionParam,
-        rlwe::{RlwePublicKey, RlwePublicKeyOwned, SeededRlwePublicKey, SeededRlwePublicKeyOwned},
-    },
-    scheme::blind_rotation::lmkcdey::{
-        interactive::{
-            aggregate_bs_key_shares, aggregate_pk_shares, bs_key_share_gen, pk_share_gen,
-            LmkcdeyMpiCrs, LmkcdeyMpiKeyShare, LmkcdeyMpiKeyShareOwned, LmkcdeyMpiParam,
-        },
-        prepare_bs_key, LmkcdeyKey, LmkcdeyParam,
-    },
-    util::{
-        distribution::{NoiseDistribution, SecretDistribution},
-        rng::{LweRng, StdLweRng},
-    },
-};
-use phantom_zone_evaluator::boolean::{
-    evaluator::fhew::{FhewBoolCiphertext, FhewBoolEvaluator},
-    integer::FheU8,
-};
-use phantom_zone_math::{
-    decomposer::DecompositionParam,
-    distribution::{Gaussian, Ternary},
-    modulus::{Modulus, ModulusOps, NonNativePowerOfTwo},
-    ring::{NativeRing, NoisyNativeRing, RingOps},
-};
+use phantom_zone_evaluator::boolean::evaluator::fhew::prelude::*;
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
-const PARAM: LmkcdeyMpiParam = LmkcdeyMpiParam {
-    param: LmkcdeyParam {
+const PARAM: FhewBoolMpiParam = FhewBoolMpiParam {
+    param: FhewBoolParam {
         message_bits: 2,
         modulus: Modulus::PowerOfTwo(64),
         ring_size: 2048,
@@ -69,8 +42,8 @@ const PARAM: LmkcdeyMpiParam = LmkcdeyMpiParam {
 };
 
 struct Client<R, M> {
-    param: LmkcdeyMpiParam,
-    crs: LmkcdeyMpiCrs<StdRng>,
+    param: FhewBoolMpiParam,
+    crs: FhewBoolMpiCrs<StdRng>,
     share_idx: usize,
     ring: R,
     mod_ks: M,
@@ -78,7 +51,7 @@ struct Client<R, M> {
 }
 
 impl<R: RingOps, M: ModulusOps> Client<R, M> {
-    fn new(param: LmkcdeyMpiParam, crs: LmkcdeyMpiCrs<StdRng>, share_idx: usize) -> Self {
+    fn new(param: FhewBoolMpiParam, crs: FhewBoolMpiCrs<StdRng>, share_idx: usize) -> Self {
         Self {
             param,
             crs,
@@ -111,14 +84,14 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
     fn bs_key_share_gen(
         &self,
         pk: &RlwePublicKeyOwned<R::Elem>,
-    ) -> LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem, StdRng> {
+    ) -> FhewBoolMpiKeyShareOwned<R::Elem, M::Elem, StdRng> {
         let sk_ks = LweSecretKey::sample(
             self.param.lwe_dimension,
             self.param.lwe_sk_distribution,
             StdRng::from_entropy(),
         );
         let mut scratch = self.ring.allocate_scratch(2, 3, 0);
-        let mut bs_key_share = LmkcdeyMpiKeyShare::allocate(self.param, self.crs, self.share_idx);
+        let mut bs_key_share = FhewBoolMpiKeyShare::allocate(self.param, self.crs, self.share_idx);
         bs_key_share_gen(
             &self.ring,
             &self.mod_ks,
@@ -148,19 +121,19 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
 }
 
 struct Server<R: RingOps, M: ModulusOps> {
-    param: LmkcdeyMpiParam,
-    crs: LmkcdeyMpiCrs<StdRng>,
+    param: FhewBoolMpiParam,
+    crs: FhewBoolMpiCrs<StdRng>,
     pk: RlwePublicKeyOwned<R::Elem>,
     evaluator: FhewBoolEvaluator<R, M>,
 }
 
 impl<R: RingOps, M: ModulusOps> Server<R, M> {
-    fn new(param: LmkcdeyMpiParam) -> Self {
+    fn new(param: FhewBoolMpiParam) -> Self {
         Self {
             param,
-            crs: LmkcdeyMpiCrs::sample(StdRng::from_entropy()),
+            crs: FhewBoolMpiCrs::sample(StdRng::from_entropy()),
             pk: RlwePublicKey::allocate(param.ring_size),
-            evaluator: FhewBoolEvaluator::new(LmkcdeyKey::allocate(*param)),
+            evaluator: FhewBoolEvaluator::new(FhewBoolKey::allocate(*param)),
         }
     }
 
@@ -170,7 +143,7 @@ impl<R: RingOps, M: ModulusOps> Server<R, M> {
 
     fn aggregate_bs_key_shares<R2: RingOps<Elem = R::Elem>>(
         &mut self,
-        bs_key_shares: &[LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem, StdRng>],
+        bs_key_shares: &[FhewBoolMpiKeyShareOwned<R::Elem, M::Elem, StdRng>],
     ) {
         let bs_key = {
             let ring = <R2 as RingOps>::new(self.param.modulus, self.param.ring_size);
@@ -180,7 +153,7 @@ impl<R: RingOps, M: ModulusOps> Server<R, M> {
                 2 * (self.param.rgsw_by_rgsw_decomposition_param.level_a
                     + self.param.rgsw_by_rgsw_decomposition_param.level_b),
             );
-            let mut bs_key = LmkcdeyKey::allocate(*self.param);
+            let mut bs_key = FhewBoolKey::allocate(*self.param);
             aggregate_bs_key_shares(
                 &ring,
                 self.evaluator.mod_ks(),
@@ -194,7 +167,7 @@ impl<R: RingOps, M: ModulusOps> Server<R, M> {
         let bs_key_prep = {
             let mut scratch = self.evaluator.ring().allocate_scratch(0, 3, 0);
             let mut bs_key_prep =
-                LmkcdeyKey::allocate_eval(*self.param, self.evaluator.ring().eval_size());
+                FhewBoolKey::allocate_eval(*self.param, self.evaluator.ring().eval_size());
             prepare_bs_key(
                 self.evaluator.ring(),
                 &mut bs_key_prep,
