@@ -8,7 +8,7 @@ use phantom_zone_crypto::scheme::blind_rotation::lmkcdey::{
 
 pub use crate::boolean::{
     evaluator::{
-        fhew::{FhewBoolCiphertext, FhewBoolEvaluator},
+        fhew::{FhewBoolCiphertext, FhewBoolCiphertextOwned, FhewBoolEvaluator},
         BoolEvaluator,
     },
     integer::{FheU16, FheU32, FheU64, FheU8, FheUint},
@@ -28,7 +28,7 @@ pub use phantom_zone_crypto::{
     },
     util::{
         distribution::{NoiseDistribution, SecretDistribution},
-        rng::{LweRng, StdLweRng},
+        rng::{HierarchicalSeedableRng, LweRng, StdLweRng},
     },
 };
 pub use phantom_zone_math::prelude::*;

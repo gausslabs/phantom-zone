@@ -16,5 +16,6 @@ pub mod prelude {
             NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
             NonNativePowerOfTwoRing, PrimeRing, RingOps,
         },
+        util::compact::Compact,
     };
 }

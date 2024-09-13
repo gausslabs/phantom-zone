@@ -5,11 +5,12 @@ use crate::boolean::fhew::prelude::*;
 use itertools::{izip, Itertools};
 use phantom_zone_crypto::{
     core::{
-        lwe::{self, LweCiphertext, LweCiphertextOwned, LwePlaintext, LweSecretKeyView},
+        lwe::{self, LweCiphertext, LwePlaintext, LweSecretKeyView},
         rlwe::{self, RlweCiphertext, RlwePlaintext, RlwePlaintextOwned, RlwePublicKeyView},
     },
     scheme::blind_rotation::lmkcdey,
 };
+use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
     izip_eq, poly::automorphism::AutomorphismMap, util::scratch::ScratchOwned,
 };
@@ -18,15 +19,17 @@ use rand::RngCore;
 pub mod param;
 pub mod prelude;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, AsSliceWrapper)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct FhewBoolCiphertext<E>(LweCiphertextOwned<E>);
+pub struct FhewBoolCiphertext<S>(#[as_slice(nested)] LweCiphertext<S>);
 
-impl<E> FhewBoolCiphertext<E> {
-    pub fn new(ct: LweCiphertextOwned<E>) -> Self {
+impl<S> FhewBoolCiphertext<S> {
+    pub fn new(ct: LweCiphertext<S>) -> Self {
         Self(ct)
     }
+}
 
+impl<E> FhewBoolCiphertextOwned<E> {
     pub fn allocate(ring_size: usize) -> Self
     where
         E: Default,
@@ -203,11 +206,15 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         &self.mod_ks
     }
 
+    pub fn bs_key(&self) -> &FhewBoolKey<R::EvalPrep, M::Elem> {
+        &self.bs_key
+    }
+
     fn binary_op_assign<const XOR: bool>(
         &self,
         table_idx: usize,
-        a: &mut FhewBoolCiphertext<R::Elem>,
-        b: &FhewBoolCiphertext<R::Elem>,
+        a: &mut FhewBoolCiphertextOwned<R::Elem>,
+        b: &FhewBoolCiphertextOwned<R::Elem>,
     ) {
         let (mut a, b) = (a.0.as_mut_view(), b.0.as_view());
         if XOR {
@@ -229,7 +236,7 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
 }
 
 impl<R: RingOps, M: ModulusOps> BoolEvaluator for FhewBoolEvaluator<R, M> {
-    type Ciphertext = FhewBoolCiphertext<R::Elem>;
+    type Ciphertext = FhewBoolCiphertextOwned<R::Elem>;
 
     fn bitnot_assign(&self, a: &mut Self::Ciphertext) {
         self.ring.slice_neg_assign(a.0.as_mut());
@@ -276,6 +283,20 @@ fn binary_lut<R: RingOps>(
             .collect()
     };
     RlwePlaintext::new(lut, param.q / 2)
+}
+
+#[cfg(feature = "serde")]
+impl<R: RingOps, M: ModulusOps> serde::Serialize for FhewBoolEvaluator<R, M> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.bs_key().serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, R: RingOps, M: ModulusOps> serde::Deserialize<'de> for FhewBoolEvaluator<R, M> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        FhewBoolKey::deserialize(deserializer).map(Self::new)
+    }
 }
 
 #[cfg(any(test, feature = "dev"))]
@@ -359,7 +380,7 @@ mod test {
         ring: &R,
         sk: &LweSecretKeyOwned<i32>,
         m: bool,
-    ) -> FhewBoolCiphertext<R::Elem> {
+    ) -> FhewBoolCiphertextOwned<R::Elem> {
         let mut rng = StdLweRng::from_entropy();
         FhewBoolCiphertext::sk_encrypt(param, ring, sk, m, &mut rng)
     }

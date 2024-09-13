@@ -5,7 +5,7 @@ use crate::{
         rlwe::{SeededRlweAutoKey, SeededRlweAutoKeyMutView, SeededRlweAutoKeyView},
     },
     scheme::blind_rotation::lmkcdey::LmkcdeyParam,
-    util::rng::LweRng,
+    util::rng::{HierarchicalSeedableRng, LweRng},
 };
 use core::{
     fmt::{self, Debug, Formatter},
@@ -45,13 +45,13 @@ impl Deref for LmkcdeyMpiParam {
         deserialize = "S::Seed: serde::Deserialize<'de>"
     ))
 )]
-pub struct LmkcdeyMpiCrs<S: SeedableRng> {
+pub struct LmkcdeyMpiCrs<S: HierarchicalSeedableRng> {
     seed: S::Seed,
     #[cfg_attr(feature = "serde", serde(skip))]
     _marker: PhantomData<S>,
 }
 
-impl<S: SeedableRng> LmkcdeyMpiCrs<S> {
+impl<S: HierarchicalSeedableRng> LmkcdeyMpiCrs<S> {
     pub fn new(seed: S::Seed) -> Self {
         Self {
             seed,
@@ -66,7 +66,7 @@ impl<S: SeedableRng> LmkcdeyMpiCrs<S> {
     }
 }
 
-impl<S: RngCore + SeedableRng<Seed: Clone>> LmkcdeyMpiCrs<S> {
+impl<S: HierarchicalSeedableRng> LmkcdeyMpiCrs<S> {
     pub fn pk_rng<R: RngCore + SeedableRng>(&self, rng: &mut R) -> LweRng<R, S> {
         let private = R::from_rng(rng).unwrap();
         let seedable = self.hierarchical_rng(&[0]);
@@ -105,33 +105,19 @@ impl<S: RngCore + SeedableRng<Seed: Clone>> LmkcdeyMpiCrs<S> {
     }
 
     fn hierarchical_rng(&self, path: &[usize]) -> S {
-        S::from_seed(self.hierarchical_seed(path))
-    }
-
-    fn hierarchical_seed(&self, path: &[usize]) -> S::Seed {
-        let mut seed = self.seed.clone();
-        for idx in path {
-            let mut rng = S::from_seed(seed.clone());
-            for _ in 0..idx + 1 {
-                rng.fill_bytes(seed.as_mut());
-            }
-        }
-        seed
+        S::from_hierarchical_seed(self.seed, path)
     }
 }
 
-impl<S: SeedableRng<Seed: Clone>> Clone for LmkcdeyMpiCrs<S> {
+impl<S: HierarchicalSeedableRng> Clone for LmkcdeyMpiCrs<S> {
     fn clone(&self) -> Self {
-        Self {
-            seed: self.seed.clone(),
-            _marker: PhantomData,
-        }
+        *self
     }
 }
 
-impl<S: SeedableRng<Seed: Copy>> Copy for LmkcdeyMpiCrs<S> {}
+impl<S: HierarchicalSeedableRng> Copy for LmkcdeyMpiCrs<S> {}
 
-impl<S: SeedableRng<Seed: Debug>> Debug for LmkcdeyMpiCrs<S> {
+impl<S: HierarchicalSeedableRng> Debug for LmkcdeyMpiCrs<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("LmkcdeyMpiCrs")
             .field("seed", &self.seed)
@@ -139,7 +125,7 @@ impl<S: SeedableRng<Seed: Debug>> Debug for LmkcdeyMpiCrs<S> {
     }
 }
 
-impl<S: SeedableRng<Seed: PartialEq>> PartialEq for LmkcdeyMpiCrs<S> {
+impl<S: HierarchicalSeedableRng> PartialEq for LmkcdeyMpiCrs<S> {
     fn eq(&self, other: &Self) -> bool {
         self.seed.eq(&other.seed)
     }
@@ -148,6 +134,7 @@ impl<S: SeedableRng<Seed: PartialEq>> PartialEq for LmkcdeyMpiCrs<S> {
 pub type LmkcdeyMpiKeyShareOwned<T1, T2> = LmkcdeyMpiKeyShare<Vec<T1>, Vec<T2>>;
 pub type LmkcdeyMpiKeyShareCompact = LmkcdeyMpiKeyShare<Compact, Compact>;
 
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -156,7 +143,6 @@ pub type LmkcdeyMpiKeyShareCompact = LmkcdeyMpiKeyShare<Compact, Compact>;
         deserialize = "S1: serde::Deserialize<'de>, S2: serde::Deserialize<'de>"
     ))
 )]
-#[derive(Clone, Debug, PartialEq)]
 pub struct LmkcdeyMpiKeyShare<S1, S2> {
     param: LmkcdeyMpiParam,
     share_idx: usize,

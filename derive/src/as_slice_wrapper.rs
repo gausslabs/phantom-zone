@@ -118,18 +118,18 @@ pub fn derive(input: &DeriveInput) -> Result<TokenStream> {
     let mut from_type_generics = Generics(once(quote!('from)).collect());
 
     as_slice_generics.iter().for_each(|ident| {
-        as_view_where_clause
-            .predicates
-            .push(parse(quote! { #ident: AsSlice }));
-        as_mut_view_where_clause
-            .predicates
-            .push(parse(quote! { #ident: AsMutSlice }));
+        as_view_where_clause.predicates.push(parse(
+            quote! { #ident: phantom_zone_math::util::as_slice::AsSlice },
+        ));
+        as_mut_view_where_clause.predicates.push(parse(
+            quote! { #ident: phantom_zone_math::util::as_slice::AsMutSlice },
+        ));
         as_view_type_generics.push(quote! { &[#ident::Elem] });
         as_mut_view_type_generics.push(quote! { &mut [#ident::Elem] });
         compact_type_generics.push(quote! { phantom_zone_math::util::compact::Compact });
-        compact_where_clause
-            .predicates
-            .push(parse(quote! { #ident: AsSlice<Elem = M::Elem> }));
+        compact_where_clause.predicates.push(parse(
+            quote! { #ident: phantom_zone_math::util::as_slice::AsSlice<Elem = M::Elem> },
+        ));
         uncompact_type_generics.push(quote! { Vec<M::Elem> });
         cloned_type_generics.push(quote! { Vec<#ident::Elem> });
         cloned_where_clause

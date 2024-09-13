@@ -11,11 +11,9 @@ use crate::{
         interactive::structure::{LmkcdeyMpiCrs, LmkcdeyMpiKeyShareOwned, LmkcdeyMpiParam},
         structure::LmkcdeyKeyOwned,
     },
+    util::rng::HierarchicalSeedableRng,
 };
-use core::{
-    fmt::Debug,
-    ops::{Deref, Neg},
-};
+use core::ops::{Deref, Neg};
 use itertools::izip;
 use num_traits::AsPrimitive;
 use phantom_zone_math::{
@@ -34,7 +32,7 @@ pub fn pk_share_gen<'a, 'b, R, S, T>(
     rng: &mut (impl RngCore + SeedableRng),
 ) where
     R: RingOps + ElemFrom<T>,
-    S: RngCore + SeedableRng<Seed: Clone>,
+    S: HierarchicalSeedableRng,
     T: 'b + Copy,
 {
     let mut scratch = ring.allocate_scratch(2, 2, 0);
@@ -61,7 +59,7 @@ pub fn bs_key_share_gen<'a, 'b, 'c, R, M, S, T>(
 ) where
     R: RingOps + ElemFrom<T>,
     M: ModulusOps + ElemFrom<T>,
-    S: RngCore + SeedableRng<Seed: Clone>,
+    S: HierarchicalSeedableRng,
     T: 'a + 'c + Copy + AsPrimitive<i64> + Neg<Output = T>,
 {
     let (sk, pk, sk_ks) = (sk.into(), pk.into(), sk_ks.into());
@@ -121,7 +119,7 @@ pub fn aggregate_bs_key_shares<R, M, S>(
 ) where
     R: RingOps,
     M: ModulusOps,
-    S: RngCore + SeedableRng<Seed: Clone + Debug + PartialEq>,
+    S: HierarchicalSeedableRng,
 {
     debug_assert!(!bs_key_shares.is_empty());
     debug_assert_eq!(bs_key_shares.len(), bs_key_shares[0].param().total_shares);
@@ -194,7 +192,7 @@ pub fn aggregate_pk_shares<'a, R, S>(
     pk_shares: &[SeededRlwePublicKeyOwned<R::Elem>],
 ) where
     R: RingOps,
-    S: RngCore + SeedableRng<Seed: Clone>,
+    S: HierarchicalSeedableRng,
 {
     debug_assert!(!pk_shares.is_empty());
 

@@ -14,8 +14,10 @@ phantom-zone-math = { path = "../math" }
 serde = { workspace = true, optional = true, features = ["derive"] }
 
 [dev-dependencies]
-criterion = { workspace = true }
 phantom-zone-math = { path = "../math", features = ["dev"] }
+
+# bench
+criterion = { workspace = true }
 
 [features]
 default = []

@@ -391,6 +391,7 @@ dependencies = [
 name = "phantom-zone-evaluator"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "criterion",
  "itertools 0.13.0",
  "num-traits",
