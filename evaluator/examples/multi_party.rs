@@ -1,45 +1,8 @@
 use core::{array::from_fn, num::Wrapping};
 use itertools::Itertools;
 use num_traits::NumOps;
-use phantom_zone_evaluator::boolean::evaluator::fhew::prelude::*;
+use phantom_zone_evaluator::boolean::fhew::{param::I_4P, prelude::*};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
-
-const PARAM: FhewBoolMpiParam = FhewBoolMpiParam {
-    param: FhewBoolParam {
-        message_bits: 2,
-        modulus: Modulus::PowerOfTwo(64),
-        ring_size: 2048,
-        sk_distribution: SecretDistribution::Ternary(Ternary),
-        noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
-        u_distribution: SecretDistribution::Ternary(Ternary),
-        auto_decomposition_param: DecompositionParam {
-            log_base: 24,
-            level: 1,
-        },
-        rlwe_by_rgsw_decomposition_param: RgswDecompositionParam {
-            log_base: 17,
-            level_a: 1,
-            level_b: 1,
-        },
-        lwe_modulus: Modulus::PowerOfTwo(16),
-        lwe_dimension: 620,
-        lwe_sk_distribution: SecretDistribution::Ternary(Ternary),
-        lwe_noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
-        lwe_ks_decomposition_param: DecompositionParam {
-            log_base: 1,
-            level: 13,
-        },
-        q: 2048,
-        g: 5,
-        w: 10,
-    },
-    rgsw_by_rgsw_decomposition_param: RgswDecompositionParam {
-        log_base: 6,
-        level_a: 7,
-        level_b: 6,
-    },
-    total_shares: 4,
-};
 
 struct Client<R, M> {
     param: FhewBoolMpiParam,
@@ -203,11 +166,9 @@ where
 
 fn main() {
     let mut rng = StdLweRng::from_entropy();
-    let mut server = Server::<NoisyNativeRing, NonNativePowerOfTwo>::new(PARAM);
-    let clients = (0..PARAM.total_shares)
-        .map(|share_idx| {
-            Client::<NativeRing, NonNativePowerOfTwo>::new(PARAM, server.crs, share_idx)
-        })
+    let mut server = Server::<NoisyPrimeRing, NonNativePowerOfTwo>::new(I_4P);
+    let clients = (0..I_4P.total_shares)
+        .map(|share_idx| Client::<PrimeRing, NonNativePowerOfTwo>::new(I_4P, server.crs, share_idx))
         .collect_vec();
 
     let pk_shares = clients
@@ -220,7 +181,7 @@ fn main() {
         .iter()
         .map(|client| client.bs_key_share_gen(&server.pk))
         .collect_vec();
-    server.aggregate_bs_key_shares::<NativeRing>(&bs_key_shares);
+    server.aggregate_bs_key_shares::<PrimeRing>(&bs_key_shares);
 
     let m = from_fn(|_| rng.next_u64() as u8);
     let g = {

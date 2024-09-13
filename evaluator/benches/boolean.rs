@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use itertools::Itertools;
-use phantom_zone_evaluator::boolean::evaluator::{
+use phantom_zone_evaluator::boolean::{
     fhew::{self, prelude::*},
     BoolEvaluator,
 };

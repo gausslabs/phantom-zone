@@ -1,8 +1,9 @@
-use crate::boolean::evaluator::BoolEvaluator;
 use core::ops::Not;
 
-pub mod evaluator;
-pub mod integer;
+mod evaluator;
+mod integer;
+
+pub use evaluator::{fhew, BoolEvaluator};
 
 #[derive(Debug)]
 pub struct FheBool<'a, E: BoolEvaluator> {

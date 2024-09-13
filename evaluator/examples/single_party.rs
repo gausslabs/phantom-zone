@@ -1,6 +1,6 @@
 use core::{array::from_fn, num::Wrapping};
 use num_traits::NumOps;
-use phantom_zone_evaluator::boolean::evaluator::fhew::prelude::*;
+use phantom_zone_evaluator::boolean::fhew::prelude::*;
 use rand::{RngCore, SeedableRng};
 
 type Evaluator = FhewBoolEvaluator<NoisyNativeRing, NonNativePowerOfTwoRing>;

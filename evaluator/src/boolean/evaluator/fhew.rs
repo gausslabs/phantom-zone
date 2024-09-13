@@ -1,7 +1,7 @@
 //! Implementation of `BoolEvaluator` using boolean gates in 2020/086 and
 //! blind rotation in 2022/198.
 
-use crate::boolean::evaluator::fhew::prelude::*;
+use crate::boolean::fhew::prelude::*;
 use itertools::{izip, Itertools};
 use phantom_zone_crypto::{
     core::{
@@ -15,6 +15,7 @@ use phantom_zone_math::{
 };
 use rand::RngCore;
 
+pub mod param;
 pub mod prelude;
 
 #[derive(Clone, Debug)]
@@ -279,7 +280,7 @@ fn binary_lut<R: RingOps>(
 
 #[cfg(any(test, feature = "dev"))]
 mod dev {
-    use crate::boolean::evaluator::fhew::prelude::*;
+    use crate::boolean::fhew::prelude::*;
     use phantom_zone_crypto::scheme::blind_rotation::lmkcdey::bs_key_gen;
     use rand::RngCore;
 
