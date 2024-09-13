@@ -162,12 +162,13 @@ fn bs_key_gen<R: RingOps>(
     };
     let bs_key_shares = izip!(0.., &sk_shares, &sk_ks_shares, &mut rngs)
         .map(|(share_idx, sk_share, sk_ks_share, rng)| {
-            let mut bs_key_share = LmkcdeyMpiKeyShare::allocate(param, crs, share_idx);
+            let mut bs_key_share = LmkcdeyMpiKeyShare::allocate(param, share_idx);
             let mut scratch = ring.allocate_scratch(2, 3, 0);
             interactive::bs_key_share_gen(
                 ring,
                 mod_ks,
                 &mut bs_key_share,
+                &crs,
                 sk_share,
                 &pk,
                 sk_ks_share,
@@ -539,12 +540,13 @@ fn serialize_deserialize() {
             pk
         };
         let bs_key_share = {
-            let mut bs_key_share = LmkcdeyMpiKeyShare::allocate(param, crs, 0);
+            let mut bs_key_share = LmkcdeyMpiKeyShare::allocate(param, 0);
             let mut scratch = ring.allocate_scratch(2, 3, 0);
             interactive::bs_key_share_gen(
                 ring,
                 mod_ks,
                 &mut bs_key_share,
+                &crs,
                 &sk_share,
                 &pk,
                 &sk_ks_share,

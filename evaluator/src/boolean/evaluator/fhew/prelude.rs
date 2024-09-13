@@ -32,8 +32,8 @@ pub type FhewBoolMpiParam = interactive::LmkcdeyMpiParam;
 
 pub type FhewBoolMpiCrs<S> = interactive::LmkcdeyMpiCrs<S>;
 
-pub type FhewBoolMpiKeyShare<S1, S2, S> = interactive::LmkcdeyMpiKeyShare<S1, S2, S>;
+pub type FhewBoolMpiKeyShare<S1, S2> = interactive::LmkcdeyMpiKeyShare<S1, S2>;
 
-pub type FhewBoolMpiKeyShareCompact<S> = interactive::LmkcdeyMpiKeyShareCompact<S>;
+pub type FhewBoolMpiKeyShareCompact = interactive::LmkcdeyMpiKeyShareCompact;
 
-pub type FhewBoolMpiKeyShareOwned<T1, T2, S> = interactive::LmkcdeyMpiKeyShareOwned<T1, T2, S>;
+pub type FhewBoolMpiKeyShareOwned<T1, T2> = interactive::LmkcdeyMpiKeyShareOwned<T1, T2>;

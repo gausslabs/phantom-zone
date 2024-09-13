@@ -84,18 +84,19 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
     fn bs_key_share_gen(
         &self,
         pk: &RlwePublicKeyOwned<R::Elem>,
-    ) -> FhewBoolMpiKeyShareOwned<R::Elem, M::Elem, StdRng> {
+    ) -> FhewBoolMpiKeyShareOwned<R::Elem, M::Elem> {
         let sk_ks = LweSecretKey::sample(
             self.param.lwe_dimension,
             self.param.lwe_sk_distribution,
             StdRng::from_entropy(),
         );
         let mut scratch = self.ring.allocate_scratch(2, 3, 0);
-        let mut bs_key_share = FhewBoolMpiKeyShare::allocate(self.param, self.crs, self.share_idx);
+        let mut bs_key_share = FhewBoolMpiKeyShare::allocate(self.param, self.share_idx);
         bs_key_share_gen(
             &self.ring,
             &self.mod_ks,
             &mut bs_key_share,
+            &self.crs,
             self.sk.as_view(),
             pk,
             &sk_ks,
@@ -143,7 +144,7 @@ impl<R: RingOps, M: ModulusOps> Server<R, M> {
 
     fn aggregate_bs_key_shares<R2: RingOps<Elem = R::Elem>>(
         &mut self,
-        bs_key_shares: &[FhewBoolMpiKeyShareOwned<R::Elem, M::Elem, StdRng>],
+        bs_key_shares: &[FhewBoolMpiKeyShareOwned<R::Elem, M::Elem>],
     ) {
         let bs_key = {
             let ring = <R2 as RingOps>::new(self.param.modulus, self.param.ring_size);

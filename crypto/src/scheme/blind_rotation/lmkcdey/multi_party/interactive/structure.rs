@@ -145,30 +145,29 @@ impl<S: SeedableRng<Seed: PartialEq>> PartialEq for LmkcdeyMpiCrs<S> {
     }
 }
 
-pub type LmkcdeyMpiKeyShareOwned<T1, T2, S> = LmkcdeyMpiKeyShare<Vec<T1>, Vec<T2>, S>;
-pub type LmkcdeyMpiKeyShareCompact<S> = LmkcdeyMpiKeyShare<Compact, Compact, S>;
+pub type LmkcdeyMpiKeyShareOwned<T1, T2> = LmkcdeyMpiKeyShare<Vec<T1>, Vec<T2>>;
+pub type LmkcdeyMpiKeyShareCompact = LmkcdeyMpiKeyShare<Compact, Compact>;
 
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "S1: serde::Serialize, S2: serde::Serialize, S::Seed: serde::Serialize",
-        deserialize = "S1: serde::Deserialize<'de>, S2: serde::Deserialize<'de>, S::Seed: serde::Deserialize<'de>"
+        serialize = "S1: serde::Serialize, S2: serde::Serialize",
+        deserialize = "S1: serde::Deserialize<'de>, S2: serde::Deserialize<'de>"
     ))
 )]
-pub struct LmkcdeyMpiKeyShare<S1, S2, S: SeedableRng> {
+#[derive(Clone, Debug, PartialEq)]
+pub struct LmkcdeyMpiKeyShare<S1, S2> {
     param: LmkcdeyMpiParam,
-    crs: LmkcdeyMpiCrs<S>,
     share_idx: usize,
     ks_key: SeededLweKeySwitchKey<S2>,
     brks: Vec<RgswCiphertext<S1>>,
     aks: Vec<SeededRlweAutoKey<S1>>,
 }
 
-impl<S1, S2, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, S> {
+impl<S1, S2> LmkcdeyMpiKeyShare<S1, S2> {
     fn new(
         param: LmkcdeyMpiParam,
-        crs: LmkcdeyMpiCrs<S>,
         share_idx: usize,
         ks_key: SeededLweKeySwitchKey<S2>,
         brks: Vec<RgswCiphertext<S1>>,
@@ -178,7 +177,6 @@ impl<S1, S2, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, S> {
         debug_assert!(share_idx < param.total_shares);
         Self {
             param,
-            crs,
             share_idx,
             ks_key,
             brks,
@@ -190,16 +188,12 @@ impl<S1, S2, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, S> {
         &self.param
     }
 
-    pub fn crs(&self) -> &LmkcdeyMpiCrs<S> {
-        &self.crs
-    }
-
     pub fn share_idx(&self) -> usize {
         self.share_idx
     }
 }
 
-impl<S1: AsSlice, S2: AsSlice, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, S> {
+impl<S1: AsSlice, S2: AsSlice> LmkcdeyMpiKeyShare<S1, S2> {
     pub fn ks_key(&self) -> SeededLweKeySwitchKeyView<S2::Elem> {
         self.ks_key.as_view()
     }
@@ -216,13 +210,9 @@ impl<S1: AsSlice, S2: AsSlice, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, S> {
         &self,
         ring: &impl ModulusOps<Elem = S1::Elem>,
         mod_ks: &impl ModulusOps<Elem = S2::Elem>,
-    ) -> LmkcdeyMpiKeyShareCompact<S>
-    where
-        S::Seed: Clone,
-    {
+    ) -> LmkcdeyMpiKeyShareCompact {
         LmkcdeyMpiKeyShare::new(
             self.param,
-            self.crs.clone(),
             self.share_idx,
             self.ks_key.compact(mod_ks),
             self.brks.iter().map(|brk| brk.compact(ring)).collect(),
@@ -231,7 +221,7 @@ impl<S1: AsSlice, S2: AsSlice, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, S> {
     }
 }
 
-impl<S1: AsMutSlice, S2: AsMutSlice, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, S> {
+impl<S1: AsMutSlice, S2: AsMutSlice> LmkcdeyMpiKeyShare<S1, S2> {
     pub(crate) fn ks_key_mut(&mut self) -> SeededLweKeySwitchKeyMutView<S2::Elem> {
         self.ks_key.as_mut_view()
     }
@@ -245,8 +235,8 @@ impl<S1: AsMutSlice, S2: AsMutSlice, S: SeedableRng> LmkcdeyMpiKeyShare<S1, S2, 
     }
 }
 
-impl<T1: Default, T2: Default, S: SeedableRng> LmkcdeyMpiKeyShareOwned<T1, T2, S> {
-    pub fn allocate(param: LmkcdeyMpiParam, crs: LmkcdeyMpiCrs<S>, share_idx: usize) -> Self {
+impl<T1: Default, T2: Default> LmkcdeyMpiKeyShareOwned<T1, T2> {
+    pub fn allocate(param: LmkcdeyMpiParam, share_idx: usize) -> Self {
         let ks_key = SeededLweKeySwitchKey::allocate(
             param.ring_size,
             param.lwe_dimension,
@@ -272,77 +262,26 @@ impl<T1: Default, T2: Default, S: SeedableRng> LmkcdeyMpiKeyShareOwned<T1, T2, S
                 SeededRlweAutoKey::allocate(param.ring_size, param.auto_decomposition_param, k)
             })
             .collect();
-        Self::new(param, crs, share_idx, ks_key, brks, aks)
+        Self::new(param, share_idx, ks_key, brks, aks)
     }
 }
 
-impl<S: SeedableRng> LmkcdeyMpiKeyShareCompact<S> {
+impl LmkcdeyMpiKeyShareCompact {
     pub fn uncompact<M1, M2>(
         &self,
         ring: &M1,
         mod_ks: &M2,
-    ) -> LmkcdeyMpiKeyShareOwned<M1::Elem, M2::Elem, S>
+    ) -> LmkcdeyMpiKeyShareOwned<M1::Elem, M2::Elem>
     where
         M1: ModulusOps,
         M2: ModulusOps,
-        S::Seed: Clone,
     {
         LmkcdeyMpiKeyShare::new(
             self.param,
-            self.crs.clone(),
             self.share_idx,
             self.ks_key.uncompact(mod_ks),
             self.brks.iter().map(|brk| brk.uncompact(ring)).collect(),
             self.aks.iter().map(|ak| ak.uncompact(ring)).collect(),
         )
-    }
-}
-
-impl<T1: Clone, T2: Clone, S: SeedableRng<Seed: Clone>> Clone for LmkcdeyMpiKeyShare<T1, T2, S> {
-    fn clone(&self) -> Self {
-        LmkcdeyMpiKeyShare::new(
-            self.param,
-            self.crs.clone(),
-            self.share_idx,
-            self.ks_key.clone(),
-            self.brks.clone(),
-            self.aks.clone(),
-        )
-    }
-}
-
-impl<T1: Debug, T2: Debug, S: SeedableRng<Seed: Debug>> Debug for LmkcdeyMpiKeyShare<T1, T2, S> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LmkcdeyMpiKeyShare")
-            .field("param", &self.param)
-            .field("crs", &self.crs)
-            .field("share_idx", &self.share_idx)
-            .field("ks_key", &self.ks_key)
-            .field("brks", &self.brks)
-            .field("aks", &self.aks)
-            .finish()
-    }
-}
-
-impl<T1: PartialEq, T2: PartialEq, S: SeedableRng<Seed: PartialEq>> PartialEq
-    for LmkcdeyMpiKeyShare<T1, T2, S>
-{
-    fn eq(&self, other: &Self) -> bool {
-        (
-            &self.param,
-            &self.crs,
-            &self.share_idx,
-            &self.ks_key,
-            &self.brks,
-            &self.aks,
-        )
-            .eq(&(
-                &other.param,
-                &other.crs,
-                &other.share_idx,
-                &other.ks_key,
-                &other.brks,
-                &other.aks,
-            ))
     }
 }

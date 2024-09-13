@@ -46,7 +46,8 @@ pub fn pk_share_gen<'a, 'b, R, S, T>(
 pub fn bs_key_share_gen<'a, 'b, 'c, R, M, S, T>(
     ring: &R,
     mod_ks: &M,
-    bs_key_share: &mut LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem, S>,
+    bs_key_share: &mut LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem>,
+    crs: &LmkcdeyMpiCrs<S>,
     sk: impl Into<RlweSecretKeyView<'a, T>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
     sk_ks: impl Into<LweSecretKeyView<'c, T>>,
@@ -64,7 +65,7 @@ pub fn bs_key_share_gen<'a, 'b, 'c, R, M, S, T>(
     let lwe_noise_distribution = bs_key_share.param().lwe_noise_distribution;
     let noise_distribution = bs_key_share.param().noise_distribution;
 
-    let mut ks_key_rng = bs_key_share.crs().ks_key_rng(rng);
+    let mut ks_key_rng = crs.ks_key_rng(rng);
     lwe::seeded_ks_key_gen(
         mod_ks,
         bs_key_share.ks_key_mut(),
@@ -75,7 +76,7 @@ pub fn bs_key_share_gen<'a, 'b, 'c, R, M, S, T>(
         &mut ks_key_rng,
     );
 
-    let mut ak_rng = bs_key_share.crs().ak_rng(rng);
+    let mut ak_rng = crs.ak_rng(rng);
     bs_key_share.aks_mut().for_each(|ak| {
         rlwe::seeded_auto_key_gen(
             ring,
@@ -87,7 +88,7 @@ pub fn bs_key_share_gen<'a, 'b, 'c, R, M, S, T>(
         );
     });
 
-    let mut brk_rng = bs_key_share.crs().brk_rng(rng);
+    let mut brk_rng = crs.brk_rng(rng);
     izip!(bs_key_share.brks_mut(), sk_ks.as_ref()).for_each(|(brk, sk_ks_i)| {
         let mut scratch = scratch.reborrow();
         let mut pt = RlwePlaintext::scratch(ring.ring_size(), &mut scratch);
@@ -110,7 +111,7 @@ pub fn aggregate_bs_key_shares<R, M, S>(
     mod_ks: &M,
     bs_key: &mut LmkcdeyKeyOwned<R::Elem, M::Elem>,
     crs: &LmkcdeyMpiCrs<S>,
-    bs_key_shares: &[LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem, S>],
+    bs_key_shares: &[LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem>],
     mut scratch: Scratch,
 ) where
     R: RingOps,
@@ -121,11 +122,10 @@ pub fn aggregate_bs_key_shares<R, M, S>(
     debug_assert_eq!(bs_key_shares.len(), bs_key_shares[0].param().total_shares);
     izip!(0.., bs_key_shares).for_each(|(share_idx, bs_key_share)| {
         debug_assert_eq!(bs_key_share.param().deref(), bs_key.param());
-        debug_assert_eq!(bs_key_share.crs(), crs);
         debug_assert_eq!(share_idx, bs_key_share.share_idx());
     });
 
-    let mut ks_key_rng = bs_key_shares[0].crs().unseed_ks_key_rng();
+    let mut ks_key_rng = crs.unseed_ks_key_rng();
     lwe::unseed_ks_key(
         mod_ks,
         bs_key.ks_key_mut(),
@@ -143,7 +143,7 @@ pub fn aggregate_bs_key_shares<R, M, S>(
         });
     });
 
-    let mut ak_rng = bs_key_shares[0].crs().unseed_ak_rng();
+    let mut ak_rng = crs.unseed_ak_rng();
     izip_eq!(bs_key.aks_mut(), bs_key_shares[0].aks())
         .for_each(|(ak, ak_share)| rlwe::unseed_auto_key(ring, ak, ak_share, &mut ak_rng));
     bs_key_shares[1..].iter().for_each(|bs_key_share| {
