@@ -67,7 +67,6 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
     }
 
     fn pk_share_gen(&self) -> SeededRlwePublicKeyOwned<R::Elem> {
-        let mut scratch = self.ring.allocate_scratch(2, 2, 0);
         let mut pk = SeededRlwePublicKey::allocate(self.param.ring_size);
         pk_share_gen(
             &self.ring,
@@ -75,7 +74,6 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
             &self.param,
             &self.crs,
             self.sk.as_view(),
-            scratch.borrow_mut(),
             &mut StdRng::from_entropy(),
         );
         pk
@@ -90,7 +88,6 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
             self.param.lwe_sk_distribution,
             StdRng::from_entropy(),
         );
-        let mut scratch = self.ring.allocate_scratch(2, 3, 0);
         let mut bs_key_share = FhewBoolMpiKeyShare::allocate(self.param, self.share_idx);
         bs_key_share_gen(
             &self.ring,
@@ -100,7 +97,6 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
             self.sk.as_view(),
             pk,
             &sk_ks,
-            scratch.borrow_mut(),
             &mut StdRng::from_entropy(),
         );
         bs_key_share
@@ -148,12 +144,6 @@ impl<R: RingOps, M: ModulusOps> Server<R, M> {
     ) {
         let bs_key = {
             let ring = <R2 as RingOps>::new(self.param.modulus, self.param.ring_size);
-            let mut scratch = ring.allocate_scratch(
-                2,
-                3,
-                2 * (self.param.rgsw_by_rgsw_decomposition_param.level_a
-                    + self.param.rgsw_by_rgsw_decomposition_param.level_b),
-            );
             let mut bs_key = FhewBoolKey::allocate(*self.param);
             aggregate_bs_key_shares(
                 &ring,
@@ -161,20 +151,13 @@ impl<R: RingOps, M: ModulusOps> Server<R, M> {
                 &mut bs_key,
                 &self.crs,
                 bs_key_shares,
-                scratch.borrow_mut(),
             );
             bs_key
         };
         let bs_key_prep = {
-            let mut scratch = self.evaluator.ring().allocate_scratch(0, 3, 0);
             let mut bs_key_prep =
                 FhewBoolKey::allocate_eval(*self.param, self.evaluator.ring().eval_size());
-            prepare_bs_key(
-                self.evaluator.ring(),
-                &mut bs_key_prep,
-                &bs_key,
-                scratch.borrow_mut(),
-            );
+            prepare_bs_key(self.evaluator.ring(), &mut bs_key_prep, &bs_key);
             bs_key_prep
         };
         self.evaluator = FhewBoolEvaluator::new(bs_key_prep);

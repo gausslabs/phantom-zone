@@ -142,16 +142,7 @@ fn bs_key_gen<R: RingOps>(
     let pk_shares = izip!(&sk_shares, &mut rngs)
         .map(|(sk_share, rng)| {
             let mut pk_share = SeededRlwePublicKey::allocate(param.ring_size);
-            let mut scratch = ring.allocate_scratch(2, 2, 0);
-            interactive::pk_share_gen(
-                ring,
-                &mut pk_share,
-                &param,
-                &crs,
-                sk_share,
-                scratch.borrow_mut(),
-                rng,
-            );
+            interactive::pk_share_gen(ring, &mut pk_share, &param, &crs, sk_share, rng);
             pk_share
         })
         .collect_vec();
@@ -163,7 +154,6 @@ fn bs_key_gen<R: RingOps>(
     let bs_key_shares = izip!(0.., &sk_shares, &sk_ks_shares, &mut rngs)
         .map(|(share_idx, sk_share, sk_ks_share, rng)| {
             let mut bs_key_share = LmkcdeyMpiKeyShare::allocate(param, share_idx);
-            let mut scratch = ring.allocate_scratch(2, 3, 0);
             interactive::bs_key_share_gen(
                 ring,
                 mod_ks,
@@ -172,7 +162,6 @@ fn bs_key_gen<R: RingOps>(
                 sk_share,
                 &pk,
                 sk_ks_share,
-                scratch.borrow_mut(),
                 rng,
             );
             bs_key_share
@@ -180,20 +169,7 @@ fn bs_key_gen<R: RingOps>(
         .collect_vec();
     let bs_key = {
         let mut bs_key = LmkcdeyKeyOwned::allocate(*param);
-        let mut scratch = ring.allocate_scratch(
-            2,
-            3,
-            2 * (param.rgsw_by_rgsw_decomposition_param.level_a
-                + param.rgsw_by_rgsw_decomposition_param.level_b),
-        );
-        interactive::aggregate_bs_key_shares(
-            ring,
-            mod_ks,
-            &mut bs_key,
-            &crs,
-            &bs_key_shares,
-            scratch.borrow_mut(),
-        );
+        interactive::aggregate_bs_key_shares(ring, mod_ks, &mut bs_key, &crs, &bs_key_shares);
         bs_key
     };
     let sk = sk_shares
@@ -228,9 +204,8 @@ fn bootstrap_nand() {
 
         let (sk, _, pk, bs_key) = bs_key_gen::<R1>(param, crs, thread_rng());
         let bs_key = {
-            let mut scratch = ring.allocate_scratch(0, 3, 0);
             let mut bs_key_prep = LmkcdeyKeyOwned::allocate_eval(*bs_key.param(), ring.eval_size());
-            lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
+            lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key);
             bs_key_prep
         };
 
@@ -297,9 +272,8 @@ fn bootstrap_three_way() {
 
         let (sk, _, pk, bs_key) = bs_key_gen::<R1>(param, crs, thread_rng());
         let bs_key = {
-            let mut scratch = ring.allocate_scratch(0, 3, 0);
             let mut bs_key_prep = LmkcdeyKeyOwned::allocate_eval(*bs_key.param(), ring.eval_size());
-            lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
+            lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key);
             bs_key_prep
         };
 
@@ -522,16 +496,7 @@ fn serialize_deserialize() {
         let sk_ks_share = lwe_ks.sk_gen(&mut rng);
         let pk_share = {
             let mut pk_share = SeededRlwePublicKey::allocate(param.ring_size);
-            let mut scratch = ring.allocate_scratch(2, 2, 0);
-            interactive::pk_share_gen(
-                ring,
-                &mut pk_share,
-                &param,
-                &crs,
-                &sk_share,
-                scratch.borrow_mut(),
-                &mut rng,
-            );
+            interactive::pk_share_gen(ring, &mut pk_share, &param, &crs, &sk_share, &mut rng);
             pk_share
         };
         let pk = {
@@ -541,7 +506,6 @@ fn serialize_deserialize() {
         };
         let bs_key_share = {
             let mut bs_key_share = LmkcdeyMpiKeyShare::allocate(param, 0);
-            let mut scratch = ring.allocate_scratch(2, 3, 0);
             interactive::bs_key_share_gen(
                 ring,
                 mod_ks,
@@ -550,7 +514,6 @@ fn serialize_deserialize() {
                 &sk_share,
                 &pk,
                 &sk_ks_share,
-                scratch.borrow_mut(),
                 &mut rng,
             );
             bs_key_share

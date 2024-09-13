@@ -297,19 +297,10 @@ mod dev {
                 param.lwe_sk_distribution,
                 &mut rng,
             );
-            let mut scratch = ring.allocate_scratch(0, 3, 0);
             let mut bs_key = FhewBoolKey::allocate(param);
-            bs_key_gen(
-                &ring,
-                &mod_ks,
-                &mut bs_key,
-                sk.as_view(),
-                &sk_ks,
-                scratch.borrow_mut(),
-                &mut rng,
-            );
+            bs_key_gen(&ring, &mod_ks, &mut bs_key, sk.as_view(), &sk_ks, &mut rng);
             let mut bs_key_prep = FhewBoolKey::allocate_eval(param, ring.eval_size());
-            prepare_bs_key(&ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
+            prepare_bs_key(&ring, &mut bs_key_prep, &bs_key);
             FhewBoolEvaluator::new(bs_key_prep)
         }
     }
