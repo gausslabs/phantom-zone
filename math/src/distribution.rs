@@ -2,7 +2,7 @@ use crate::{
     modulus::{ElemFrom, ElemOps, ModulusOps},
     ring::RingOps,
 };
-use core::{convert::identity, iter::repeat_with, ops::Range};
+use core::{convert::identity, iter::repeat_with};
 use itertools::{izip, Itertools};
 use num_traits::{FromPrimitive, PrimInt, Signed};
 use rand::{
@@ -119,17 +119,6 @@ pub trait DistributionVariance {
         Self: Sized,
     {
         self.std_dev().log2()
-    }
-}
-
-impl DistributionVariance for Range<u64> {
-    fn variance(self) -> f64 {
-        if self.is_empty() || self.start + 1 == self.end {
-            0.0
-        } else {
-            let v = (self.end - self.start) as f64;
-            v * v / 12.0
-        }
     }
 }
 
