@@ -21,7 +21,10 @@ pub use phantom_zone_crypto::{
     core::{
         lwe::{LweDecryptionShare, LweSecretKey, LweSecretKeyOwned},
         rgsw::RgswDecompositionParam,
-        rlwe::{RlwePublicKey, RlwePublicKeyOwned, SeededRlwePublicKey, SeededRlwePublicKeyOwned},
+        rlwe::{
+            RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey, RlweSecretKeyOwned,
+            SeededRlwePublicKey, SeededRlwePublicKeyOwned,
+        },
     },
     util::{
         distribution::{NoiseDistribution, SecretDistribution},
