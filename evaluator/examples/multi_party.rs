@@ -7,11 +7,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 #[serde(bound(serialize = "", deserialize = ""))]
-struct Client<R, M> {
+struct Client<R: RingOps, M: ModulusOps> {
     param: FhewBoolMpiParam,
     crs: FhewBoolMpiCrs<StdRng>,
     share_idx: usize,
     sk_seed: <StdRng as SeedableRng>::Seed,
+    pk: RlwePublicKeyOwned<R::Elem>,
     #[serde(skip)]
     ring: OnceCell<R>,
     #[serde(skip)]
@@ -27,6 +28,7 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
             crs,
             share_idx,
             sk_seed,
+            pk: RlwePublicKey::allocate(param.ring_size),
             ring: Default::default(),
             mod_ks: Default::default(),
         }
@@ -70,10 +72,11 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
         pk
     }
 
-    fn bs_key_share_gen(
-        &self,
-        pk: &RlwePublicKeyOwned<R::Elem>,
-    ) -> FhewBoolMpiKeyShareOwned<R::Elem, M::Elem> {
+    fn receive_pk(&mut self, pk: &RlwePublicKeyOwned<R::Elem>) {
+        self.pk = pk.cloned();
+    }
+
+    fn bs_key_share_gen(&self) -> FhewBoolMpiKeyShareOwned<R::Elem, M::Elem> {
         let mut bs_key_share = FhewBoolMpiKeyShare::allocate(self.param, self.share_idx);
         bs_key_share_gen(
             self.ring(),
@@ -81,7 +84,7 @@ impl<R: RingOps, M: ModulusOps> Client<R, M> {
             &mut bs_key_share,
             &self.crs,
             &self.sk(),
-            pk,
+            &self.pk,
             &self.sk_ks(),
             &mut StdRng::from_entropy(),
         );
@@ -153,16 +156,40 @@ impl<R: RingOps, M: ModulusOps> Server<R, M> {
         self.evaluator = FhewBoolEvaluator::new(bs_key_prep);
     }
 
-    fn pk_encrypt(&self, m: u8) -> FheU8<FhewBoolEvaluator<R, M>> {
-        let cts = FhewBoolCiphertext::batched_pk_encrypt(
-            self.evaluator.param(),
-            self.ring(),
-            &self.pk,
-            (0..8).map(|idx| (m >> idx) & 1 == 1),
-            &mut StdLweRng::from_entropy(),
-        );
-        FheU8::from_cts(&self.evaluator, cts.try_into().unwrap())
+    fn pk_encrypt(&self, m: u8) -> [FhewBoolCiphertextOwned<R::Elem>; 8] {
+        pk_encrypt(&self.param, self.ring(), &self.pk, m)
     }
+}
+
+fn pk_encrypt<R: RingOps>(
+    param: &FhewBoolParam,
+    ring: &R,
+    pk: &RlwePublicKeyOwned<R::Elem>,
+    m: u8,
+) -> [FhewBoolCiphertextOwned<R::Elem>; 8] {
+    FhewBoolCiphertext::batched_pk_encrypt(
+        param,
+        ring,
+        pk,
+        (0..8).map(|idx| (m >> idx) & 1 == 1),
+        &mut StdLweRng::from_entropy(),
+    )
+    .try_into()
+    .unwrap()
+}
+
+fn aggregate_decryption_shares<R: RingOps>(
+    ring: &R,
+    ct: [FhewBoolCiphertextOwned<R::Elem>; 8],
+    dec_shares: &[[LweDecryptionShare<R::Elem>; 8]],
+) -> u8 {
+    (0..8)
+        .map(|idx| {
+            let dec_shares = dec_shares.iter().map(|dec_shares| &dec_shares[idx]);
+            ct[idx].aggregate_decryption_shares(ring, dec_shares)
+        })
+        .rev()
+        .fold(0, |m, b| (m << 1) | b as u8)
 }
 
 fn serialize_pk_share<R: RingOps>(
@@ -212,20 +239,6 @@ fn deserialize_cts<R: RingOps>(ring: &R, bytes: &[u8]) -> [FhewBoolCiphertextOwn
     cts.map(|ct| ct.uncompact(ring))
 }
 
-fn aggregate_decryption_shares<R: RingOps>(
-    ring: &R,
-    ct: [FhewBoolCiphertextOwned<R::Elem>; 8],
-    dec_shares: &[[LweDecryptionShare<R::Elem>; 8]],
-) -> u8 {
-    (0..8)
-        .map(|idx| {
-            let dec_shares = dec_shares.iter().map(|dec_shares| &dec_shares[idx]);
-            ct[idx].aggregate_decryption_shares(ring, dec_shares)
-        })
-        .rev()
-        .fold(0, |m, b| (m << 1) | b as u8)
-}
-
 fn function<T>(a: &T, b: &T, c: &T, d: &T, e: &T) -> T
 where
     T: for<'t> NumOps<&'t T, T>,
@@ -236,7 +249,7 @@ where
 
 fn main() {
     let mut server = Server::<NoisyPrimeRing, NonNativePowerOfTwo>::new(I_4P);
-    let clients = (0..server.param.total_shares)
+    let mut clients = (0..server.param.total_shares)
         .map(|share_idx| {
             Client::<PrimeRing, NonNativePowerOfTwo>::new(server.param, server.crs, share_idx)
         })
@@ -263,13 +276,10 @@ fn main() {
 
     // Clients generate bootstrapping key shares
     let bs_key_shares = clients
-        .iter()
+        .iter_mut()
         .map(|client| {
-            serialize_bs_key_share(
-                client.ring(),
-                client.mod_ks(),
-                &client.bs_key_share_gen(&deserialize_pk(client.ring(), &pk)),
-            )
+            client.receive_pk(&deserialize_pk(client.ring(), &pk));
+            serialize_bs_key_share(client.ring(), client.mod_ks(), &client.bs_key_share_gen())
         })
         .collect_vec();
 
@@ -288,7 +298,7 @@ fn main() {
         function(a, b, c, d, e).0
     };
     let ct_g = {
-        let [a, b, c, d, e] = &m.map(|m| server.pk_encrypt(m));
+        let [a, b, c, d, e] = &m.map(|m| FheU8::from_cts(&server.evaluator, server.pk_encrypt(m)));
         serialize_cts(server.ring(), function(a, b, c, d, e).into_cts())
     };
 
