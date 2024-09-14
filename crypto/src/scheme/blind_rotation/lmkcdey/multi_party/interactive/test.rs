@@ -24,7 +24,7 @@ use core::{
     array::from_fn,
     iter::{repeat, repeat_with},
 };
-use itertools::{chain, izip, Itertools};
+use itertools::{izip, Itertools};
 use phantom_zone_math::{
     decomposer::DecompositionParam,
     distribution::{DistributionVariance, Gaussian, Sampler, Ternary},
@@ -236,7 +236,7 @@ fn bootstrap_nand() {
         };
 
         let encoded_half = ring.elem_from(param.encoded_half());
-        let nand_lut = nand_lut(ring, param.q, param.g, encoded_half);
+        let nand_lut = nand_lut(&param, ring);
         let mut scratch = ScratchOwned::allocate(bs_key.param().scratch_bytes(ring, mod_ks));
         let mut rng = StdLweRng::from_entropy();
         for m in 0..1 << 2 {
@@ -265,23 +265,24 @@ fn bootstrap_nand() {
 }
 
 fn general_lut<R: RingOps, const N: usize>(
+    param: &LmkcdeyParam,
     ring: &R,
-    q: usize,
-    g: usize,
     table: [u64; N],
-    encoded_one: R::Elem,
 ) -> RlwePlaintextOwned<R::Elem> {
-    debug_assert_eq!(q % N, 0);
-    let auto_map = AutomorphismMap::new(q / 2, q - g);
-    let repetition = q / 2 / N;
-    let table = table.map(|v| [ring.zero(), encoded_one][v as usize]);
-    let lut = chain![
-        repeat(table[0]).take(repetition / 2),
-        table[1..].iter().flat_map(|v| repeat(*v).take(repetition)),
-        repeat(ring.neg(&table[0])).take(repetition / 2),
-    ]
-    .collect_vec();
-    RlwePlaintext::new(auto_map.apply(&lut, |v| ring.neg(v)).collect(), q / 2)
+    debug_assert_eq!(param.q % N, 0);
+    let lut = {
+        let repetition = param.q / 2 / N;
+        let encoded = [ring.zero(), ring.elem_from(param.encoded_one())];
+        let mut lut = table
+            .into_iter()
+            .flat_map(|v| repeat(encoded[v as usize]).take(repetition))
+            .collect_vec();
+        ring.poly_mul_assign_monomial(&mut lut, -(repetition as i64 / 2));
+        AutomorphismMap::new(param.q / 2, param.q - param.g)
+            .apply(&lut, |v| ring.neg(v))
+            .collect()
+    };
+    RlwePlaintext::new(lut, param.q / 2)
 }
 
 #[test]
@@ -308,9 +309,8 @@ fn bootstrap_three_way() {
             table[1..7].shuffle(&mut thread_rng());
             table
         };
-        let encoded_one = ring.elem_from(param.encoded_one());
-        let general_lut = general_lut(ring, param.q, param.g, table, encoded_one);
-        let lc = |a: &[_], b: &[_]| izip_eq!(a, b).map(|(a, b)| *a * *b).sum::<u64>();
+        let general_lut = general_lut(&param, ring, table);
+        let scalar_fma = |a: &[_], b: &[_]| izip_eq!(a, b).map(|(a, b)| *a * *b).sum::<u64>();
         let mut scratch = ScratchOwned::allocate(bs_key.param().scratch_bytes(ring, mod_ks));
         let mut rng = StdLweRng::from_entropy();
         let [mut a, mut b, mut c] = [1, 1, 0];
@@ -320,8 +320,8 @@ fn bootstrap_three_way() {
         });
         for _ in 0..time_consuming_test_repetition() {
             [(a, ct_a), (b, ct_b), (c, ct_c)] = [[1, 2, 4], [2, 4, 1], [4, 1, 2]].map(|scalars| {
-                let m = lc(&[a, b, c], &scalars) as usize;
-                let mut ct = lwe.lc([&ct_a, &ct_b, &ct_c], scalars);
+                let m = scalar_fma(&[a, b, c], &scalars) as usize;
+                let mut ct = lwe.scalar_fma([&ct_a, &ct_b, &ct_c], scalars);
                 lmkcdey::bootstrap(
                     ring,
                     mod_ks,
@@ -441,7 +441,7 @@ fn run_noise_stats<R: RingOps>(param: LmkcdeyInteractiveParam, noise_std_dev: No
         izip_eq!(sk_ks.as_ref(), bs_key.brks()).flat_map(move |(sk_ks_i, brk_i)| {
             let mut pt_by_brk_i = pt.clone();
             let exp = param.embedding_factor() as i64 * *sk_ks_i as i64;
-            ring.poly_mul_monomial(pt_by_brk_i.as_mut(), exp);
+            ring.poly_mul_assign_monomial(pt_by_brk_i.as_mut(), exp);
             let ct_by_brk_i = rgsw.rlwe_by_rgsw(&ct, &brk_i.cloned());
             rlwe.noise(sk, &pt_by_brk_i, &ct_by_brk_i)
         })

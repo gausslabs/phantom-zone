@@ -184,15 +184,8 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         let mod_ks = M::new(param.lwe_modulus);
         let encoded_one = ring.elem_from(param.encoded_one());
         let encoded_half = ring.elem_from(param.encoded_half());
-        let tables = {
-            let auto_map = AutomorphismMap::new(param.q / 2, param.q - param.g);
-            let lut_value = [ring.neg(&encoded_half), encoded_half];
-            let log_q_by_8 = (param.q / 8).ilog2() as usize;
-            [[0, 0, 0, 1], [1, 1, 1, 0], [0, 1, 1, 1], [1, 0, 0, 0]].map(|lut| {
-                let f = |(sign, idx)| lut_value[sign as usize ^ lut[idx >> log_q_by_8]];
-                RlwePlaintext::new(auto_map.iter().map(f).collect(), param.q / 2)
-            })
-        };
+        let tables = [[0, 0, 0, 1], [1, 1, 1, 0], [0, 1, 1, 1], [1, 0, 0, 0]]
+            .map(|table| binary_lut(param, &ring, table));
         let scratch_bytes = param.scratch_bytes(&ring, &mod_ks);
         Self {
             ring,
@@ -273,6 +266,23 @@ impl<R: RingOps, M: ModulusOps> BoolEvaluator for FhewBoolEvaluator<R, M> {
     fn bitxnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
         self.binary_op_assign::<true>(3, a, b)
     }
+}
+
+fn binary_lut<R: RingOps>(
+    param: &FhewBoolParam,
+    ring: &R,
+    table: [usize; 4],
+) -> RlwePlaintextOwned<R::Elem> {
+    let lut = {
+        let encoded_half = ring.elem_from(param.encoded_half());
+        let encoded = [ring.neg(&encoded_half), encoded_half];
+        let log_q_by_8 = (param.q / 8).ilog2() as usize;
+        AutomorphismMap::new(param.q / 2, param.q - param.g)
+            .iter()
+            .map(|(sign, idx)| encoded[sign as usize ^ table[idx >> log_q_by_8]])
+            .collect()
+    };
+    RlwePlaintext::new(lut, param.q / 2)
 }
 
 #[cfg(any(test, feature = "dev"))]

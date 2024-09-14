@@ -110,7 +110,7 @@ pub fn bootstrap<'a, 'b, 'c, R: RingOps, M: ModulusOps>(
         izip_eq!(acc_b, f_auto_neg_g.as_ref()).for_each(|(b, a)| *b = *a);
     }
     let gb = bs_key.g() * *ct_ks_mod_switch.b() as usize;
-    ring.poly_mul_monomial(acc.b_mut(), (embedding_factor * gb) as _);
+    ring.poly_mul_assign_monomial(acc.b_mut(), (embedding_factor * gb) as _);
 
     blind_rotate_core(ring, &mut acc, bs_key, ct_ks_mod_switch.a(), scratch);
 

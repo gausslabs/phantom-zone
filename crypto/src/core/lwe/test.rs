@@ -147,7 +147,7 @@ impl<M: ModulusOps> Lwe<M> {
         ct_c
     }
 
-    pub fn lc<'a, T>(
+    pub fn scalar_fma<'a, T>(
         &self,
         cts: impl IntoIterator<Item = &'a LweCiphertextOwned<M::Elem>>,
         scalars: impl IntoIterator<Item = T>,
