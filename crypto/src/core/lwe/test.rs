@@ -9,9 +9,10 @@ use crate::{
     },
 };
 use phantom_zone_math::{
-    decomposer::DecompositionParam,
+    decomposer::{Decomposer, DecompositionParam},
     distribution::Gaussian,
-    modulus::{Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
+    izip_eq,
+    modulus::{ElemFrom, Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
     ring::{NativeRing, NonNativePowerOfTwoRing, PrimeRing},
 };
 use rand::{RngCore, SeedableRng};
@@ -144,6 +145,52 @@ impl<M: ModulusOps> Lwe<M> {
         self.modulus()
             .slice_add_assign(ct_c.as_mut(), ct_b.as_ref());
         ct_c
+    }
+
+    pub fn scalar_fma<'a, T>(
+        &self,
+        cts: impl IntoIterator<Item = &'a LweCiphertextOwned<M::Elem>>,
+        scalars: impl IntoIterator<Item = T>,
+    ) -> LweCiphertextOwned<M::Elem>
+    where
+        M: ElemFrom<T>,
+    {
+        let modulus = self.modulus();
+        let mut ct_lc = LweCiphertext::allocate(self.dimension());
+        izip_eq!(cts, scalars).for_each(|(ct, scalar)| {
+            modulus.slice_scalar_fma(ct_lc.as_mut(), ct.as_ref(), &modulus.elem_from(scalar))
+        });
+        ct_lc
+    }
+
+    pub fn noise(
+        &self,
+        sk: &LweSecretKeyOwned<i32>,
+        pt: &LwePlaintext<M::Elem>,
+        ct: &LweCiphertextOwned<M::Elem>,
+    ) -> i64 {
+        let pt_noisy = self.decrypt(sk, ct);
+        self.modulus.to_i64(self.modulus.sub(&pt_noisy.0, &pt.0))
+    }
+
+    pub fn ks_key_noise(
+        &self,
+        sk_from: &LweSecretKeyOwned<i32>,
+        sk_to: &LweSecretKeyOwned<i32>,
+        ks_key: &LweKeySwitchKeyOwned<M::Elem>,
+    ) -> Vec<Vec<i64>> {
+        let modulus = self.modulus();
+        let decomposer = M::Decomposer::new(modulus.modulus(), ks_key.decomposition_param());
+        izip_eq!(ks_key.cts_iter(), sk_from.as_ref())
+            .map(|(ks_key_i, sk_from_i)| {
+                izip_eq!(ks_key_i.iter(), decomposer.gadget_iter())
+                    .map(|(ks_key_i_j, beta_j)| {
+                        let pt = LwePlaintext(modulus.mul_elem_from(&beta_j, &-sk_from_i));
+                        self.noise(sk_to, &pt, &ks_key_i_j.cloned())
+                    })
+                    .collect()
+            })
+            .collect()
     }
 }
 

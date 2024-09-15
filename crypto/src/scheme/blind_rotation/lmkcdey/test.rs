@@ -25,12 +25,12 @@ impl From<LmkcdeyParam> for RgswParam {
     fn from(param: LmkcdeyParam) -> Self {
         RgswParam {
             rlwe: RlweParam {
-                message_modulus: 4,
+                message_modulus: 1 << param.message_bits,
                 ciphertext_modulus: param.modulus,
                 ring_size: param.ring_size,
                 sk_distribution: param.sk_distribution,
                 noise_distribution: param.noise_distribution,
-                u_distribution: Ternary.into(),
+                u_distribution: param.u_distribution,
                 ks_decomposition_param: param.auto_decomposition_param,
             },
             decomposition_param: param.rlwe_by_rgsw_decomposition_param,
@@ -41,7 +41,7 @@ impl From<LmkcdeyParam> for RgswParam {
 impl From<LmkcdeyParam> for LweParam {
     fn from(param: LmkcdeyParam) -> Self {
         LweParam {
-            message_modulus: 4,
+            message_modulus: 1 << param.message_bits,
             ciphertext_modulus: param.lwe_modulus,
             dimension: param.lwe_dimension,
             sk_distribution: param.lwe_sk_distribution,
@@ -54,10 +54,12 @@ impl From<LmkcdeyParam> for LweParam {
 fn test_param(modulus: impl Into<Modulus>, embedding_factor: usize) -> LmkcdeyParam {
     let ring_size = 1024;
     LmkcdeyParam {
+        message_bits: 2,
         modulus: modulus.into(),
         ring_size,
         sk_distribution: Gaussian(3.19).into(),
         noise_distribution: Gaussian(3.19).into(),
+        u_distribution: Ternary.into(),
         auto_decomposition_param: DecompositionParam {
             log_base: 24,
             level: 1,
@@ -81,17 +83,21 @@ fn test_param(modulus: impl Into<Modulus>, embedding_factor: usize) -> LmkcdeyPa
     }
 }
 
-pub fn nand_lut<R: RingOps>(ring: &R, q: usize, g: usize) -> RlwePlaintextOwned<R::Elem> {
-    let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
-    let auto_map = AutomorphismMap::new(q / 2, q - g);
-    let lut_value = [big_q_by_8, ring.neg(&big_q_by_8)];
-    let log_q_by_8 = (q / 8).ilog2() as usize;
-    let f = |(sign, idx)| lut_value[sign as usize ^ [0, 0, 0, 1][idx >> log_q_by_8]];
-    RlwePlaintext::new(auto_map.iter().map(f).collect(), q / 2)
+pub fn nand_lut<R: RingOps>(param: &LmkcdeyParam, ring: &R) -> RlwePlaintextOwned<R::Elem> {
+    let lut = {
+        let encoded_half = ring.elem_from(param.encoded_half());
+        let encoded = [ring.neg(&encoded_half), encoded_half];
+        let log_q_by_8 = (param.q / 8).ilog2() as usize;
+        AutomorphismMap::new(param.q / 2, param.q - param.g)
+            .iter()
+            .map(|(sign, idx)| encoded[sign as usize ^ [1, 1, 1, 0][idx >> log_q_by_8]])
+            .collect()
+    };
+    RlwePlaintext::new(lut, param.q / 2)
 }
 
 #[test]
-fn bootstrap() {
+fn bootstrap_nand() {
     fn run<R: RingOps>(modulus: impl Into<Modulus>, embedding_factor: usize) {
         let mut rng = StdLweRng::from_entropy();
         let param = test_param(modulus, embedding_factor);
@@ -122,8 +128,8 @@ fn bootstrap() {
         let sk = sk.into();
 
         let mut scratch = ScratchOwned::allocate(bs_key.param().scratch_bytes(ring, mod_ks));
-        let big_q_by_8 = ring.elem_from(ring.modulus().as_f64() / 8f64);
-        let nand_lut = nand_lut(ring, param.q, param.g);
+        let encoded_half = ring.elem_from(param.encoded_half());
+        let nand_lut = nand_lut(&param, ring);
         for m in 0..1 << 2 {
             let [a, b] = from_fn(|i| (m >> i) & 1 == 1);
             let ct_a = lwe.sk_encrypt(&sk, lwe.encode(a as _), &mut rng);
@@ -137,7 +143,7 @@ fn bootstrap() {
                 &nand_lut,
                 scratch.borrow_mut(),
             );
-            *ct.b_mut() = ring.add(ct.b(), &big_q_by_8);
+            *ct.b_mut() = ring.add(ct.b(), &encoded_half);
             assert_eq!(!(a & b) as u64, lwe.decode(lwe.decrypt(&sk, &ct)));
         }
     }

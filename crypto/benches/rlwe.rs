@@ -30,7 +30,7 @@ fn automorphism(c: &mut Criterion) {
             RlweAutoKey::allocate_eval(ring.ring_size(), ring.eval_size(), decomposition_param, 5);
         let mut ct = RlweCiphertext::allocate(ring.ring_size());
         auto_key
-            .as_ks_key_mut()
+            .ks_key_mut()
             .ct_iter_mut()
             .for_each(|mut ct| ring.sample_uniform_into(ct.as_mut(), &mut rng));
         ring.sample_uniform_into(ct.as_mut(), &mut rng);

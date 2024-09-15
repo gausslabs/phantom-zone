@@ -11,6 +11,7 @@ num-traits = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 rustfft = { workspace = true }
+unroll = { workspace = true }
 phantom-zone-derive = { path = "../derive" }
 
 # serde

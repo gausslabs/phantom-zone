@@ -79,9 +79,6 @@ pub fn prepare_bs_key<R: RingOps, T: Copy>(
 }
 
 /// Implementation of Figure 2 + Algorithm 7 in 2022/198.
-///
-/// Because we don't need `ak_{g^0}`, `ak_{-g}` is assumed to be stored in
-/// `ak[0]` from argument.
 pub fn bootstrap<'a, 'b, 'c, R: RingOps, M: ModulusOps>(
     ring: &R,
     mod_ks: &M,
@@ -113,7 +110,7 @@ pub fn bootstrap<'a, 'b, 'c, R: RingOps, M: ModulusOps>(
         izip_eq!(acc_b, f_auto_neg_g.as_ref()).for_each(|(b, a)| *b = *a);
     }
     let gb = bs_key.g() * *ct_ks_mod_switch.b() as usize;
-    ring.poly_mul_monomial(acc.b_mut(), (embedding_factor * gb) as _);
+    ring.poly_mul_assign_monomial(acc.b_mut(), (embedding_factor * gb) as _);
 
     blind_rotate_core(ring, &mut acc, bs_key, ct_ks_mod_switch.a(), scratch);
 
@@ -139,9 +136,6 @@ fn key_switch_mod_switch_odd<R: RingOps, M: ModulusOps>(
 }
 
 /// Implementation of Algorithm 3 in 2022/198.
-///
-/// Because we don't need `ak_{g^0}`, `ak_{-g}` is assumed to be stored in
-/// `ak[0]` from argument.
 fn blind_rotate_core<'a, R: RingOps, T>(
     ring: &R,
     acc: impl Into<RlweCiphertextMutView<'a, R::Elem>>,

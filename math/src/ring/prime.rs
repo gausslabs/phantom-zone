@@ -84,6 +84,7 @@ impl<T: Clone + Debug + Default + Send + Sync> ModulusOps for PrimeRing<T> {
         self.q.powers(a)
     }
 
+    #[inline(always)]
     fn inv(&self, a: &Self::Elem) -> Option<Self::Elem> {
         self.q.inv(a)
     }

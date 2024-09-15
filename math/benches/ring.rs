@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use phantom_zone_math::{
-    modulus::{Native, NonNativePowerOfTwo, Prime},
+    modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
@@ -9,7 +9,8 @@ use phantom_zone_math::{
 use rand::thread_rng;
 
 fn forward(c: &mut Criterion) {
-    fn runner<R: RingOps + 'static>(ring: R) -> Box<dyn FnMut()> {
+    fn runner<R: RingOps + 'static>(modulus: Modulus, ring_size: usize) -> Box<dyn FnMut()> {
+        let ring = <R as RingOps>::new(modulus, ring_size);
         let mut rng = thread_rng();
         let mut scratch = ring.allocate_scratch(0, 1, 0);
         let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
@@ -27,27 +28,27 @@ fn forward(c: &mut Criterion) {
         let runners = [
             ("noisy_native", {
                 let modulus = Native::native().into();
-                runner(NoisyNativeRing::new(modulus, ring_size))
+                runner::<NoisyNativeRing>(modulus, ring_size)
             }),
             ("noisy_non_native_power_of_two", {
                 let modulus = NonNativePowerOfTwo::new(50).into();
-                runner(NoisyNonNativePowerOfTwoRing::new(modulus, ring_size))
+                runner::<NoisyNonNativePowerOfTwoRing>(modulus, ring_size)
             }),
             ("native", {
                 let modulus = Native::native().into();
-                runner(NativeRing::new(modulus, ring_size))
+                runner::<NativeRing>(modulus, ring_size)
             }),
             ("non_native_power_of_two", {
                 let modulus = NonNativePowerOfTwo::new(50).into();
-                runner(NonNativePowerOfTwoRing::new(modulus, ring_size))
+                runner::<NonNativePowerOfTwoRing>(modulus, ring_size)
             }),
             ("noisy_prime", {
                 let modulus = Prime::gen(50, log_ring_size + 1).into();
-                runner(NoisyPrimeRing::new(modulus, ring_size))
+                runner::<NoisyPrimeRing>(modulus, ring_size)
             }),
             ("prime", {
                 let modulus = Prime::gen(50, log_ring_size + 1).into();
-                runner(PrimeRing::new(modulus, ring_size))
+                runner::<PrimeRing>(modulus, ring_size)
             }),
         ];
         for (name, mut runner) in runners {
@@ -58,7 +59,8 @@ fn forward(c: &mut Criterion) {
 }
 
 fn poly_mul(c: &mut Criterion) {
-    fn runner<R: RingOps + 'static>(ring: R) -> Box<dyn FnMut()> {
+    fn runner<R: RingOps + 'static>(modulus: Modulus, ring_size: usize) -> Box<dyn FnMut()> {
+        let ring = <R as RingOps>::new(modulus, ring_size);
         let mut rng = thread_rng();
         let mut scratch = black_box(ring.allocate_scratch(1, 2, 0));
         let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
@@ -76,27 +78,27 @@ fn poly_mul(c: &mut Criterion) {
         let runners = [
             ("noisy_native", {
                 let modulus = Native::native().into();
-                runner(NoisyNativeRing::new(modulus, ring_size))
+                runner::<NoisyNativeRing>(modulus, ring_size)
             }),
             ("noisy_non_native_power_of_two", {
                 let modulus = NonNativePowerOfTwo::new(50).into();
-                runner(NoisyNonNativePowerOfTwoRing::new(modulus, ring_size))
+                runner::<NoisyNonNativePowerOfTwoRing>(modulus, ring_size)
             }),
             ("native", {
                 let modulus = Native::native().into();
-                runner(NativeRing::new(modulus, ring_size))
+                runner::<NativeRing>(modulus, ring_size)
             }),
             ("non_native_power_of_two", {
                 let modulus = NonNativePowerOfTwo::new(50).into();
-                runner(NonNativePowerOfTwoRing::new(modulus, ring_size))
+                runner::<NonNativePowerOfTwoRing>(modulus, ring_size)
             }),
             ("noisy_prime", {
                 let modulus = Prime::gen(50, log_ring_size + 1).into();
-                runner(NoisyPrimeRing::new(modulus, ring_size))
+                runner::<NoisyPrimeRing>(modulus, ring_size)
             }),
             ("prime", {
                 let modulus = Prime::gen(50, log_ring_size + 1).into();
-                runner(PrimeRing::new(modulus, ring_size))
+                runner::<PrimeRing>(modulus, ring_size)
             }),
         ];
         for (name, mut runner) in runners {

@@ -46,10 +46,84 @@ macro_rules! izip_eq {
 pub mod dev {
     use core::iter::Sum;
     use num_traits::AsPrimitive;
+    use rand::{rngs::StdRng, SeedableRng};
+    use std::{env, time::Instant};
 
-    #[derive(Clone, Default)]
+    // Number of repetition for time-consuming tests taking more than 1 second.
+    pub fn time_consuming_test_repetition() -> usize {
+        env::var("PZ_TIME_CONSUMING_TEST_REPETITION")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10)
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct StatsSampler {
+        sample_size: usize,
+        timeout: u64,
+    }
+
+    impl Default for StatsSampler {
+        fn default() -> Self {
+            Self {
+                sample_size: env::var("PZ_STATS_SAMPLE_SIZE")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(1000000),
+                timeout: env::var("PZ_STATS_TIMEOUT")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(30),
+            }
+        }
+    }
+
+    impl StatsSampler {
+        pub fn sample_size(mut self, sample_size: usize) -> Self {
+            self.sample_size = sample_size;
+            self
+        }
+
+        pub fn timeout(mut self, timeout: u64) -> Self {
+            self.timeout = timeout;
+            self
+        }
+
+        pub fn without_timeout(mut self) -> Self {
+            self.timeout = u64::MAX;
+            self
+        }
+
+        pub fn sample<T, I: IntoIterator<Item = T>>(
+            self,
+            mut f: impl FnMut(&mut StdRng) -> I,
+        ) -> Stats<T> {
+            let mut rng = StdRng::from_entropy();
+            let mut stats = Stats::with_capacity(self.sample_size);
+            let start = Instant::now();
+            while start.elapsed().as_secs() < self.timeout && stats.samples.len() < self.sample_size
+            {
+                stats.extend(f(&mut rng))
+            }
+            stats
+        }
+    }
+
+    #[derive(Clone)]
     pub struct Stats<T> {
         samples: Vec<T>,
+    }
+
+    impl<T> Stats<T> {
+        pub fn with_capacity(capacity: usize) -> Self {
+            Self {
+                samples: Vec::with_capacity(capacity),
+            }
+        }
+
+        pub fn extend(&mut self, iter: impl IntoIterator<Item = T>) {
+            self.samples.extend(iter);
+        }
     }
 
     impl<T: AsPrimitive<f64> + for<'a> Sum<&'a T>> Stats<T> {
@@ -73,9 +147,13 @@ pub mod dev {
         pub fn log2_std_dev(&self) -> f64 {
             self.std_dev().log2()
         }
+    }
 
-        pub fn extend(&mut self, iter: impl IntoIterator<Item = T>) {
-            self.samples.extend(iter);
+    impl<T> FromIterator<T> for Stats<T> {
+        fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+            Self {
+                samples: iter.into_iter().collect(),
+            }
         }
     }
 }

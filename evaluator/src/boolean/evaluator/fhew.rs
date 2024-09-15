@@ -6,16 +6,13 @@ use itertools::{izip, Itertools};
 use phantom_zone_crypto::{
     core::{
         lwe::{
-            self, LweCiphertext, LweCiphertextMutView, LweCiphertextOwned, LweCiphertextView,
-            LweDecryptionShare, LwePlaintext, LweSecretKeyView,
+            self, LweCiphertext, LweCiphertextOwned, LweDecryptionShare, LwePlaintext,
+            LweSecretKeyView,
         },
         rlwe::{self, RlweCiphertext, RlwePlaintext, RlwePlaintextOwned, RlwePublicKeyView},
     },
     scheme::blind_rotation::lmkcdey::{self, LmkcdeyKeyOwned, LmkcdeyParam},
-    util::{
-        distribution::{NoiseDistribution, SecretDistribution},
-        rng::LweRng,
-    },
+    util::{distribution::NoiseDistribution, rng::LweRng},
 };
 use phantom_zone_math::{
     izip_eq,
@@ -45,10 +42,10 @@ impl<E> FhewBoolCiphertext<E> {
     }
 
     pub fn sk_encrypt<'a, R, T>(
+        param: &LmkcdeyParam,
         ring: &R,
         sk: impl Into<LweSecretKeyView<'a, T>>,
         m: bool,
-        noise_distribution: NoiseDistribution,
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> Self
     where
@@ -58,32 +55,30 @@ impl<E> FhewBoolCiphertext<E> {
     {
         let pt = LwePlaintext(encode(ring, m));
         let mut ct = Self::allocate(ring.ring_size());
-        lwe::sk_encrypt(ring, &mut ct.0, sk, pt, noise_distribution, rng);
+        lwe::sk_encrypt(ring, &mut ct.0, sk, pt, param.noise_distribution, rng);
         ct
     }
 
     pub fn pk_encrypt<'a, R: RingOps<Elem = E>>(
+        param: &LmkcdeyParam,
         ring: &R,
         pk: impl Into<RlwePublicKeyView<'a, E>>,
         m: bool,
-        u_distribution: SecretDistribution,
-        noise_distribution: NoiseDistribution,
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> Self
     where
         E: 'a + Copy + Default,
     {
-        Self::batched_pk_encrypt(ring, pk, [m], u_distribution, noise_distribution, rng)
+        Self::batched_pk_encrypt(param, ring, pk, [m], rng)
             .pop()
             .unwrap()
     }
 
     pub fn batched_pk_encrypt<'a, R: RingOps<Elem = E>>(
+        param: &LmkcdeyParam,
         ring: &R,
         pk: impl Into<RlwePublicKeyView<'a, E>>,
         ms: impl IntoIterator<Item = bool>,
-        u_distribution: SecretDistribution,
-        noise_distribution: NoiseDistribution,
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> Vec<Self>
     where
@@ -91,7 +86,7 @@ impl<E> FhewBoolCiphertext<E> {
     {
         let pk = pk.into();
         let ms = ms.into_iter().collect_vec();
-        let big_q_by_4 = encode(ring, true);
+        let encoded_one = encode(ring, true);
         let mut cts = vec![Self::allocate(ring.ring_size()); ms.len()];
         let mut pt = RlwePlaintext::allocate(ring.ring_size());
         let mut ct_rlwe = RlweCiphertext::allocate(ring.ring_size());
@@ -101,18 +96,15 @@ impl<E> FhewBoolCiphertext<E> {
             ms.chunks(ring.ring_size()),
         )
         .for_each(|(cts, ms)| {
-            izip!(pt.as_mut(), ms).for_each(|(pt, m)| {
-                if *m {
-                    *pt = big_q_by_4;
-                }
-            });
+            izip!(pt.as_mut(), ms)
+                .for_each(|(pt, m)| *pt = if *m { encoded_one } else { ring.zero() });
             rlwe::pk_encrypt(
                 ring,
                 &mut ct_rlwe,
                 pk,
                 &pt,
-                u_distribution,
-                noise_distribution,
+                param.u_distribution,
+                param.noise_distribution,
                 scratch.borrow_mut(),
                 rng,
             );
@@ -176,38 +168,32 @@ fn decode<R: RingOps>(ring: &R, pt: R::Elem) -> bool {
 pub struct FhewBoolEvaluator<R: RingOps, M: ModulusOps> {
     ring: R,
     mod_ks: M,
-    big_q_by_4: R::Elem,
-    big_q_by_8: R::Elem,
     bs_key: LmkcdeyKeyOwned<R::EvalPrep, M::Elem>,
     /// Contains tables for AND, NAND, OR (XOR), NOR (XNOR).
-    luts: [RlwePlaintextOwned<R::Elem>; 4],
+    tables: [RlwePlaintextOwned<R::Elem>; 4],
+    encoded_one: R::Elem,
+    encoded_half: R::Elem,
     scratch_bytes: usize,
 }
 
 impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
     pub fn new(bs_key: LmkcdeyKeyOwned<R::EvalPrep, M::Elem>) -> Self {
+        assert_eq!(bs_key.param().message_bits, 2);
         let param = bs_key.param();
         let ring = <R as RingOps>::new(param.modulus, param.ring_size);
         let mod_ks = M::new(param.lwe_modulus);
-        let big_q_by_4 = ring.elem_from(param.modulus.as_f64() / 4f64);
-        let big_q_by_8 = ring.elem_from(param.modulus.as_f64() / 8f64);
-        let luts = {
-            let auto_map = AutomorphismMap::new(param.q / 2, param.q - param.g);
-            let lut_value = [big_q_by_8, ring.neg(&big_q_by_8)];
-            let log_q_by_8 = (param.q / 8).ilog2() as usize;
-            [[1, 1, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 1, 1]].map(|lut| {
-                let f = |(sign, idx)| lut_value[sign as usize ^ lut[idx >> log_q_by_8]];
-                RlwePlaintext::new(auto_map.iter().map(f).collect(), param.q / 2)
-            })
-        };
+        let encoded_one = ring.elem_from(param.encoded_one());
+        let encoded_half = ring.elem_from(param.encoded_half());
+        let tables = [[0, 0, 0, 1], [1, 1, 1, 0], [0, 1, 1, 1], [1, 0, 0, 0]]
+            .map(|table| binary_lut(param, &ring, table));
         let scratch_bytes = param.scratch_bytes(&ring, &mod_ks);
         Self {
             ring,
             mod_ks,
-            big_q_by_4,
-            big_q_by_8,
             bs_key,
-            luts,
+            tables,
+            encoded_one,
+            encoded_half,
             scratch_bytes,
         }
     }
@@ -224,28 +210,28 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         &self.mod_ks
     }
 
-    fn bitop_assign<const XOR: bool>(
+    fn binary_op_assign<const XOR: bool>(
         &self,
-        lut_idx: usize,
-        mut a: LweCiphertextMutView<R::Elem>,
-        b: LweCiphertextView<R::Elem>,
+        table_idx: usize,
+        a: &mut FhewBoolCiphertext<R::Elem>,
+        b: &FhewBoolCiphertext<R::Elem>,
     ) {
+        let (mut a, b) = (a.0.as_mut_view(), b.0.as_view());
         if XOR {
             self.ring.slice_sub_assign(a.as_mut(), b.as_ref());
             self.ring.slice_double_assign(a.as_mut());
         } else {
             self.ring.slice_add_assign(a.as_mut(), b.as_ref())
         }
-        let lut = &self.luts[lut_idx];
         lmkcdey::bootstrap(
-            &self.ring,
-            &self.mod_ks,
+            self.ring(),
+            self.mod_ks(),
             &mut a,
             &self.bs_key,
-            lut,
+            &self.tables[table_idx],
             ScratchOwned::allocate(self.scratch_bytes).borrow_mut(),
         );
-        self.ring.add_assign(a.b_mut(), &self.big_q_by_8);
+        self.ring.add_assign(a.b_mut(), &self.encoded_half);
     }
 }
 
@@ -254,32 +240,49 @@ impl<R: RingOps, M: ModulusOps> BoolEvaluator for FhewBoolEvaluator<R, M> {
 
     fn bitnot_assign(&self, a: &mut Self::Ciphertext) {
         self.ring.slice_neg_assign(a.0.as_mut());
-        self.ring.add_assign(a.0.b_mut(), &self.big_q_by_4);
+        self.ring.add_assign(a.0.b_mut(), &self.encoded_one);
     }
 
     fn bitand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(0, a.0.as_mut_view(), b.0.as_view())
+        self.binary_op_assign::<false>(0, a, b)
     }
 
     fn bitnand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(1, a.0.as_mut_view(), b.0.as_view())
+        self.binary_op_assign::<false>(1, a, b)
     }
 
     fn bitor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(2, a.0.as_mut_view(), b.0.as_view())
+        self.binary_op_assign::<false>(2, a, b)
     }
 
     fn bitnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<false>(3, a.0.as_mut_view(), b.0.as_view())
+        self.binary_op_assign::<false>(3, a, b)
     }
 
     fn bitxor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<true>(2, a.0.as_mut_view(), b.0.as_view())
+        self.binary_op_assign::<true>(2, a, b)
     }
 
     fn bitxnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext) {
-        self.bitop_assign::<true>(3, a.0.as_mut_view(), b.0.as_view())
+        self.binary_op_assign::<true>(3, a, b)
     }
+}
+
+fn binary_lut<R: RingOps>(
+    param: &FhewBoolParam,
+    ring: &R,
+    table: [usize; 4],
+) -> RlwePlaintextOwned<R::Elem> {
+    let lut = {
+        let encoded_half = ring.elem_from(param.encoded_half());
+        let encoded = [ring.neg(&encoded_half), encoded_half];
+        let log_q_by_8 = (param.q / 8).ilog2() as usize;
+        AutomorphismMap::new(param.q / 2, param.q - param.g)
+            .iter()
+            .map(|(sign, idx)| encoded[sign as usize ^ table[idx >> log_q_by_8]])
+            .collect()
+    };
+    RlwePlaintext::new(lut, param.q / 2)
 }
 
 #[cfg(any(test, feature = "dev"))]
@@ -333,14 +336,11 @@ mod test {
     use core::array::from_fn;
     use phantom_zone_crypto::{
         core::{lwe::LweSecretKeyOwned, rgsw::RgswDecompositionParam},
-        util::{
-            distribution::{NoiseDistribution, SecretDistribution},
-            rng::StdLweRng,
-        },
+        util::{distribution::SecretDistribution, rng::StdLweRng},
     };
     use phantom_zone_math::{
         decomposer::DecompositionParam,
-        distribution::Gaussian,
+        distribution::{Gaussian, Ternary},
         modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
         ring::{
             NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
@@ -351,13 +351,15 @@ mod test {
 
     type FhewBoolEvaluator<R> = fhew::FhewBoolEvaluator<R, NonNativePowerOfTwoRing>;
 
-    fn test_param(big_q: impl Into<Modulus>) -> LmkcdeyParam {
+    fn test_param(modulus: impl Into<Modulus>) -> LmkcdeyParam {
         let ring_size = 1024;
         LmkcdeyParam {
-            modulus: big_q.into(),
+            message_bits: 2,
+            modulus: modulus.into(),
             ring_size,
             sk_distribution: Gaussian(3.19).into(),
             noise_distribution: Gaussian(3.19).into(),
+            u_distribution: Ternary.into(),
             auto_decomposition_param: DecompositionParam {
                 log_base: 24,
                 level: 1,
@@ -386,13 +388,13 @@ mod test {
     }
 
     fn encrypt<R: RingOps>(
+        param: &LmkcdeyParam,
         ring: &R,
         sk: &LweSecretKeyOwned<i32>,
         m: bool,
-        noise_distribution: NoiseDistribution,
     ) -> FhewBoolCiphertext<R::Elem> {
         let mut rng = StdLweRng::from_entropy();
-        FhewBoolCiphertext::sk_encrypt(ring, sk, m, noise_distribution, &mut rng)
+        FhewBoolCiphertext::sk_encrypt(param, ring, sk, m, &mut rng)
     }
 
     #[test]
@@ -402,7 +404,7 @@ mod test {
             let sk = sk_gen(param.ring_size, param.sk_distribution);
             for _ in 0..100 {
                 for m in [false, true] {
-                    let ct = encrypt(&ring, &sk, m, param.noise_distribution);
+                    let ct = encrypt(&param, &ring, &sk, m);
                     assert_eq!(m, ct.decrypt(&ring, &sk))
                 }
             }
@@ -421,13 +423,13 @@ mod test {
         fn run<R: RingOps>(param: LmkcdeyParam) {
             let sk = sk_gen(param.ring_size, param.sk_distribution);
             let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, thread_rng());
-            let encrypt = |m| encrypt(&evaluator.ring, &sk, m, param.noise_distribution);
+            let encrypt = |m| encrypt(evaluator.param(), evaluator.ring(), &sk, m);
             macro_rules! assert_decrypted_to {
                 ($ct_a:ident.$op:ident($($ct_b:ident)?), $c:expr) => {
                     paste::paste! {
                         let mut ct_a = $ct_a.clone();
                         evaluator.[<$op _assign>](&mut ct_a $(, $ct_b)?);
-                        assert_eq!(ct_a.decrypt(&evaluator.ring, &sk), $c);
+                        assert_eq!(ct_a.decrypt(evaluator.ring(), &sk), $c);
                     }
                 };
             }
@@ -461,7 +463,7 @@ mod test {
         fn run<R: RingOps>(param: LmkcdeyParam) {
             let sk = sk_gen(param.ring_size, param.sk_distribution);
             let evaluator = FhewBoolEvaluator::<R>::sample(param, &sk, thread_rng());
-            let encrypt = |m| encrypt(&evaluator.ring, &sk, m, param.noise_distribution);
+            let encrypt = |m| encrypt(evaluator.param(), evaluator.ring(), &sk, m);
             macro_rules! assert_decrypted_to {
                 ($ct_a:ident.$op:ident($ct_b:ident $(, $ct_c:ident)?), $c:expr) => {
                     paste::paste! {
@@ -469,8 +471,8 @@ mod test {
                         let ct_d = evaluator.[<$op _assign>](&mut ct_a, $ct_b $(, $ct_c)?);
                         assert_eq!(
                             (
-                                ct_a.decrypt(&evaluator.ring, &sk),
-                                ct_d.decrypt(&evaluator.ring, &sk),
+                                ct_a.decrypt(evaluator.ring(), &sk),
+                                ct_d.decrypt(evaluator.ring(), &sk),
                             ),
                             $c,
                         );

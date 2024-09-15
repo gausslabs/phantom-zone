@@ -238,7 +238,7 @@ pub trait RingOps: ModulusOps {
         }
     }
 
-    fn poly_mul_monomial(&self, a: &mut [Self::Elem], exp: i64) {
+    fn poly_mul_assign_monomial(&self, a: &mut [Self::Elem], exp: i64) {
         let exp = exp.rem_euclid(2 * self.ring_size() as i64) as usize;
         a.rotate_right(exp & (self.ring_size() - 1));
         if exp < self.ring_size() {

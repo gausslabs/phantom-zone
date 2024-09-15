@@ -39,8 +39,8 @@ pub trait Decomposer<T: 'static + Copy + Debug + Send + Sync>: Clone + Debug + S
 
     fn decompose_next(&self, a: &mut T) -> T;
 
-    fn decompose_iter(&self, a: &T) -> impl Iterator<Item = T> {
-        let mut a = self.round(a);
+    fn decompose_iter(&self, a: impl Borrow<T>) -> impl Iterator<Item = T> {
+        let mut a = self.round(a.borrow());
         (0..self.level()).map(move |_| self.decompose_next(&mut a))
     }
 
@@ -240,7 +240,7 @@ mod test {
             PrimeDecomposer,
         },
         modulus::{ModulusOps, Native, NonNativePowerOfTwo, Prime},
-        util::dev::Stats,
+        util::dev::StatsSampler,
     };
     use rand::thread_rng;
 
@@ -304,19 +304,17 @@ mod test {
     #[test]
     fn decompose_stats() {
         fn run<D: Decomposer<u64>>(modulus: impl ModulusOps<Elem = u64>) {
-            let mut stats = Stats::default();
-
             let param = DecompositionParam {
                 log_base: 10,
                 level: 5,
             };
             let decomposer = D::new(modulus.modulus(), param);
-
-            for a in modulus.sample_uniform_iter(thread_rng()).take(10000000) {
-                stats.extend(decomposer.decompose_iter(&a).map(|v| modulus.to_i64(v)));
-            }
-
-            // Signed decomposition outputs limbs uniformly distributed in range [-B/2, B/2). The distribution must have mean nearly 0 and stanadrd deviation \sqrt{B^2 / 12}.
+            let stats = StatsSampler::default().sample_size(10000000).sample(|rng| {
+                let a = modulus.sample_uniform(rng);
+                decomposer.decompose_iter(a).map(|v| modulus.to_i64(v))
+            });
+            // Signed decomposition outputs limbs uniformly distributed in range [-B/2, B/2).
+            // The distribution must have mean nearly 0 and stanadrd deviation \sqrt{B^2 / 12}.
             assert!(stats.mean().abs() < 0.5);
             assert!(
                 stats.log2_std_dev() - (2f64.powi(2 * param.log_base as i32) / 12.0).sqrt().log2()

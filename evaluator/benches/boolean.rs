@@ -10,7 +10,7 @@ use phantom_zone_evaluator::boolean::evaluator::{
 };
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    distribution::Gaussian,
+    distribution::{Gaussian, Ternary},
     modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
     ring::{
         NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing, NonNativePowerOfTwoRing,
@@ -30,19 +30,21 @@ fn fhew(c: &mut Criterion) {
         let cts = (0..2000)
             .map(|_| {
                 let m = rng.gen_bool(0.5);
-                FhewBoolCiphertext::sk_encrypt(&ring, &sk, m, param.noise_distribution, &mut rng)
+                FhewBoolCiphertext::sk_encrypt(&param, &ring, &sk, m, &mut rng)
             })
             .collect_vec();
         let mut cts = cts.into_iter();
         Box::new(move || evaluator.bitnand_assign(&mut cts.next().unwrap(), &cts.next().unwrap()))
     }
 
-    fn test_param(big_q: impl Into<Modulus>, ring_size: usize, q: usize) -> FhewBoolParam {
+    fn test_param(modulus: impl Into<Modulus>, ring_size: usize, q: usize) -> FhewBoolParam {
         FhewBoolParam {
-            modulus: big_q.into(),
+            message_bits: 2,
+            modulus: modulus.into(),
             ring_size,
             sk_distribution: Gaussian(3.19).into(),
             noise_distribution: Gaussian(3.19).into(),
+            u_distribution: Ternary.into(),
             auto_decomposition_param: DecompositionParam {
                 log_base: 24,
                 level: 1,

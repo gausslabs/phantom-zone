@@ -14,14 +14,15 @@ use crate::{
 };
 use itertools::Itertools;
 use phantom_zone_math::{
-    decomposer::DecompositionParam,
+    decomposer::{Decomposer, DecompositionParam},
     distribution::{DistributionVariance, Gaussian, Sampler, Ternary},
+    izip_eq,
     modulus::{Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime},
     ring::{
         NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,
         NonNativePowerOfTwoRing, PrimeRing, RingOps,
     },
-    util::dev::Stats,
+    util::dev::StatsSampler,
 };
 use rand::{RngCore, SeedableRng};
 
@@ -322,6 +323,37 @@ impl<R: RingOps> Rlwe<R> {
         let to_i64 = |pt: &_| self.ring().to_i64(*pt);
         pt_noisy.as_ref().iter().map(to_i64).collect()
     }
+
+    pub fn noise_ks_key(
+        &self,
+        sk_from: &RlweSecretKeyOwned<i32>,
+        sk_to: &RlweSecretKeyOwned<i32>,
+        ks_key: &RlweKeySwitchKeyOwned<R::Elem>,
+    ) -> Vec<Vec<i64>> {
+        let ring = self.ring();
+        let decomposer = R::Decomposer::new(ring.modulus(), ks_key.decomposition_param());
+        let mut pt = RlwePlaintext::allocate(self.ring_size());
+        ring.slice_elem_from(pt.as_mut(), sk_from.as_ref());
+        izip_eq!(ks_key.ct_iter(), decomposer.gadget_iter())
+            .map(|(ks_key_i, beta_i)| {
+                let mut pt = pt.clone();
+                ring.slice_scalar_mul_assign(pt.as_mut(), &ring.neg(&beta_i));
+                self.noise(sk_to, &pt, &ks_key_i.cloned())
+            })
+            .collect()
+    }
+
+    pub fn noise_auto_key(
+        &self,
+        sk: &RlweSecretKeyOwned<i32>,
+        auto_key: &RlweAutoKeyOwned<R::Elem>,
+    ) -> Vec<Vec<i64>> {
+        let sk_auto = RlweSecretKey::new(
+            auto_key.auto_map().apply(sk.as_ref(), |&v| -v).collect(),
+            self.ring_size(),
+        );
+        self.noise_ks_key(&sk_auto, sk, &auto_key.ks_key().cloned())
+    }
 }
 
 pub fn test_param(ciphertext_modulus: impl Into<Modulus>) -> RlweParam {
@@ -454,26 +486,30 @@ fn noise_stats() {
         let rlwe = param.build::<R>();
         let sk = rlwe.sk_gen(&mut rng);
         let pk = rlwe.pk_gen(&sk, &mut rng);
-        let mut noise_ct_sk = Stats::default();
-        let mut noise_ct_pk = Stats::default();
-        for _ in 0..10000 {
+        let noise_ct_sk = StatsSampler::default().sample(|_| {
             let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
             let pt = rlwe.encode(&m);
             let ct_sk = rlwe.sk_encrypt(&sk, &pt, &mut rng);
+            rlwe.noise(&sk, &pt, &ct_sk)
+        });
+        let noise_ct_pk = StatsSampler::default().sample(|_| {
+            let m = rlwe.message_ring.sample_uniform_poly(&mut rng);
+            let pt = rlwe.encode(&m);
             let ct_pk = rlwe.pk_encrypt(&pk, &pt, &mut rng);
-            noise_ct_sk.extend(rlwe.noise(&sk, &pt, &ct_sk));
-            noise_ct_pk.extend(rlwe.noise(&sk, &pt, &ct_pk));
-        }
+            rlwe.noise(&sk, &pt, &ct_pk)
+        });
 
         let ring_size = param.ring_size as f64;
-        let var_sk = param.sk_distribution.variance();
         let var_noise = param.noise_distribution.variance();
-        let var_noise_ct_pk =
-            ring_size * var_sk * var_noise + (ring_size * var_sk + 1.0) * var_noise;
+        let var_u = param.u_distribution.variance();
+        let var_sk = param.sk_distribution.variance();
+        let var_noise_pk = var_noise;
+        let var_noise_ct_sk = var_noise;
+        let var_noise_ct_pk = ring_size * (var_u * var_noise_pk + var_sk * var_noise) + var_noise;
         assert_eq!(noise_ct_sk.mean().round(), 0.0);
-        assert!((noise_ct_sk.log2_std_dev() - var_noise.sqrt().log2()).abs() < 0.01);
+        assert!((noise_ct_sk.log2_std_dev() - var_noise_ct_sk.sqrt().log2()).abs() < 0.01);
         assert_eq!(noise_ct_pk.mean().round(), 0.0);
-        assert!(noise_ct_pk.log2_std_dev() < var_noise_ct_pk.sqrt().log2());
+        assert!((noise_ct_pk.log2_std_dev() - var_noise_ct_pk.sqrt().log2()).abs() < 0.2);
     }
 
     run::<NativeRing>(test_param(Native::native()));

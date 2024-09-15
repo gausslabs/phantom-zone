@@ -286,7 +286,7 @@ impl<S: AsSlice> RlwePublicKey<S> {
         self.0.a_b()
     }
 
-    pub fn as_ct(&self) -> RlweCiphertextView<S::Elem> {
+    pub fn ct(&self) -> RlweCiphertextView<S::Elem> {
         self.0.as_view()
     }
 }
@@ -304,7 +304,7 @@ impl<S: AsMutSlice> RlwePublicKey<S> {
         self.0.a_b_mut()
     }
 
-    pub fn as_ct_mut(&mut self) -> RlweCiphertextMutView<S::Elem> {
+    pub fn ct_mut(&mut self) -> RlweCiphertextMutView<S::Elem> {
         self.0.as_mut_view()
     }
 }
@@ -429,7 +429,7 @@ impl<S: AsSlice, A: Borrow<AutomorphismMap>> RlweAutoKey<S, A> {
         RlweAutoKey::new(self.ks_key.as_view(), self.auto_map())
     }
 
-    pub fn as_ks_key(&self) -> RlweKeySwitchKeyView<S::Elem> {
+    pub fn ks_key(&self) -> RlweKeySwitchKeyView<S::Elem> {
         self.ks_key.as_view()
     }
 
@@ -457,7 +457,7 @@ impl<S: AsMutSlice, A: Borrow<AutomorphismMap>> RlweAutoKey<S, A> {
         RlweAutoKey::new(self.ks_key.as_mut_view(), self.auto_map.borrow())
     }
 
-    pub fn as_ks_key_mut(&mut self) -> RlweKeySwitchKeyMutView<S::Elem> {
+    pub fn ks_key_mut(&mut self) -> RlweKeySwitchKeyMutView<S::Elem> {
         self.ks_key.as_mut_view()
     }
 
@@ -663,13 +663,13 @@ impl<S: AsSlice> SeededRlwePublicKey<S> {
         self.0.b()
     }
 
-    pub fn as_ct(&self) -> SeededRlweCiphertextView<S::Elem> {
+    pub fn ct(&self) -> SeededRlweCiphertextView<S::Elem> {
         self.0.as_view()
     }
 }
 
 impl<S: AsMutSlice> SeededRlwePublicKey<S> {
-    pub fn as_ct_mut(&mut self) -> SeededRlweCiphertextMutView<S::Elem> {
+    pub fn ct_mut(&mut self) -> SeededRlweCiphertextMutView<S::Elem> {
         self.0.as_mut_view()
     }
 }
@@ -759,13 +759,13 @@ impl<S> SeededRlweAutoKey<S> {
 }
 
 impl<S: AsSlice> SeededRlweAutoKey<S> {
-    pub fn as_ks_key(&self) -> SeededRlweKeySwitchKeyView<S::Elem> {
+    pub fn ks_key(&self) -> SeededRlweKeySwitchKeyView<S::Elem> {
         self.ks_key.as_view()
     }
 }
 
 impl<S: AsMutSlice> SeededRlweAutoKey<S> {
-    pub fn as_ks_key_mut(&mut self) -> SeededRlweKeySwitchKeyMutView<S::Elem> {
+    pub fn ks_key_mut(&mut self) -> SeededRlweKeySwitchKeyMutView<S::Elem> {
         self.ks_key.as_mut_view()
     }
 }

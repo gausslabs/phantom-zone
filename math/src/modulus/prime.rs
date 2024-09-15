@@ -9,11 +9,6 @@ use num_traits::ToPrimitive;
 use rand::distributions::{Distribution, Uniform};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(into = "SerdePrime", from = "SerdePrime")
-)]
 pub struct Prime {
     q: u64,
     q_half: u64,
@@ -25,6 +20,7 @@ pub struct Prime {
 impl Prime {
     pub const fn new(q: u64) -> Self {
         assert!(q > 1);
+        assert!(q.next_power_of_two().ilog2() <= 62);
         let log_q = q.next_power_of_two().ilog2() as usize;
         let barrett_mu = (1u128 << (log_q * 2 + 3)) / (q as u128);
         let barrett_alpha = log_q + 3;
@@ -130,9 +126,14 @@ impl Prime {
     }
 
     pub fn gen_iter(bits: usize, two_adicity: usize) -> impl Iterator<Item = Self> {
+        assert!(bits <= 62);
         assert!(bits > two_adicity);
-        let min = 1 << (bits - two_adicity - 1);
-        let max = min << 1;
+        let min = 1u64 << (bits - two_adicity - 1);
+        let max = if min.leading_zeros() == 0 {
+            u64::MAX
+        } else {
+            min << 1
+        };
         let candidates = (min..max).rev().map(move |hi| (hi << two_adicity) + 1);
         candidates
             .into_iter()
@@ -302,18 +303,27 @@ impl Sampler for Prime {}
 
 impl From<Prime> for Modulus {
     fn from(value: Prime) -> Self {
-        Self::Prime(value)
+        Self::Prime(value.q)
     }
 }
 
 impl TryFrom<Modulus> for Prime {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: Modulus) -> Result<Self, Self::Error> {
-        if let Modulus::Prime(prime) = value {
-            Ok(prime)
-        } else {
-            Err(())
+        match value {
+            Modulus::Prime(prime) => {
+                if (1..1 << 62).contains(&prime) {
+                    Ok(Self::new(prime))
+                } else {
+                    Err(format!(
+                        "unsupported prime `{prime}`, expected in range `1..1 << 62`"
+                    ))
+                }
+            }
+            _ => Err(format!(
+                "invalid modulus `{value:?}`, expected `Modulus::Prime(prime)`"
+            )),
         }
     }
 }
@@ -350,24 +360,4 @@ impl Shoup {
 #[cfg(any(test, feature = "dev"))]
 pub(crate) fn is_prime(q: u64) -> bool {
     num_bigint_dig::prime::probably_prime(&(q).into(), 20)
-}
-
-#[cfg(feature = "serde")]
-#[derive(serde::Serialize, serde::Deserialize)]
-struct SerdePrime {
-    q: u64,
-}
-
-#[cfg(feature = "serde")]
-impl From<SerdePrime> for Prime {
-    fn from(value: SerdePrime) -> Self {
-        Self::new(value.q)
-    }
-}
-
-#[cfg(feature = "serde")]
-impl From<Prime> for SerdePrime {
-    fn from(value: Prime) -> Self {
-        Self { q: value.q }
-    }
 }

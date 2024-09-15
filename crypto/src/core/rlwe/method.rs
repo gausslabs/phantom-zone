@@ -39,7 +39,7 @@ pub fn pk_gen<'a, 'b, R, T>(
 {
     sk_encrypt_zero(
         ring,
-        pk.into().as_ct_mut(),
+        pk.into().ct_mut(),
         sk,
         noise_distribution,
         scratch,
@@ -296,8 +296,8 @@ pub fn prepare_auto_key<'a, 'b, R: RingOps>(
 ) {
     prepare_ks_key(
         ring,
-        auto_key_prep.into().as_ks_key_mut(),
-        auto_key.into().as_ks_key(),
+        auto_key_prep.into().ks_key_mut(),
+        auto_key.into().ks_key(),
         scratch,
     );
 }
@@ -410,7 +410,7 @@ pub fn seeded_pk_gen<'a, 'b, R, T>(
 {
     let mut t = RlwePublicKey::scratch(ring.ring_size(), ring.ring_size(), &mut scratch);
     pk_gen(ring, &mut t, sk, noise_distribution, scratch, rng);
-    pk.into().as_ct_mut().b_mut().copy_from_slice(t.b());
+    pk.into().ct_mut().b_mut().copy_from_slice(t.b());
 }
 
 fn seeded_ks_key_gen_inner<R, T>(
@@ -448,7 +448,7 @@ pub fn seeded_auto_key_gen<'a, 'b, R, T>(
 {
     let (mut auto_key_seeded, sk) = (auto_key_seeded.into(), sk.into());
     let auto_map = AutomorphismMap::new(ring.ring_size(), auto_key_seeded.k());
-    let ks_key = auto_key_seeded.as_ks_key_mut();
+    let ks_key = auto_key_seeded.ks_key_mut();
     let sk_auto = scratch.copy_iter(auto_map.apply(sk.as_ref(), |&v| -v));
     seeded_ks_key_gen_inner(ring, ks_key, sk_auto, sk, noise_distribution, scratch, rng);
 }
@@ -470,7 +470,7 @@ pub fn unseed_pk<'a, 'b, R: RingOps>(
     pk_seeded: impl Into<SeededRlwePublicKeyView<'b, R::Elem>>,
     rng: &mut LweRng<(), impl RngCore>,
 ) {
-    unseed_ct(ring, pk.into().as_ct_mut(), pk_seeded.into().as_ct(), rng);
+    unseed_ct(ring, pk.into().ct_mut(), pk_seeded.into().ct(), rng);
 }
 
 pub fn unseed_ks_key<'a, 'b, R: RingOps>(
@@ -491,8 +491,8 @@ pub fn unseed_auto_key<'a, 'b, R: RingOps>(
 ) {
     unseed_ks_key(
         ring,
-        auto_key.into().as_ks_key_mut(),
-        auto_key_seeded.into().as_ks_key(),
+        auto_key.into().ks_key_mut(),
+        auto_key_seeded.into().ks_key(),
         rng,
     )
 }
