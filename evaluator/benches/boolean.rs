@@ -1,21 +1,8 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use itertools::Itertools;
-use phantom_zone_crypto::{
-    core::{lwe::LweSecretKey, rgsw::RgswDecompositionParam},
-    util::rng::StdLweRng,
-};
-use phantom_zone_evaluator::boolean::evaluator::{
-    fhew::{self, FhewBoolCiphertext, FhewBoolParam},
+use phantom_zone_evaluator::boolean::{
+    fhew::{self, prelude::*},
     BoolEvaluator,
-};
-use phantom_zone_math::{
-    decomposer::DecompositionParam,
-    distribution::{Gaussian, Ternary},
-    modulus::{Modulus, Native, NonNativePowerOfTwo, Prime},
-    ring::{
-        NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing, NonNativePowerOfTwoRing,
-        PrimeRing, RingOps,
-    },
 };
 use rand::{Rng, SeedableRng};
 

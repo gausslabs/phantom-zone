@@ -15,9 +15,15 @@ phantom-zone-math = { path = "../math" }
 serde = { workspace = true, optional = true, features = ["derive"] }
 
 [dev-dependencies]
-criterion = { workspace = true }
-num-traits = { workspace = true }
 phantom-zone-crypto = { path = "../crypto", features = ["dev"] }
+
+# bench
+criterion = { workspace = true }
+
+# example
+bincode = { workspace = true }
+num-traits = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 [features]
 default = []
@@ -32,3 +38,7 @@ required-features = ["dev"]
 [[example]]
 name = "single_party"
 required-features = ["dev"]
+
+[[example]]
+name = "multi_party"
+required-features = ["serde", "dev"]

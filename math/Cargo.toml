@@ -22,9 +22,11 @@ serde_bytes = { workspace = true, optional = true }
 bincode = { workspace = true, optional = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
 num-bigint-dig = { workspace = true, features = ["prime"] }
 rand = { workspace = true, features = ["std"] }
+
+# bench
+criterion = { workspace = true }
 
 [features]
 default = []

@@ -110,19 +110,10 @@ fn bootstrap_nand() {
         let sk = rgsw.rlwe().sk_gen(&mut rng);
         let sk_ks = lwe_ks.sk_gen(&mut rng);
         let bs_key = {
-            let mut scratch = ring.allocate_scratch(0, 3, 0);
             let mut bs_key = LmkcdeyKey::allocate(param);
-            lmkcdey::bs_key_gen(
-                ring,
-                mod_ks,
-                &mut bs_key,
-                &sk,
-                &sk_ks,
-                scratch.borrow_mut(),
-                &mut rng,
-            );
+            lmkcdey::bs_key_gen(ring, mod_ks, &mut bs_key, &sk, &sk_ks, &mut rng);
             let mut bs_key_prep = LmkcdeyKey::allocate_eval(*bs_key.param(), ring.eval_size());
-            lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
+            lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key);
             bs_key_prep
         };
         let sk = sk.into();
@@ -174,19 +165,10 @@ fn serialize_deserialize() {
         let sk = rgsw.rlwe().sk_gen(&mut rng);
         let sk_ks = lwe_ks.sk_gen(&mut rng);
         let (bs_key, bs_key_prep) = {
-            let mut scratch = ring.allocate_scratch(0, 3, 0);
             let mut bs_key = LmkcdeyKey::allocate(param);
-            lmkcdey::bs_key_gen(
-                ring,
-                mod_ks,
-                &mut bs_key,
-                &sk,
-                &sk_ks,
-                scratch.borrow_mut(),
-                &mut rng,
-            );
+            lmkcdey::bs_key_gen(ring, mod_ks, &mut bs_key, &sk, &sk_ks, &mut rng);
             let mut bs_key_prep = LmkcdeyKey::allocate_eval(*bs_key.param(), ring.eval_size());
-            lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key, scratch.borrow_mut());
+            lmkcdey::prepare_bs_key(ring, &mut bs_key_prep, &bs_key);
             (bs_key, bs_key_prep)
         };
         assert_serde_eq(&sk);

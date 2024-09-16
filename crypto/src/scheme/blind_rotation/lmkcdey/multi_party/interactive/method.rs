@@ -8,56 +8,58 @@ use crate::{
         },
     },
     scheme::blind_rotation::lmkcdey::{
-        interactive::structure::{
-            LmkcdeyInteractiveCrs, LmkcdeyInteractiveKeyShareOwned, LmkcdeyInteractiveParam,
-        },
+        interactive::structure::{LmkcdeyMpiCrs, LmkcdeyMpiKeyShareOwned, LmkcdeyMpiParam},
         structure::LmkcdeyKeyOwned,
     },
+    util::rng::HierarchicalSeedableRng,
 };
-use core::{
-    fmt::Debug,
-    ops::{Deref, Neg},
-};
+use core::ops::{Deref, Neg};
 use itertools::izip;
 use num_traits::AsPrimitive;
 use phantom_zone_math::{
     izip_eq,
     modulus::{ElemFrom, ModulusOps},
     ring::RingOps,
-    util::scratch::Scratch,
 };
 use rand::{RngCore, SeedableRng};
 
 pub fn pk_share_gen<'a, 'b, R, S, T>(
     ring: &R,
     pk: impl Into<SeededRlwePublicKeyMutView<'a, R::Elem>>,
-    param: &LmkcdeyInteractiveParam,
-    crs: &LmkcdeyInteractiveCrs<S>,
+    param: &LmkcdeyMpiParam,
+    crs: &LmkcdeyMpiCrs<S>,
     sk: impl Into<RlweSecretKeyView<'b, T>>,
-    scratch: Scratch,
     rng: &mut (impl RngCore + SeedableRng),
 ) where
     R: RingOps + ElemFrom<T>,
-    S: RngCore + SeedableRng<Seed: Clone>,
+    S: HierarchicalSeedableRng,
     T: 'b + Copy,
 {
+    let mut scratch = ring.allocate_scratch(2, 2, 0);
     let mut pk_rng = crs.pk_rng(rng);
-    rlwe::seeded_pk_gen(ring, pk, sk, param.noise_distribution, scratch, &mut pk_rng)
+    rlwe::seeded_pk_gen(
+        ring,
+        pk,
+        sk,
+        param.noise_distribution,
+        scratch.borrow_mut(),
+        &mut pk_rng,
+    )
 }
 
 pub fn bs_key_share_gen<'a, 'b, 'c, R, M, S, T>(
     ring: &R,
     mod_ks: &M,
-    bs_key_share: &mut LmkcdeyInteractiveKeyShareOwned<R::Elem, M::Elem, S>,
+    bs_key_share: &mut LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem>,
+    crs: &LmkcdeyMpiCrs<S>,
     sk: impl Into<RlweSecretKeyView<'a, T>>,
     pk: impl Into<RlwePublicKeyView<'b, R::Elem>>,
     sk_ks: impl Into<LweSecretKeyView<'c, T>>,
-    mut scratch: Scratch,
     rng: &mut (impl RngCore + SeedableRng),
 ) where
     R: RingOps + ElemFrom<T>,
     M: ModulusOps + ElemFrom<T>,
-    S: RngCore + SeedableRng<Seed: Clone>,
+    S: HierarchicalSeedableRng,
     T: 'a + 'c + Copy + AsPrimitive<i64> + Neg<Output = T>,
 {
     let (sk, pk, sk_ks) = (sk.into(), pk.into(), sk_ks.into());
@@ -65,33 +67,34 @@ pub fn bs_key_share_gen<'a, 'b, 'c, R, M, S, T>(
     let u_distribution = bs_key_share.param().u_distribution;
     let lwe_noise_distribution = bs_key_share.param().lwe_noise_distribution;
     let noise_distribution = bs_key_share.param().noise_distribution;
+    let mut scratch = ring.allocate_scratch(3, 2, 0);
 
-    let mut ks_key_rng = bs_key_share.crs().ks_key_rng(rng);
+    let mut ks_key_rng = crs.ks_key_rng(rng);
     lwe::seeded_ks_key_gen(
         mod_ks,
         bs_key_share.ks_key_mut(),
         sk,
         sk_ks,
         lwe_noise_distribution,
-        scratch.reborrow(),
+        scratch.borrow_mut(),
         &mut ks_key_rng,
     );
 
-    let mut ak_rng = bs_key_share.crs().ak_rng(rng);
+    let mut ak_rng = crs.ak_rng(rng);
     bs_key_share.aks_mut().for_each(|ak| {
         rlwe::seeded_auto_key_gen(
             ring,
             ak,
             sk,
             noise_distribution,
-            scratch.reborrow(),
+            scratch.borrow_mut(),
             &mut ak_rng,
         );
     });
 
-    let mut brk_rng = bs_key_share.crs().brk_rng(rng);
+    let mut brk_rng = crs.brk_rng(rng);
     izip!(bs_key_share.brks_mut(), sk_ks.as_ref()).for_each(|(brk, sk_ks_i)| {
-        let mut scratch = scratch.reborrow();
+        let mut scratch = scratch.borrow_mut();
         let mut pt = RlwePlaintext::scratch(ring.ring_size(), &mut scratch);
         ring.poly_set_monomial(pt.as_mut(), embedding_factor as i64 * sk_ks_i.as_());
         rgsw::pk_encrypt(
@@ -111,23 +114,21 @@ pub fn aggregate_bs_key_shares<R, M, S>(
     ring: &R,
     mod_ks: &M,
     bs_key: &mut LmkcdeyKeyOwned<R::Elem, M::Elem>,
-    crs: &LmkcdeyInteractiveCrs<S>,
-    bs_key_shares: &[LmkcdeyInteractiveKeyShareOwned<R::Elem, M::Elem, S>],
-    mut scratch: Scratch,
+    crs: &LmkcdeyMpiCrs<S>,
+    bs_key_shares: &[LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem>],
 ) where
     R: RingOps,
     M: ModulusOps,
-    S: RngCore + SeedableRng<Seed: Clone + Debug + PartialEq>,
+    S: HierarchicalSeedableRng,
 {
     debug_assert!(!bs_key_shares.is_empty());
     debug_assert_eq!(bs_key_shares.len(), bs_key_shares[0].param().total_shares);
     izip!(0.., bs_key_shares).for_each(|(share_idx, bs_key_share)| {
         debug_assert_eq!(bs_key_share.param().deref(), bs_key.param());
-        debug_assert_eq!(bs_key_share.crs(), crs);
         debug_assert_eq!(share_idx, bs_key_share.share_idx());
     });
 
-    let mut ks_key_rng = bs_key_shares[0].crs().unseed_ks_key_rng();
+    let mut ks_key_rng = crs.unseed_ks_key_rng();
     lwe::unseed_ks_key(
         mod_ks,
         bs_key.ks_key_mut(),
@@ -145,7 +146,7 @@ pub fn aggregate_bs_key_shares<R, M, S>(
         });
     });
 
-    let mut ak_rng = bs_key_shares[0].crs().unseed_ak_rng();
+    let mut ak_rng = crs.unseed_ak_rng();
     izip_eq!(bs_key.aks_mut(), bs_key_shares[0].aks())
         .for_each(|(ak, ak_share)| rlwe::unseed_auto_key(ring, ak, ak_share, &mut ak_rng));
     bs_key_shares[1..].iter().for_each(|bs_key_share| {
@@ -155,6 +156,11 @@ pub fn aggregate_bs_key_shares<R, M, S>(
         });
     });
 
+    let mut scratch = {
+        let decomposition_param = bs_key_shares[0].param().rgsw_by_rgsw_decomposition_param;
+        let level = decomposition_param.level_a + decomposition_param.level_b;
+        ring.allocate_scratch(2, 3, 2 * level)
+    };
     let chunk_size = bs_key.param().lwe_dimension.div_ceil(bs_key_shares.len());
     for bs_key_share_init in bs_key_shares {
         let start = chunk_size * bs_key_share_init.share_idx();
@@ -173,7 +179,7 @@ pub fn aggregate_bs_key_shares<R, M, S>(
                     .skip(start)
                     .take(chunk_size)
                     .for_each(|(ct, ct_share)| {
-                        rgsw::rgsw_by_rgsw_in_place(ring, ct, ct_share, scratch.reborrow());
+                        rgsw::rgsw_by_rgsw_in_place(ring, ct, ct_share, scratch.borrow_mut());
                     });
             });
     }
@@ -182,11 +188,11 @@ pub fn aggregate_bs_key_shares<R, M, S>(
 pub fn aggregate_pk_shares<'a, R, S>(
     ring: &R,
     pk: impl Into<RlwePublicKeyMutView<'a, R::Elem>>,
-    crs: &LmkcdeyInteractiveCrs<S>,
+    crs: &LmkcdeyMpiCrs<S>,
     pk_shares: &[SeededRlwePublicKeyOwned<R::Elem>],
 ) where
     R: RingOps,
-    S: RngCore + SeedableRng<Seed: Clone>,
+    S: HierarchicalSeedableRng,
 {
     debug_assert!(!pk_shares.is_empty());
 

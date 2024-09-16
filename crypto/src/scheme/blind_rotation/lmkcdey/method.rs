@@ -27,7 +27,6 @@ pub fn bs_key_gen<'a, 'b, R, M, T>(
     bs_key: &mut LmkcdeyKeyOwned<R::Elem, M::Elem>,
     sk: impl Into<RlweSecretKeyView<'a, T>>,
     sk_ks: impl Into<LweSecretKeyView<'b, T>>,
-    mut scratch: Scratch,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
 ) where
     R: RingOps + ElemFrom<T>,
@@ -38,6 +37,7 @@ pub fn bs_key_gen<'a, 'b, R, M, T>(
     let embedding_factor = bs_key.param().embedding_factor();
     let lwe_noise_distribution = bs_key.param().lwe_noise_distribution;
     let noise_distribution = bs_key.param().noise_distribution;
+    let mut scratch = ring.allocate_scratch(0, 3, 0);
 
     lwe::ks_key_gen(
         mod_ks,
@@ -49,11 +49,11 @@ pub fn bs_key_gen<'a, 'b, R, M, T>(
     );
 
     bs_key.aks_mut().for_each(|ak| {
-        rlwe::auto_key_gen(ring, ak, sk, noise_distribution, scratch.reborrow(), rng);
+        rlwe::auto_key_gen(ring, ak, sk, noise_distribution, scratch.borrow_mut(), rng);
     });
 
     izip!(bs_key.brks_mut(), sk_ks.as_ref()).for_each(|(brk, sk_ks_i)| {
-        let mut scratch = scratch.reborrow();
+        let mut scratch = scratch.borrow_mut();
         let mut pt = RlwePlaintext::scratch(brk.ring_size(), &mut scratch);
         ring.poly_set_monomial(pt.as_mut(), embedding_factor as i64 * sk_ks_i.as_());
         rgsw::sk_encrypt(ring, brk, sk, &pt, noise_distribution, scratch, rng);
@@ -64,18 +64,21 @@ pub fn prepare_bs_key<R: RingOps, T: Copy>(
     ring: &R,
     key_prep: &mut LmkcdeyKeyOwned<R::EvalPrep, T>,
     bs_key: &LmkcdeyKeyOwned<R::Elem, T>,
-    mut scratch: Scratch,
 ) {
     debug_assert_eq!(key_prep.param(), bs_key.param());
+    let mut scratch = ring.allocate_scratch(0, 1, 0);
+
     izip_eq!(
         key_prep.ks_key_mut().cts_iter_mut(),
         bs_key.ks_key().cts_iter()
     )
     .for_each(|(mut ct_prep, ct)| ct_prep.as_mut().copy_from_slice(ct.as_ref()));
+
     izip_eq!(key_prep.aks_mut(), bs_key.aks())
-        .for_each(|(ak_prep, ak)| rlwe::prepare_auto_key(ring, ak_prep, ak, scratch.reborrow()));
+        .for_each(|(ak_prep, ak)| rlwe::prepare_auto_key(ring, ak_prep, ak, scratch.borrow_mut()));
+
     izip_eq!(key_prep.brks_mut(), bs_key.brks())
-        .for_each(|(brk_prep, brk)| rgsw::prepare_rgsw(ring, brk_prep, brk, scratch.reborrow()));
+        .for_each(|(brk_prep, brk)| rgsw::prepare_rgsw(ring, brk_prep, brk, scratch.borrow_mut()));
 }
 
 /// Implementation of Figure 2 + Algorithm 7 in 2022/198.
