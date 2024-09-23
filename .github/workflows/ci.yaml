@@ -65,7 +65,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          components: rustfmt, clippy
+          components: rust-docs, rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -76,3 +76,6 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
+
+      - name: Run doc
+        run: cargo doc --workspace

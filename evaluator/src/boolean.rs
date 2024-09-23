@@ -5,6 +5,10 @@ mod integer;
 
 pub use evaluator::{fhew, BoolEvaluator};
 
+/// A wrapper to wrap [`BoolEvaluator::Ciphertext`] with reference to its
+/// corresponding [`BoolEvaluator`], and expose bitwise operations as Rust core
+/// operations if available (otherwise expose as functions following the same
+/// naming pattern).
 #[derive(Debug)]
 pub struct FheBool<'a, E: BoolEvaluator> {
     evaluator: &'a E,
@@ -12,84 +16,103 @@ pub struct FheBool<'a, E: BoolEvaluator> {
 }
 
 impl<'a, E: BoolEvaluator> FheBool<'a, E> {
+    /// Wraps a [`BoolEvaluator::Ciphertext`] with reference to its
+    /// corresponding [`BoolEvaluator`].
     pub fn new(evaluator: &'a E, ct: E::Ciphertext) -> Self {
         Self { evaluator, ct }
     }
 
+    /// Unwraps and returns underlying [`BoolEvaluator::Ciphertext`].
     pub fn into_ct(self) -> E::Ciphertext {
         self.ct
     }
 
+    /// Returns reference to underlying [`BoolEvaluator::Ciphertext`].
     pub fn ct(&self) -> &E::Ciphertext {
         &self.ct
     }
 
+    /// Performs bitwise NOT assignment.
     pub fn bitnot_assign(&mut self) {
         self.evaluator.bitnot_assign(&mut self.ct);
     }
 
+    /// Performs bitwise NAND assignment.
     pub fn bitnand_assign(&mut self, b: &Self) {
         self.evaluator.bitnand_assign(&mut self.ct, &b.ct);
     }
 
+    /// Performs bitwise NAND.
     pub fn bitnand(&self, b: &Self) -> Self {
         let mut a = self.clone();
         a.bitnand_assign(b);
         a
     }
 
+    /// Performs bitwise NOR assignment.
     pub fn bitnor_assign(&mut self, b: &Self) {
         self.evaluator.bitnor_assign(&mut self.ct, &b.ct);
     }
 
+    /// Performs bitwise NOR.
     pub fn bitnor(&self, b: &Self) -> Self {
         let mut a = self.clone();
         a.bitnor_assign(b);
         a
     }
 
+    /// Performs bitwise XNOR assignment.
     pub fn bitxnor_assign(&mut self, b: &Self) {
         self.evaluator.bitxnor_assign(&mut self.ct, &b.ct);
     }
 
+    /// Performs bitwise XNOR.
     pub fn bitxnor(&self, b: &Self) -> Self {
         let mut a = self.clone();
         a.bitxnor_assign(b);
         a
     }
 
+    /// Performs MUX with `self` as control, returns `f` if `false` and `t` if
+    /// `true`.
     pub fn select(&self, f: &Self, t: &Self) -> Self {
         (!self & f) | (self & t)
     }
 
+    /// Performs half adder and returns the sum and carry.
     pub fn overflowing_add(&self, b: &Self) -> (Self, Self) {
         let mut a = self.clone();
         let carry = a.overflowing_add_assign(b);
         (a, carry)
     }
 
+    /// Performs half adder assignment and returns the carry.
     pub fn overflowing_add_assign(&mut self, b: &Self) -> Self {
         let carry = self.evaluator.overflowing_add_assign(&mut self.ct, &b.ct);
         Self::new(self.evaluator, carry)
     }
 
+    /// Performs half subtractor and returns the difference and borrow.
     pub fn overflowing_sub(&self, b: &Self) -> (Self, Self) {
         let mut a = self.clone();
         let borrow = a.overflowing_sub_assign(b);
         (a, borrow)
     }
 
+    /// Performs half subtractor assignment and returns the borrow.
     pub fn overflowing_sub_assign(&mut self, b: &Self) -> Self {
         let borrow = self.evaluator.overflowing_sub_assign(&mut self.ct, &b.ct);
         Self::new(self.evaluator, borrow)
     }
 
+    /// Performs full adder and returns the sum and carry.
     pub fn carrying_add(&self, b: &Self, carry: &Self) -> (Self, Self) {
         let mut a = self.clone();
         let carry = a.carrying_add_assign(b, carry);
         (a, carry)
     }
 
+    /// Performs full adder assignment and returns the carry.
     pub fn carrying_add_assign(&mut self, b: &Self, carry: &Self) -> Self {
         let carry = self
             .evaluator
@@ -97,12 +120,14 @@ impl<'a, E: BoolEvaluator> FheBool<'a, E> {
         Self::new(self.evaluator, carry)
     }
 
+    /// Performs full subtractor and returns the difference and borrow.
     pub fn borrowing_sub(&self, b: &Self, borrow: &Self) -> (Self, Self) {
         let mut a = self.clone();
         let borrow = a.borrowing_sub_assign(b, borrow);
         (a, borrow)
     }
 
+    /// Performs full subtractor assignment and returns the borrow.
     pub fn borrowing_sub_assign(&mut self, b: &Self, borrow: &Self) -> Self {
         let borrow = self
             .evaluator

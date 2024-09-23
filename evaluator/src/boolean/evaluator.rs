@@ -3,23 +3,39 @@ use phantom_zone_math::util::serde::Serde;
 
 pub mod fhew;
 
+/// A trait to perform boolean operation on associated
+/// [`BoolEvaluator::Ciphertext`].
+///
+/// To use Rust core operators `&`, `|` and `^` on
+/// [`BoolEvaluator::Ciphertext`] directly, one can wrap it with reference to
+/// its corresponding [`BoolEvaluator`] by [`FheBool`][FheBool].
+///
+/// [FheBool]: crate::boolean::FheBool
 pub trait BoolEvaluator: Send + Sync {
     type Ciphertext: Clone + Debug + Serde;
 
+    /// Performs bitwise NOT assignment.
     fn bitnot_assign(&self, a: &mut Self::Ciphertext);
 
+    /// Performs bitwise AND assignment.
     fn bitand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext);
 
+    /// Performs bitwise NAND assignment.
     fn bitnand_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext);
 
+    /// Performs bitwise OR assignment.
     fn bitor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext);
 
+    /// Performs bitwise NOR assignment.
     fn bitnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext);
 
+    /// Performs bitwise XOR assignment.
     fn bitxor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext);
 
+    /// Performs bitwise XNOR assignment.
     fn bitxnor_assign(&self, a: &mut Self::Ciphertext, b: &Self::Ciphertext);
 
+    /// Performs half adder assignment and returns the carry.
     fn overflowing_add_assign(
         &self,
         a: &mut Self::Ciphertext,
@@ -31,6 +47,7 @@ pub trait BoolEvaluator: Send + Sync {
         carry
     }
 
+    /// Performs half subtractor assignment and returns the borrow.
     fn overflowing_sub_assign(
         &self,
         a: &mut Self::Ciphertext,
@@ -43,6 +60,7 @@ pub trait BoolEvaluator: Send + Sync {
         borrow
     }
 
+    /// Performs full adder assignment and returns the carry.
     fn carrying_add_assign(
         &self,
         a: &mut Self::Ciphertext,
@@ -59,6 +77,7 @@ pub trait BoolEvaluator: Send + Sync {
         carry_out
     }
 
+    /// Performs full subtractor assignment and returns the borrow.
     fn borrowing_sub_assign(
         &self,
         a: &mut Self::Ciphertext,

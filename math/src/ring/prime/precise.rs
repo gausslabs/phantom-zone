@@ -5,6 +5,13 @@ use crate::{
     ring::{prime, RingOps},
 };
 
+/// A `RingOps` implementation that supports small prime modulus (less than
+/// `1 << 62`) .
+///
+/// The ring multiplication is implemented with NTT.
+///
+/// It panics in [`RingOps::new`] if `modulus` is not in range `1..1 << 62`, or
+/// `modulus` doesn't have `2 * ring_size`-th root-of-unity.
 pub type PrimeRing = prime::PrimeRing<Ntt>;
 
 impl RingOps for PrimeRing {

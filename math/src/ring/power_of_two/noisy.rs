@@ -1,6 +1,28 @@
 use crate::ring::power_of_two::PowerOfTwoRing;
 
+/// A `RingOps` implementation that supports `1 << 64` modulus.
+///
+/// The ring multiplication is implemented with complex FFT on value directly,
+/// hence much faster than [`NativeRing`][NativeRing] but noisy.
+///
+/// It panics in [`RingOps::new`][RingOps::new] if `modulus` is not `1 << 64`.
+///
+/// [NativeRing]: crate::ring::power_of_two::precise::NativeRing
+/// [RingOps::new]: crate::ring::RingOps::new
 pub type NoisyNativeRing = PowerOfTwoRing<true, 64>;
+/// A `RingOps` implementation that supports power of 2 modulus except
+/// `1 << 64`.
+///
+/// The ring multiplication is implemented with complex FFT on value directly,
+/// hence much faster than [`NonNativePowerOfTwoRing`][NonNativePowerOfTwoRing]
+/// but noisy.
+///
+/// It panics in [`RingOps::new`][RingOps::new] if `modulus` is not power of 2,
+/// or if `modulus` is `1 << 64` (one should use [`NoisyNativeRing`] for better
+/// performance in such case).
+///
+/// [NonNativePowerOfTwoRing]: crate::ring::power_of_two::precise::NonNativePowerOfTwoRing
+/// [RingOps::new]: crate::ring::RingOps::new
 pub type NoisyNonNativePowerOfTwoRing = PowerOfTwoRing<false, 64>;
 
 #[cfg(test)]

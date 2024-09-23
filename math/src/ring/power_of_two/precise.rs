@@ -1,6 +1,27 @@
 use crate::ring::power_of_two::PowerOfTwoRing;
 
+/// A `RingOps` implementation that supports `1 << 64` modulus.
+///
+/// The ring multiplication is implemented with complex FFT on value split into
+/// limbs with `LIMB_BITS` (default to `16`) to preserve precision under
+/// reasonable number of operations.
+///
+/// It panics in [`RingOps::new`][RingOps::new] if `modulus` is not `1 << 64`.
+///
+/// [RingOps::new]: crate::ring::RingOps::new
 pub type NativeRing<const LIMB_BITS: usize = 16> = PowerOfTwoRing<true, LIMB_BITS>;
+/// A `RingOps` implementation that supports power of 2 modulus except
+/// `1 << 64`.
+///
+/// The ring multiplication is implemented with complex FFT on value split into
+/// limbs with `LIMB_BITS` (default to `16`) to preserve precision under
+/// reasonable number of operations.
+///
+/// It panics in [`RingOps::new`][RingOps::new] if `modulus` is not power of 2,
+/// or if `modulus` is `1 << 64` (one should use [`NativeRing`] for better
+/// performance in such case).
+///
+/// [RingOps::new]: crate::ring::RingOps::new
 pub type NonNativePowerOfTwoRing<const LIMB_BITS: usize = 16> = PowerOfTwoRing<false, LIMB_BITS>;
 
 #[cfg(test)]
