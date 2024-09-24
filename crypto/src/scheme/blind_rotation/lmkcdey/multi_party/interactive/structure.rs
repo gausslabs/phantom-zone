@@ -25,7 +25,9 @@ use rand::{RngCore, SeedableRng};
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LmkcdeyMpiParam {
     pub param: LmkcdeyParam,
+    /// RGSW by RGSW decomposition parameter.
     pub rgsw_by_rgsw_decomposition_param: RgswDecompositionParam,
+    /// Total shares of multi-party.
     pub total_shares: usize,
 }
 

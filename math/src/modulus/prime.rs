@@ -8,6 +8,10 @@ use num_bigint_dig::BigUint;
 use num_traits::ToPrimitive;
 use rand::distributions::{Distribution, Uniform};
 
+/// A `ModulusOps` implementation that supports small prime modulus (less than
+/// `1 << 62`) .
+///
+/// It panics in [`ModulusOps::new`] if `modulus` is not in range `1..1 << 62`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Prime {
     q: u64,

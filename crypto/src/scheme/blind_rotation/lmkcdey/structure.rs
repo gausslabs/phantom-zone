@@ -26,24 +26,40 @@ use phantom_zone_math::{
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LmkcdeyParam {
-    // Rlwe param
+    // RLWE param
+    /// RLWE message bits including padding.
     pub message_bits: usize,
+    /// RLWE ciphertext modulus.
     pub modulus: Modulus,
+    /// RLWE ring size.
     pub ring_size: usize,
+    /// RLWE secret key distribution.
     pub sk_distribution: SecretDistribution,
+    /// RLWE noise distribution for sk/pk encryption.
     pub noise_distribution: NoiseDistribution,
+    /// RLWE u distribution for pk encryption.
     pub u_distribution: SecretDistribution,
+    /// RLWE automorphism decomposition parameter.
     pub auto_decomposition_param: DecompositionParam,
+    /// RLWE by RGSW decomposition parameter.
     pub rlwe_by_rgsw_decomposition_param: RgswDecompositionParam,
-    // Lwe param
+    // LWE param
+    /// LWE ciphertext modulus.
     pub lwe_modulus: Modulus,
+    /// LWE dimension.
     pub lwe_dimension: usize,
+    /// LWE secret key distribution.
     pub lwe_sk_distribution: SecretDistribution,
+    /// LWE noise distribution for sk encryption.
     pub lwe_noise_distribution: NoiseDistribution,
+    /// LWE key-switch decomposition parameter
     pub lwe_ks_decomposition_param: DecompositionParam,
     // Blind rotation param
+    /// Blind rotation q.
     pub q: usize,
+    /// Automorphism generator.
     pub g: usize,
+    /// Automorphism window size.
     pub w: usize,
 }
 
