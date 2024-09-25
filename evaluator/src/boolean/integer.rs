@@ -234,8 +234,8 @@ impl_core_op!(
 #[cfg(test)]
 mod test {
     use crate::boolean::{
+        dev::MockBoolEvaluator,
         integer::{FheU16, FheU32, FheU64, FheU8},
-        test::MockBoolEvaluator,
         FheBool,
     };
     use core::array::from_fn;
