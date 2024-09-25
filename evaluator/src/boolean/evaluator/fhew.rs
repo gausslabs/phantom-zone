@@ -161,6 +161,7 @@ fn decode<R: RingOps>(ring: &R, pt: R::Elem) -> bool {
     m == 1
 }
 
+#[derive(Debug)]
 pub struct FhewBoolEvaluator<R: RingOps, M: ModulusOps> {
     ring: R,
     mod_ks: M,
