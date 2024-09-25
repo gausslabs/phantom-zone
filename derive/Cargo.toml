@@ -6,6 +6,12 @@ edition = "2021"
 [lib]
 proc-macro = true
 
+[lints.rust]
+missing_debug_implementations = "forbid"
+
+[lints.rustdoc]
+broken_intra_doc_links = "forbid"
+
 [dependencies]
 proc-macro2 = "1.0.86"
 quote = "1.0.36"

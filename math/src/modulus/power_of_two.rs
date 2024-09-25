@@ -5,7 +5,17 @@ use crate::{
 };
 use rand::distributions::{Distribution, Uniform};
 
+/// A `ModulusOps` implementation that supports `1 << 64` modulus.
+///
+/// It panics in [`ModulusOps::new`][ModulusOps::new] if `modulus` is not
+/// `1 << 64`.
 pub type Native = PowerOfTwo<true>;
+/// A `ModulusOps` implementation that supports power of 2 modulus except
+/// `1 << 64`.
+///
+/// It panics in [`ModulusOps::new`][ModulusOps::new] if `modulus` is not power
+/// of 2, or if `modulus` is `1 << 64` (one should use [`Native`] for better
+/// performance in such case).
 pub type NonNativePowerOfTwo = PowerOfTwo<false>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

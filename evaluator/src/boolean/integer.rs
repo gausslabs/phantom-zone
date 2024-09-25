@@ -7,27 +7,41 @@ use core::{
 use itertools::izip;
 use std::{borrow::Cow, collections::VecDeque};
 
+/// A wrapper using [`FheBool`] to implement [`u8`] wrapping operations.
 pub type FheU8<'a, E> = FheUint<'a, E, 8>;
+/// A wrapper using [`FheBool`] to implement [`u16`] wrapping operations.
 pub type FheU16<'a, E> = FheUint<'a, E, 16>;
+/// A wrapper using [`FheBool`] to implement [`u32`] wrapping operations.
 pub type FheU32<'a, E> = FheUint<'a, E, 32>;
+/// A wrapper using [`FheBool`] to implement [`u64`] wrapping operations.
 pub type FheU64<'a, E> = FheUint<'a, E, 64>;
 
+/// A wrapper using [`FheBool`] to implement unsigned integer wrapping
+/// operations, and expose as Rust core operations if available (otherwise
+/// expose as functions following the same naming pattern).
 #[derive(Debug)]
 pub struct FheUint<'a, E: BoolEvaluator, const BITS: usize>([FheBool<'a, E>; BITS]);
 
 impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
+    /// Wraps [`FheBool`] as little-endian bits.
     pub fn new(bits: [FheBool<'a, E>; BITS]) -> Self {
         Self(bits)
     }
 
+    /// Wraps array of [`BoolEvaluator::Ciphertext`] as little-endian bits with
+    /// reference to their corresponding [`BoolEvaluator`].
     pub fn from_cts(evaluator: &'a E, bits: [E::Ciphertext; BITS]) -> Self {
         Self::new(bits.map(|bit| FheBool::new(evaluator, bit)))
     }
 
+    /// Unwraps and returns underlying array of [`BoolEvaluator::Ciphertext`]
+    /// as little-endian bits.
     pub fn into_cts(self) -> [E::Ciphertext; BITS] {
         self.0.map(FheBool::into_ct)
     }
 
+    /// Returns array of reference to underlying [`BoolEvaluator::Ciphertext`]
+    /// as little-endian bits.
     pub fn cts(&self) -> [&E::Ciphertext; BITS] {
         self.0.each_ref().map(FheBool::ct)
     }

@@ -3,6 +3,12 @@ name = "phantom-zone-evaluator"
 version = "0.1.0"
 edition = "2021"
 
+[lints.rust]
+missing_debug_implementations = "forbid"
+
+[lints.rustdoc]
+broken_intra_doc_links = "forbid"
+
 [dependencies]
 itertools = { workspace = true }
 paste = { workspace = true }

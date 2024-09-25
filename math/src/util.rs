@@ -109,7 +109,7 @@ pub mod dev {
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub struct Stats<T> {
         samples: Vec<T>,
     }

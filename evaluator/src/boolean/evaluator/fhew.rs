@@ -161,6 +161,13 @@ fn decode<R: RingOps>(ring: &R, pt: R::Elem) -> bool {
     m == 1
 }
 
+#[derive(Clone, Debug)]
+/// FHEW boolean evaluator.
+///
+/// - Generics `R` is used by underlying RLWE, and should be compatible with
+///     `modulus` and `ring_size` in [`FhewBoolParam`].
+/// - Generics `M` is used by underlying key-switching LWE, shuold be compatible
+///     with `lwe_modulus` in [`FhewBoolParam`].
 pub struct FhewBoolEvaluator<R: RingOps, M: ModulusOps> {
     ring: R,
     mod_ks: M,
@@ -173,6 +180,13 @@ pub struct FhewBoolEvaluator<R: RingOps, M: ModulusOps> {
 }
 
 impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
+    /// Initializes [`FhewBoolEvaluator`] with FHEW bootstrapping key.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `R` is not compatible with `bs_key.param().modulus` and
+    /// `bs_key.param().ring_size`, or if `M` is not compatible with
+    /// `bs_key.param().lwe_modulus`.
     pub fn new(bs_key: FhewBoolKey<R::EvalPrep, M::Elem>) -> Self {
         assert_eq!(bs_key.param().message_bits, 2);
         let param = bs_key.param();
