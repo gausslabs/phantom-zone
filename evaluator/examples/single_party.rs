@@ -1,9 +1,9 @@
 use core::{
-    ops::{BitAnd, BitOr, BitXor},
+    ops::{BitAnd, BitOr, BitXor, Not},
     {array::from_fn, num::Wrapping},
 };
 use num_traits::NumOps;
-use phantom_zone_evaluator::boolean::{fhew::prelude::*, FheBool};
+use phantom_zone_evaluator::boolean::{dev::MockBoolEvaluator, fhew::prelude::*, FheBool};
 use rand::{RngCore, SeedableRng};
 
 type Evaluator = FhewBoolEvaluator<NoisyNativeRing, NonNativePowerOfTwoRing>;
@@ -76,6 +76,24 @@ fn decrypt_u8(evaluator: &Evaluator, sk: &LweSecretKeyOwned<i32>, ct: FheU8<Eval
         .fold(0, |m, b| (m << 1) | b as u8)
 }
 
+fn gate_level_function<'a, E: BoolEvaluator>(
+    a: &FheBool<'a, E>,
+    b: &FheBool<'a, E>,
+    c: &FheBool<'a, E>,
+    d: &FheBool<'a, E>,
+    e: &FheBool<'a, E>,
+    f: &FheBool<'a, E>,
+    g: &FheBool<'a, E>,
+) -> FheBool<'a, E> {
+    a.not()
+        .bitand(b)
+        .bitnand(c)
+        .bitor(d)
+        .bitnor(e)
+        .bitxor(f)
+        .bitxnor(g)
+}
+
 // Ported from https://github.com/ChihChengLiang/haunted/blob/ba42814b0c444dab222fd4aca51e6efe6eb96381/src/phantom.rs#L453.
 trait BitOps<Rhs = Self, Output = Self>:
     BitAnd<Rhs, Output = Output> + BitOr<Rhs, Output = Output> + BitXor<Rhs, Output = Output>
@@ -108,7 +126,21 @@ fn main() {
     let sk = LweSecretKey::sample(PARAM.ring_size, PARAM.sk_distribution, &mut rng);
     let evaluator = Evaluator::sample(PARAM, &sk, &mut rng);
 
-    // Function with bools
+    // Function with bools by gate-level operations
+
+    let m = from_fn(|_| rng.next_u64() & 1 == 1);
+    let g = {
+        let [a, b, c, d, e, f, g] = &m.map(|m| m.into());
+        gate_level_function::<MockBoolEvaluator>(a, b, c, d, e, f, g)
+    };
+    let ct_g = {
+        let [a, b, c, d, e, f, g] = &m.map(|m| encrypt_bool(&evaluator, &sk, m, &mut rng));
+        gate_level_function(a, b, c, d, e, f, g)
+    };
+
+    assert_eq!(g, decrypt_bool(&evaluator, &sk, ct_g));
+
+    // Function with bools by Rust core operators
 
     let m = from_fn(|_| rng.next_u64() & 1 == 1);
     let g = {

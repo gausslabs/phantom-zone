@@ -201,24 +201,9 @@ impl_core_op!(
     impl BitXor<FheBool<'a, E>> for FheBool<'a, E>,
 );
 
-#[cfg(test)]
-pub(crate) mod test {
+#[cfg(any(test, feature = "dev"))]
+pub mod dev {
     use crate::boolean::{evaluator::BoolEvaluator, FheBool};
-    use core::{
-        array::from_fn,
-        ops::{BitAnd, BitOr, BitXor},
-    };
-
-    /// Truth tables for overflowing, carrying and borrowing bit operations.
-    #[rustfmt::skip]
-    pub mod tt {
-        const F: bool = false;
-        const T: bool = true;
-        pub const OVERFLOWING_ADD: [(bool, bool); 4] = [(F, F), (T, F), (T, F), (F, T)];
-        pub const OVERFLOWING_SUB: [(bool, bool); 4] = [(F, F), (T, F), (T, T), (F, F)];
-        pub const CARRYING_ADD:    [(bool, bool); 8] = [(F, F), (T, F), (T, F), (F, T), (T, F), (F, T), (F, T), (T, T)];
-        pub const BORROWING_SUB:   [(bool, bool); 8] = [(F, F), (T, F), (T, T), (F, F), (T, T), (F, F), (F, T), (T, T)];
-    }
 
     #[derive(Clone, Copy, Debug)]
     pub struct MockBoolEvaluator;
@@ -268,6 +253,26 @@ pub(crate) mod test {
         fn eq(&self, other: &bool) -> bool {
             self.ct == *other
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use crate::boolean::FheBool;
+    use core::{
+        array::from_fn,
+        ops::{BitAnd, BitOr, BitXor},
+    };
+
+    /// Truth tables for overflowing, carrying and borrowing bit operations.
+    #[rustfmt::skip]
+    pub mod tt {
+        const F: bool = false;
+        const T: bool = true;
+        pub const OVERFLOWING_ADD: [(bool, bool); 4] = [(F, F), (T, F), (T, F), (F, T)];
+        pub const OVERFLOWING_SUB: [(bool, bool); 4] = [(F, F), (T, F), (T, T), (F, F)];
+        pub const CARRYING_ADD:    [(bool, bool); 8] = [(F, F), (T, F), (T, F), (F, T), (T, F), (F, T), (F, T), (T, T)];
+        pub const BORROWING_SUB:   [(bool, bool); 8] = [(F, F), (T, F), (T, T), (F, F), (T, T), (F, F), (F, T), (T, T)];
     }
 
     #[test]
