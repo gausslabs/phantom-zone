@@ -202,8 +202,11 @@ impl Debug for Ffnt {
             .field("ring_size", &self.ring_size)
             .field("fft_size", &self.fft_size)
             .field("fft_size_inv", &self.fft_size_inv)
-            .field("twiddle", &self.twiddle)
-            .field("twiddle_inv", &self.twiddle_inv)
+            .field("twiddle", &format_args!("powers({:?})", &self.twiddle[1]))
+            .field(
+                "twiddle_inv",
+                &format_args!("powers({:?})", &self.twiddle_inv[1]),
+            )
             .finish()
     }
 }
