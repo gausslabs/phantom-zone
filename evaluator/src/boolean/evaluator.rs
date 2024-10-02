@@ -12,7 +12,7 @@ pub mod fhew;
 ///
 /// [FheBool]: crate::boolean::FheBool
 pub trait BoolEvaluator: Send + Sync {
-    type Ciphertext: Clone + Debug + Serde;
+    type Ciphertext: Clone + Debug + Serde + Send + Sync;
 
     /// Performs bitwise NOT assignment.
     fn bitnot_assign(&self, a: &mut Self::Ciphertext);
