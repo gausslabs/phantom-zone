@@ -2,10 +2,11 @@ use crate::{
     modulus::{prime::Shoup, ModulusOps, Prime},
     util::{as_slice::AsMutSlice, bit_reverse},
 };
+use core::fmt::{self, Debug};
 use itertools::izip;
 
 /// Negacyclic NTT
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Ntt {
     q: Prime,
     q_twice: u64,
@@ -13,7 +14,7 @@ pub struct Ntt {
     ring_size: usize,
     log_ring_size: usize,
     twiddle_bo: Vec<Shoup>,
-    twiddle_bo_inv: Vec<Shoup>,
+    twiddle_inv_bo: Vec<Shoup>,
     n_inv: Shoup,
 }
 
@@ -24,7 +25,7 @@ impl Ntt {
         let g = (log_ring_size > 0)
             .then(|| q.two_adic_generator(log_ring_size + 1))
             .unwrap_or(1);
-        let [twiddle_bo, twiddle_bo_inv] = [g, q.inv(&g).unwrap()]
+        let [twiddle_bo, twiddle_inv_bo] = [g, q.inv(&g).unwrap()]
             .map(|b| Vec::from_iter(q.powers(&b).take(ring_size).map(|v| Shoup::new(v, *q))))
             .map(bit_reverse);
         let n_inv = Shoup::new(q.inv(&(ring_size as u64)).unwrap(), *q);
@@ -35,7 +36,7 @@ impl Ntt {
             ring_size,
             log_ring_size,
             twiddle_bo,
-            twiddle_bo_inv,
+            twiddle_inv_bo,
             n_inv,
         }
     }
@@ -75,7 +76,7 @@ impl Ntt {
         for layer in (0..self.log_ring_size).rev() {
             let (m, size) = (1 << layer, 1 << (self.log_ring_size - layer - 1));
             if layer == 0 {
-                izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo_inv[m..]).for_each(
+                izip!(a.chunks_exact_mut(2 * size), &self.twiddle_inv_bo[m..]).for_each(
                     |(a, t)| {
                         let (a, b) = a.split_at_mid_mut();
                         izip!(a, b).for_each(|(a, b)| {
@@ -90,7 +91,7 @@ impl Ntt {
                     },
                 );
             } else {
-                izip!(a.chunks_exact_mut(2 * size), &self.twiddle_bo_inv[m..]).for_each(
+                izip!(a.chunks_exact_mut(2 * size), &self.twiddle_inv_bo[m..]).for_each(
                     |(a, t)| {
                         let (a, b) = a.split_at_mid_mut();
                         izip!(a, b).for_each(|(a, b)| self.dif::<true>(a, b, t));
@@ -152,5 +153,32 @@ impl Ntt {
 impl Default for Ntt {
     fn default() -> Self {
         Self::new(Prime::new(2), 1)
+    }
+}
+
+impl Debug for Ntt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Ntt")
+            .field("q", &self.q)
+            .field("q_twice", &self.q_twice)
+            .field("q_quart", &self.q_quart)
+            .field("ring_size", &self.ring_size)
+            .field("log_ring_size", &self.log_ring_size)
+            .field(
+                "twiddle_bo",
+                &format_args!(
+                    "bit_reverse(powers({:?}))",
+                    &self.twiddle_bo[self.ring_size / 2],
+                ),
+            )
+            .field(
+                "twiddle_inv_bo",
+                &format_args!(
+                    "bit_reverse(powers({:?}))",
+                    &self.twiddle_inv_bo[self.ring_size / 2],
+                ),
+            )
+            .field("n_inv", &self.n_inv)
+            .finish()
     }
 }
