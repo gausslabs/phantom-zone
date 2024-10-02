@@ -18,20 +18,15 @@ pub struct Ffnt {
     fft_size: usize,
     fft_scratch_size: usize,
     fft_size_inv: f64,
-    twiddle: Vec<Complex64>,
-    twiddle_inv: Vec<Complex64>,
     fft: Arc<dyn Fft<f64>>,
     ifft: Arc<dyn Fft<f64>>,
+    twiddle_res: Vec<f64>,
+    twiddle_ims: Vec<f64>,
 }
 
 impl Ffnt {
     pub fn new(ring_size: usize) -> Self {
         assert!(ring_size.is_power_of_two());
-
-        let twiddle = (0..ring_size / 2)
-            .map(|i| Complex64::cis((i as f64 * PI) / ring_size as f64))
-            .collect_vec();
-        let twiddle_inv = twiddle.iter().map(Complex64::conj).collect_vec();
 
         let fft_size = (ring_size / 2).max(1);
         let fft = FftPlanner::new().plan_fft_forward(fft_size);
@@ -39,15 +34,21 @@ impl Ffnt {
         let fft_scratch_size = fft.get_inplace_scratch_len();
         debug_assert_eq!(fft_scratch_size, ifft.get_inplace_scratch_len());
 
+        let twiddle = (0..ring_size / 2)
+            .map(|i| Complex64::cis((i as f64 * PI) / ring_size as f64))
+            .collect_vec();
+        let twiddle_res = twiddle.iter().map(|w| w.re).collect();
+        let twiddle_ims = twiddle.iter().map(|w| w.im).collect();
+
         Self {
             ring_size,
             fft_size,
             fft_scratch_size,
             fft_size_inv: 1f64 / fft_size as f64,
-            twiddle,
-            twiddle_inv,
             fft,
             ifft,
+            twiddle_res,
+            twiddle_ims,
         }
     }
 
@@ -143,8 +144,15 @@ impl Ffnt {
             b[0] = to_f64(&a[0]).into();
         } else {
             let (lo, hi) = a.split_at_mid();
-            izip!(&mut *b, lo, hi, &self.twiddle)
-                .for_each(|(b, lo, hi, t)| *b = Complex64::new(to_f64(lo), to_f64(hi)) * t);
+            izip!(&mut *b, lo, hi, &self.twiddle_res, &self.twiddle_ims).for_each(
+                |(b, lo, hi, t_re, t_im)| {
+                    *b = Complex64::new(to_f64(lo), to_f64(hi))
+                        * Complex64 {
+                            re: *t_re,
+                            im: *t_im,
+                        }
+                },
+            );
         }
     }
 
@@ -155,11 +163,17 @@ impl Ffnt {
             b[0] = from_f64(a[0].re);
         } else {
             let (lo, hi) = b.split_at_mid_mut();
-            izip!(lo, hi, a, &self.twiddle_inv).for_each(|(lo, hi, a, t)| {
-                let a = *a * t;
-                *lo = from_f64(a.re);
-                *hi = from_f64(a.im);
-            });
+            izip!(lo, hi, a, &self.twiddle_res, &self.twiddle_ims).for_each(
+                |(lo, hi, a, t_re, t_im)| {
+                    let a = *a
+                        * Complex64 {
+                            re: *t_re,
+                            im: -t_im,
+                        };
+                    *lo = from_f64(a.re);
+                    *hi = from_f64(a.im);
+                },
+            );
         }
     }
 
@@ -175,11 +189,17 @@ impl Ffnt {
             add_from_f64(&mut b[0], a[0].re);
         } else {
             let (lo, hi) = b.split_at_mid_mut();
-            izip!(lo, hi, a, &self.twiddle_inv).for_each(|(lo, hi, a, t)| {
-                let a = *a * t;
-                add_from_f64(lo, a.re);
-                add_from_f64(hi, a.im);
-            });
+            izip!(lo, hi, a, &self.twiddle_res, &self.twiddle_ims).for_each(
+                |(lo, hi, a, t_re, t_im)| {
+                    let a = *a
+                        * Complex64 {
+                            re: *t_re,
+                            im: -t_im,
+                        };
+                    add_from_f64(lo, a.re);
+                    add_from_f64(hi, a.im);
+                },
+            );
         }
     }
 
@@ -202,10 +222,13 @@ impl Debug for Ffnt {
             .field("ring_size", &self.ring_size)
             .field("fft_size", &self.fft_size)
             .field("fft_size_inv", &self.fft_size_inv)
-            .field("twiddle", &format_args!("powers({:?})", &self.twiddle[1]))
             .field(
-                "twiddle_inv",
-                &format_args!("powers({:?})", &self.twiddle_inv[1]),
+                "twiddle_res",
+                &format_args!("powers(e^{{i*π/{}}}).re", self.ring_size),
+            )
+            .field(
+                "twiddle_ims",
+                &format_args!("powers(e^{{i*π/{}}}).im", self.ring_size),
             )
             .finish()
     }
