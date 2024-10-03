@@ -3,7 +3,7 @@ use core::{
     {array::from_fn, num::Wrapping},
 };
 use num_traits::NumOps;
-use phantom_zone_evaluator::boolean::{dev::MockBoolEvaluator, fhew::prelude::*, FheBool};
+use phantom_zone_evaluator::boolean::{dev::MockBoolEvaluator, fhew::prelude::*};
 use rand::{RngCore, SeedableRng};
 
 type Evaluator = FhewBoolEvaluator<NoisyNativeRing, NonNativePowerOfTwoRing>;
