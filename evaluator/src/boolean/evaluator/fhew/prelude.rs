@@ -12,6 +12,7 @@ pub use crate::boolean::{
         BoolEvaluator,
     },
     integer::{FheU16, FheU32, FheU64, FheU8, FheUint},
+    FheBool,
 };
 pub use phantom_zone_crypto::scheme::blind_rotation::lmkcdey::{
     interactive::{aggregate_bs_key_shares, aggregate_pk_shares, bs_key_share_gen, pk_share_gen},
