@@ -6,12 +6,12 @@ use crate::{
 use num_complex::Complex64;
 
 /// A `RingOps` implementation that supports small prime modulus (less than
-/// `1 << 62`) .
+/// `1 << 61`) .
 ///
 /// The ring multiplication is implemented with complex FFT, hence slightly
 /// faster than [`PrimeRing`](crate::ring::prime::precise::PrimeRing) but noisy.
 ///
-/// It panics in [`RingOps::new`] if `modulus` is not in range `1..1 << 62`.
+/// It panics in [`RingOps::new`] if `modulus` is not in range `1..1 << 61`.
 pub type NoisyPrimeRing = prime::PrimeRing<Ffnt>;
 
 impl RingOps for NoisyPrimeRing {

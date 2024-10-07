@@ -391,7 +391,7 @@ pub(crate) fn decomposed_fma_prep<'a, 'b, R: RingOps, const DIRTY: bool>(
         } else {
             R::eval_fma_prep
         };
-        ring.forward(t0, a_i, eval_scratch);
+        ring.forward_lazy(t0, a_i, eval_scratch);
         eval_fma_prep(ring, ct_eval.a_mut(), t0, b_i.a());
         eval_fma_prep(ring, ct_eval.b_mut(), t0, b_i.b());
     });
