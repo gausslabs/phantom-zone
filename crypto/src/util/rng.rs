@@ -48,23 +48,13 @@ impl<R: RngCore, S> RngCore for LweRng<R, S> {
 }
 
 #[cfg(any(test, feature = "dev"))]
-impl<R: SeedableRng, S: SeedableRng> SeedableRng for LweRng<R, S> {
-    type Seed = [u8; 0];
+impl<R: RngCore + SeedableRng, S: SeedableRng> SeedableRng for LweRng<R, S> {
+    type Seed = R::Seed;
 
-    fn seed_from_u64(_: u64) -> Self {
-        Self::from_entropy()
-    }
-
-    fn from_rng<T: RngCore>(_: T) -> Result<Self, Error> {
-        Ok(Self::from_entropy())
-    }
-
-    fn from_entropy() -> Self {
-        Self::new(R::from_entropy(), S::from_entropy())
-    }
-
-    fn from_seed(_: Self::Seed) -> Self {
-        Self::from_entropy()
+    fn from_seed(seed: Self::Seed) -> Self {
+        let mut private = R::from_seed(seed);
+        let seedable = S::from_rng(&mut private).unwrap();
+        Self::new(private, seedable)
     }
 }
 

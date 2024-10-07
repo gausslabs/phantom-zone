@@ -1,22 +1,22 @@
 use crate::core::{
     lwe::LweCiphertextView,
-    rlwe::{self, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextMutView, RlweCiphertextOwned},
+    rlwe::{self, RlweAutoKeyOwned, RlweCiphertext, RlweCiphertextMutView},
 };
 use itertools::Itertools;
 use phantom_zone_math::{ring::RingOps, util::scratch::Scratch};
 
 pub fn pack_lwes<'a, 'b, R: RingOps>(
     ring: &R,
+    ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
     aks: &[RlweAutoKeyOwned<R::EvalPrep>],
     cts: impl IntoIterator<Item: Into<LweCiphertextView<'b, R::Elem>>>,
-) -> RlweCiphertextOwned<R::Elem> {
+    scratch: Scratch<'a>,
+) {
     let cts = cts.into_iter().map_into().collect_vec();
-    let ell = cts.len().next_power_of_two().ilog2() as usize;
-    let mut scratch = ring.allocate_scratch(2 + 2 * (ell + 2), 3, 0);
-    let (ct, _) = recurse(ring, aks, &cts, 1, 0, scratch.borrow_mut());
-    return ct
-        .map(|ct| ct.cloned())
-        .unwrap_or_else(|| RlweCiphertextOwned::allocate(ring.ring_size()));
+    assert!(cts.len() <= ring.ring_size());
+    if let (Some(ct_packed), _) = recurse(ring, aks, &cts, 1, 0, scratch) {
+        ct.into().as_mut().copy_from_slice(ct_packed.as_ref());
+    }
 
     fn recurse<'a, R: RingOps>(
         ring: &R,
@@ -51,6 +51,7 @@ pub fn pack_lwes<'a, 'b, R: RingOps>(
 
         let (ct_even, mut scratch) = recurse(ring, aks, cts, 2 * step, skip, scratch);
         let (ct_odd, mut tmp) = recurse(ring, aks, cts, 2 * step, skip + step, scratch.reborrow());
+
         let mut ct = match (ct_even, ct_odd) {
             (Some(mut ct_even), Some(mut ct_odd)) => {
                 let ct_odd_rot = {
@@ -95,17 +96,16 @@ pub fn pack_lwes<'a, 'b, R: RingOps>(
 #[cfg(test)]
 mod test {
     use crate::{
-        core::rlwe::{test::RlweParam, RlweSecretKey},
+        core::rlwe::{test::RlweParam, RlweCiphertext, RlweSecretKey},
         scheme::packing,
         util::rng::StdLweRng,
     };
-    use core::{iter::repeat_with, ops::Neg};
+    use core::iter::repeat_with;
     use itertools::{izip, Itertools};
     use phantom_zone_math::{
         decomposer::DecompositionParam,
         distribution::{Gaussian, Ternary},
         modulus::{Modulus, Native, Prime},
-        poly::automorphism::AutomorphismMap,
         ring::{NativeRing, PrimeRing, RingOps},
     };
     use rand::{Rng, SeedableRng};
@@ -131,40 +131,42 @@ mod test {
         fn run<R: RingOps>(modulus: impl Into<Modulus>) {
             let mut rng = StdLweRng::from_entropy();
             let param = test_param(modulus);
+            let ring_size = param.ring_size;
             let rlwe = param.build::<R>();
             let lwe = param.to_lwe().build::<R>();
 
             let sk = lwe.sk_gen(&mut rng);
-            let sk_rlwe = RlweSecretKey::new(
-                AutomorphismMap::new(rlwe.ring_size(), 2 * rlwe.ring_size() - 1)
-                    .apply(sk.as_ref(), |i| i.neg())
-                    .collect(),
-                rlwe.ring_size(),
-            );
+            let sk_rlwe = RlweSecretKey::from(sk.as_view()).automorphism(2 * ring_size - 1);
             let aks = (1..)
-                .map(|ell| {
-                    rlwe.prepare_auto_key(&rlwe.auto_key_gen(&sk_rlwe, (1 << ell) + 1, &mut rng))
-                })
-                .take(rlwe.ring_size().ilog2() as usize)
+                .map(|ell| (1 << ell) + 1)
+                .map(|k| rlwe.prepare_auto_key(&rlwe.auto_key_gen(&sk_rlwe, k, &mut rng)))
+                .take(ring_size.ilog2() as usize)
                 .collect_vec();
             let ms = repeat_with(|| rng.gen_range(0..param.message_modulus))
-                .take(rlwe.ring_size())
+                .take(ring_size)
                 .collect_vec();
             let cts = ms
                 .iter()
                 .map(|m| lwe.sk_encrypt(&sk, lwe.encode(*m), &mut rng))
                 .collect_vec();
-            for k in 0..=rlwe.ring_size() {
+            let mut ct = RlweCiphertext::allocate(ring_size);
+            for k in 0..=ring_size {
                 let ell = k.next_power_of_two().ilog2() as usize;
-                let ct = packing::pack_lwes(rlwe.ring(), &aks, &cts[..k]);
-                let m = rlwe.decode(&rlwe.decrypt(&sk_rlwe, &ct));
-                izip!(&ms[..k], m.iter().step_by(rlwe.ring_size() >> ell)).for_each(|(a, b)| {
+                let mut scratch = rlwe.ring().allocate_scratch(2 + 2 * (ell + 2), 3, 0);
+                packing::pack_lwes(rlwe.ring(), &mut ct, &aks, &cts[..k], scratch.borrow_mut());
+                izip!(
+                    &ms[..k],
+                    rlwe.decode(&rlwe.decrypt(&sk_rlwe, &ct))
+                        .into_iter()
+                        .step_by(ring_size >> ell)
+                )
+                .for_each(|(a, b)| {
                     assert!(
-                        *a == *b
+                        *a == b
                             || (matches!(param.ciphertext_modulus, Modulus::PowerOfTwo(_))
-                                && (*a as i64 - *b as i64).unsigned_abs()
-                                    == param.message_modulus / 2)
-                    );
+                                && (*a % (param.message_modulus / 2)
+                                    == b % (param.message_modulus / 2)))
+                    )
                 });
             }
         }
