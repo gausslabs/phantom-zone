@@ -1,2 +1,2 @@
 pub mod blind_rotation;
-pub mod packing;
+pub mod ring_packing;
