@@ -3,7 +3,7 @@ use crate::{
         lwe::test::LweParam,
         rlwe::{test::RlweParam, RlweCiphertext},
     },
-    scheme::ring_packing::cdks::{self, packing_key_gen, prepare_packing_key, CdksKey, CdksParam},
+    scheme::ring_packing::cdks::{self, prepare_rp_key, rp_key_gen, CdksKey, CdksParam},
     util::rng::StdLweRng,
 };
 use itertools::{izip, Itertools};
@@ -62,12 +62,12 @@ fn pack_lwes() {
 
         let sk = rlwe.sk_gen(&mut rng);
         let decrypt = |ct: &_| rlwe.decode(&rlwe.decrypt(&sk.automorphism(2 * ring_size - 1), ct));
-        let packing_key = {
-            let mut packing_key = CdksKey::allocate(param);
-            packing_key_gen(ring, &mut packing_key, &sk, &mut rng);
-            let mut packing_key_prep = CdksKey::allocate_eval(param, ring.eval_size());
-            prepare_packing_key(ring, &mut packing_key_prep, &packing_key);
-            packing_key_prep
+        let rp_key = {
+            let mut rp_key = CdksKey::allocate(param);
+            rp_key_gen(ring, &mut rp_key, &sk, &mut rng);
+            let mut rp_key_prep = CdksKey::allocate_eval(param, ring.eval_size());
+            prepare_rp_key(ring, &mut rp_key_prep, &rp_key);
+            rp_key_prep
         };
         let ms = rlwe.message_ring().sample_uniform_vec(ring_size, &mut rng);
         let cts = ms
@@ -77,7 +77,7 @@ fn pack_lwes() {
         let mut ct = RlweCiphertext::allocate(ring_size);
         for k in 0..=ring_size {
             let ell = k.next_power_of_two().ilog2() as usize;
-            cdks::pack_lwes(ring, &mut ct, &packing_key, &cts[..k]);
+            cdks::pack_lwes(ring, &mut ct, &rp_key, &cts[..k]);
             izip!(&ms[..k], decrypt(&ct).into_iter().step_by(ring_size >> ell))
                 .for_each(|(a, b)| assert!(*a == b));
         }
@@ -103,12 +103,12 @@ fn pack_lwes_ms() {
 
         let sk = rlwe.sk_gen(&mut rng);
         let decrypt = |ct: &_| rlwe.decode(&rlwe.decrypt(&sk.automorphism(2 * ring_size - 1), ct));
-        let packing_key = {
-            let mut packing_key = CdksKey::allocate(param);
-            packing_key_gen(ring, &mut packing_key, &sk, &mut rng);
-            let mut packing_key_prep = CdksKey::allocate_eval(param, ring.eval_size());
-            prepare_packing_key(ring, &mut packing_key_prep, &packing_key);
-            packing_key_prep
+        let rp_key = {
+            let mut rp_key = CdksKey::allocate(param);
+            rp_key_gen(ring, &mut rp_key, &sk, &mut rng);
+            let mut rp_key_prep = CdksKey::allocate_eval(param, ring.eval_size());
+            prepare_rp_key(ring, &mut rp_key_prep, &rp_key);
+            rp_key_prep
         };
         let ms = rlwe.message_ring().sample_uniform_vec(ring_size, &mut rng);
         let cts = ms
@@ -118,7 +118,7 @@ fn pack_lwes_ms() {
         let mut ct = RlweCiphertext::allocate(ring_size);
         for k in 0..=ring_size {
             let ell = k.next_power_of_two().ilog2() as usize;
-            cdks::pack_lwes_ms(mod_lwe, ring, &mut ct, &packing_key, &cts[..k]);
+            cdks::pack_lwes_ms(mod_lwe, ring, &mut ct, &rp_key, &cts[..k]);
             izip!(&ms[..k], decrypt(&ct).into_iter().step_by(ring_size >> ell))
                 .for_each(|(a, b)| assert!(*a == b));
         }
