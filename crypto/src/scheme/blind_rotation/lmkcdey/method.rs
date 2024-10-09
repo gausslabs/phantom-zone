@@ -37,7 +37,7 @@ pub fn bs_key_gen<'a, 'b, R, M, T>(
     let embedding_factor = bs_key.param().embedding_factor();
     let lwe_noise_distribution = bs_key.param().lwe_noise_distribution;
     let noise_distribution = bs_key.param().noise_distribution;
-    let mut scratch = ring.allocate_scratch(0, 3, 0);
+    let mut scratch = ring.allocate_scratch(1, 2, 0);
 
     lwe::ks_key_gen(
         mod_ks,

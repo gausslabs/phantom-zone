@@ -30,7 +30,7 @@ pub fn rp_key_gen<'a, R, T>(
 {
     let sk = sk.into();
     let noise_distribution = rp_key.param().noise_distribution;
-    let mut scratch = ring.allocate_scratch(0, 3, 0);
+    let mut scratch = ring.allocate_scratch(1, 2, 0);
     rp_key.aks_mut().for_each(|ak| {
         let scratch = scratch.borrow_mut();
         auto_key_gen(ring, ak, sk, noise_distribution, scratch, rng);
@@ -203,7 +203,7 @@ pub fn rp_key_share_gen<'a, R, S, T>(
 {
     let sk = sk.into();
     let noise_distribution = rp_key_share.param().noise_distribution;
-    let mut scratch = ring.allocate_scratch(0, 3, 0);
+    let mut scratch = ring.allocate_scratch(3, 2, 0);
 
     let mut ak_rng = crs.ak_rng(rng);
     rp_key_share.aks_mut().for_each(|ak| {
