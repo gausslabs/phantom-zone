@@ -1,5 +1,5 @@
 use crate::{core::lwe::LweSecretKey, util::distribution::SecretDistribution};
-use core::{borrow::Borrow, iter::repeat_with, ops::Neg};
+use core::{borrow::Borrow, iter::repeat_with};
 use num_traits::{FromPrimitive, Signed};
 use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
@@ -30,17 +30,6 @@ impl<S> RlweSecretKey<S> {
 
     pub fn ring_size(&self) -> usize {
         self.ring_size
-    }
-}
-
-impl<S: AsSlice<Elem: Neg<Output = S::Elem> + Copy>> RlweSecretKey<S> {
-    pub fn automorphism(&self, k: usize) -> RlweSecretKeyOwned<S::Elem> {
-        RlweSecretKeyOwned::new(
-            AutomorphismMap::new(self.ring_size(), k)
-                .apply(self.data.as_ref(), |i| i.neg())
-                .collect(),
-            self.ring_size(),
-        )
     }
 }
 

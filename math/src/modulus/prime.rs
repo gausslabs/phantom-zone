@@ -11,7 +11,7 @@ use rand::distributions::{Distribution, Uniform};
 /// A `ModulusOps` implementation that supports small prime modulus (less than
 /// `1 << 61`) .
 ///
-/// It panics in [`ModulusOps::new`] if `modulus` is not in range `1..1 << 61`.
+/// It panics in [`ModulusOps::new`] if `modulus` is not in range `3..1 << 61`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Prime {
     q: u64,
@@ -23,7 +23,7 @@ pub struct Prime {
 
 impl Prime {
     pub const fn new(q: u64) -> Self {
-        assert!(q > 1);
+        assert!(q > 2);
         assert!(q.next_power_of_two().ilog2() <= 61);
         let log_q = q.next_power_of_two().ilog2() as usize;
         let barrett_mu = (1u128 << (log_q * 2 + 3)) / (q as u128);
@@ -317,11 +317,11 @@ impl TryFrom<Modulus> for Prime {
     fn try_from(value: Modulus) -> Result<Self, Self::Error> {
         match value {
             Modulus::Prime(prime) => {
-                if (1..1 << 61).contains(&prime) {
+                if (3..1 << 61).contains(&prime) {
                     Ok(Self::new(prime))
                 } else {
                     Err(format!(
-                        "unsupported prime `{prime}`, expected in range `1..1 << 61`"
+                        "unsupported prime `{prime}`, expected in range `3..1 << 61`"
                     ))
                 }
             }

@@ -10,7 +10,7 @@ use crate::{
 ///
 /// The ring multiplication is implemented with NTT.
 ///
-/// It panics in [`RingOps::new`] if `modulus` is not in range `1..1 << 61`, or
+/// It panics in [`RingOps::new`] if `modulus` is not in range `3..1 << 61`, or
 /// `modulus` doesn't have `2 * ring_size`-th root-of-unity.
 pub type PrimeRing = prime::PrimeRing<Ntt>;
 

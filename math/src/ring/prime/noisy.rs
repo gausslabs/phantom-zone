@@ -11,7 +11,7 @@ use num_complex::Complex64;
 /// The ring multiplication is implemented with complex FFT, hence slightly
 /// faster than [`PrimeRing`](crate::ring::prime::precise::PrimeRing) but noisy.
 ///
-/// It panics in [`RingOps::new`] if `modulus` is not in range `1..1 << 61`.
+/// It panics in [`RingOps::new`] if `modulus` is not in range `3..1 << 61`.
 pub type NoisyPrimeRing = prime::PrimeRing<Ffnt>;
 
 impl RingOps for NoisyPrimeRing {

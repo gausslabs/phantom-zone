@@ -9,15 +9,14 @@ use crate::{
 use itertools::{izip, Itertools};
 use phantom_zone_math::{
     decomposer::DecompositionParam,
-    distribution::Sampler,
-    distribution::{Gaussian, Ternary},
+    distribution::{Gaussian, Sampler, Ternary},
     modulus::{Modulus, ModulusOps, Native, Prime},
     ring::{PrimeRing, RingOps},
 };
 use rand::SeedableRng;
 
 fn test_param(modulus: impl Into<Modulus>) -> CdksParam {
-    let ring_size = 1024;
+    let ring_size = 512;
     CdksParam {
         modulus: modulus.into(),
         ring_size,
@@ -55,13 +54,13 @@ fn pack_lwes() {
     fn run<R: RingOps>(modulus: impl Into<Modulus>) {
         let mut rng = StdLweRng::from_entropy();
         let param = test_param(modulus);
+        let lwe = LweParam::from(param).build::<R>();
         let rlwe = RlweParam::from(param).build::<R>();
         let ring = rlwe.ring();
         let ring_size = ring.ring_size();
-        let lwe = LweParam::from(param).build::<R>();
 
         let sk = rlwe.sk_gen(&mut rng);
-        let decrypt = |ct: &_| rlwe.decode(&rlwe.decrypt(&sk.automorphism(2 * ring_size - 1), ct));
+        let decrypt = |ct: &_| rlwe.decode(&rlwe.decrypt(&sk, ct));
         let rp_key = {
             let mut rp_key = CdksKey::allocate(param);
             rp_key_gen(ring, &mut rp_key, &sk, &mut rng);
@@ -102,7 +101,7 @@ fn pack_lwes_ms() {
         let mod_lwe = lwe.modulus();
 
         let sk = rlwe.sk_gen(&mut rng);
-        let decrypt = |ct: &_| rlwe.decode(&rlwe.decrypt(&sk.automorphism(2 * ring_size - 1), ct));
+        let decrypt = |ct: &_| rlwe.decode(&rlwe.decrypt(&sk, ct));
         let rp_key = {
             let mut rp_key = CdksKey::allocate(param);
             rp_key_gen(ring, &mut rp_key, &sk, &mut rng);

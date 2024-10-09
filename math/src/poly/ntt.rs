@@ -154,7 +154,7 @@ impl Ntt {
 
 impl Default for Ntt {
     fn default() -> Self {
-        Self::new(Prime::new(2), 1)
+        Self::new(Prime::new(3), 1)
     }
 }
 

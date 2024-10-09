@@ -13,7 +13,7 @@ use core::ops::Neg;
 use itertools::Itertools;
 use phantom_zone_math::{
     izip_eq,
-    prelude::{ElemFrom, ModulusOps},
+    modulus::{ElemFrom, ModulusOps},
     ring::RingOps,
     util::scratch::Scratch,
 };
@@ -28,12 +28,12 @@ pub fn rp_key_gen<'a, R, T>(
     R: RingOps + ElemFrom<T>,
     T: 'a + Copy + Neg<Output = T>,
 {
-    let sk_auto_neg_one = sk.into().automorphism(2 * ring.ring_size() - 1);
+    let sk = sk.into();
     let noise_distribution = rp_key.param().noise_distribution;
     let mut scratch = ring.allocate_scratch(0, 3, 0);
     rp_key.aks_mut().for_each(|ak| {
         let scratch = scratch.borrow_mut();
-        auto_key_gen(ring, ak, &sk_auto_neg_one, noise_distribution, scratch, rng);
+        auto_key_gen(ring, ak, sk, noise_distribution, scratch, rng);
     });
 }
 
@@ -48,6 +48,20 @@ pub fn prepare_rp_key<R: RingOps>(
         .for_each(|(ak_prep, ak)| rlwe::prepare_auto_key(ring, ak_prep, ak, scratch.borrow_mut()));
 }
 
+/// Algorithm 2 in 2020/015.
+///
+/// LWE ciphertext is converted to RLWE ciphertext by interpreting part `a` of
+/// LWE ciphertext as coefficients of a polynomial, then applying an
+/// automorphism from `X -> X^-1` to it, as part `a` of RLWE ciphertext.
+/// Part `b` is same but interpreted as a constant polynomial.
+///
+/// The pre-preprocess to remove leading term is also applied, it multiply the
+/// RLWE ciphertext by `n^-1` immediately after converted from LWE ciphertext,
+/// where `n` is `cts.len().next_power_of_two()`.
+///
+/// # Panics
+///
+/// Panics if `ring.inv(cts.len().next_power_of_two())` doesn't exist.
 pub fn pack_lwes<'a, 'b, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
@@ -58,12 +72,22 @@ pub fn pack_lwes<'a, 'b, R: RingOps>(
     let n = cts.len().next_power_of_two();
     let n_inv = &ring.inv(&ring.elem_from(n as u64)).unwrap();
     pack_lwes_inner(ring, ct.into(), rp_key, &cts, &|mut ct, ct_0| {
-        ring.slice_scalar_mul(ct.a_mut(), ct_0.a(), n_inv);
+        ct.a_mut()[0] = ring.mul(&ct_0.a()[0], n_inv);
+        ring.slice_scalar_mul(&mut ct.a_mut()[1..], &ct_0.a()[1..], &ring.neg(n_inv));
+        ct.a_mut()[1..].reverse();
         ct.b_mut()[0] = ring.mul(ct_0.b(), n_inv);
         ct.b_mut()[1..].fill(ring.zero());
     })
 }
 
+/// Algorithm 2 in 2020/015.
+///
+/// Same as [`pack_lwes`] but a modulus switch from `mod_lwe` to `ring` is
+/// applied right before converting LWE ciphertext to RLWE ciphertext.
+///
+/// # Panics
+///
+/// Panics if `ring.inv(cts.len().next_power_of_two())` doesn't exist.
 pub fn pack_lwes_ms<'a, 'b, M: ModulusOps, R: RingOps>(
     mod_lwe: &M,
     ring: &R,
@@ -76,7 +100,9 @@ pub fn pack_lwes_ms<'a, 'b, M: ModulusOps, R: RingOps>(
     let n_inv = &ring.inv(&ring.elem_from(n as u64)).unwrap();
     pack_lwes_inner(ring, ct.into(), rp_key, &cts, &|mut ct, ct_0| {
         mod_lwe.slice_mod_switch(ct.a_mut(), ct_0.a(), ring);
-        ring.slice_scalar_mul_assign(ct.a_mut(), n_inv);
+        ring.mul_assign(&mut ct.a_mut()[0], n_inv);
+        ring.slice_scalar_mul_assign(&mut ct.a_mut()[1..], &ring.neg(n_inv));
+        ct.a_mut()[1..].reverse();
         ct.b_mut()[0] = ring.mul(&mod_lwe.mod_switch(ct_0.b(), ring), n_inv);
         ct.b_mut()[1..].fill(ring.zero());
     })
@@ -87,12 +113,12 @@ fn pack_lwes_inner<R: RingOps, T>(
     mut ct: RlweCiphertextMutView<R::Elem>,
     rp_key: &CdksKeyOwned<R::EvalPrep>,
     cts: &[LweCiphertextView<T>],
-    iota: &impl Fn(RlweCiphertextMutView<R::Elem>, LweCiphertextView<T>),
+    f: &impl Fn(RlweCiphertextMutView<R::Elem>, LweCiphertextView<T>),
 ) {
     assert!(cts.len() <= ring.ring_size());
     let ell = cts.len().next_power_of_two().ilog2() as usize;
     let mut scratch = ring.allocate_scratch(2 + 2 * (ell + 2), 3, 0);
-    if let (Some(ct_packed), _) = recurse(ring, rp_key, cts, iota, 1, 0, scratch.borrow_mut()) {
+    if let (Some(ct_packed), _) = recurse(ring, rp_key, cts, f, 1, 0, scratch.borrow_mut()) {
         ct.as_mut().copy_from_slice(ct_packed.as_ref());
     }
 
@@ -100,7 +126,7 @@ fn pack_lwes_inner<R: RingOps, T>(
         ring: &R,
         rp_key: &CdksKeyOwned<R::EvalPrep>,
         cts: &[LweCiphertextView<T>],
-        iota: &impl Fn(RlweCiphertextMutView<R::Elem>, LweCiphertextView<T>),
+        f: &impl Fn(RlweCiphertextMutView<R::Elem>, LweCiphertextView<T>),
         step: usize,
         skip: usize,
         mut scratch: Scratch<'a>,
@@ -112,19 +138,19 @@ fn pack_lwes_inner<R: RingOps, T>(
             return (
                 cts.get(skip).map(|ct_0| {
                     let mut ct = RlweCiphertext::scratch(ring_size, ring_size, &mut scratch);
-                    iota(ct.as_mut_view(), ct_0.as_view());
+                    f(ct.as_mut_view(), ct_0.as_view());
                     ct
                 }),
                 scratch,
             );
         }
 
-        let (ct_even, mut scratch) = recurse(ring, rp_key, cts, iota, 2 * step, skip, scratch);
+        let (ct_even, mut scratch) = recurse(ring, rp_key, cts, f, 2 * step, skip, scratch);
         let (ct_odd, mut tmp) = recurse(
             ring,
             rp_key,
             cts,
-            iota,
+            f,
             2 * step,
             skip + step,
             scratch.reborrow(),
@@ -175,21 +201,14 @@ pub fn rp_key_share_gen<'a, R, S, T>(
     S: HierarchicalSeedableRng,
     T: 'a + Copy + Neg<Output = T>,
 {
-    let sk_auto_neg_one = sk.into().automorphism(2 * ring.ring_size() - 1);
+    let sk = sk.into();
     let noise_distribution = rp_key_share.param().noise_distribution;
     let mut scratch = ring.allocate_scratch(0, 3, 0);
 
     let mut ak_rng = crs.ak_rng(rng);
     rp_key_share.aks_mut().for_each(|ak| {
         let scratch = scratch.borrow_mut();
-        seeded_auto_key_gen(
-            ring,
-            ak,
-            &sk_auto_neg_one,
-            noise_distribution,
-            scratch,
-            &mut ak_rng,
-        );
+        seeded_auto_key_gen(ring, ak, sk, noise_distribution, scratch, &mut ak_rng);
     });
 }
 
