@@ -61,7 +61,7 @@ pub fn prepare_rp_key<R: RingOps>(
 ///
 /// # Panics
 ///
-/// Panics if `ring.inv(cts.len().next_power_of_two())` doesn't exist.
+/// Panics if `ring.inv(n)` doesn't exist, or `cts.len() > ring.ring_size()`.
 pub fn pack_lwes<'a, 'b, R: RingOps>(
     ring: &R,
     ct: impl Into<RlweCiphertextMutView<'a, R::Elem>>,
@@ -71,13 +71,14 @@ pub fn pack_lwes<'a, 'b, R: RingOps>(
     let cts = cts.into_iter().map_into().collect_vec();
     let n = cts.len().next_power_of_two();
     let n_inv = &ring.inv(&ring.elem_from(n as u64)).unwrap();
-    pack_lwes_inner(ring, ct.into(), rp_key, &cts, &|mut ct, ct_0| {
+    let lwe_to_rlwe = |mut ct: RlweCiphertextMutView<R::Elem>, ct_0: LweCiphertextView<R::Elem>| {
         ct.a_mut()[0] = ring.mul(&ct_0.a()[0], n_inv);
         ring.slice_scalar_mul(&mut ct.a_mut()[1..], &ct_0.a()[1..], &ring.neg(n_inv));
         ct.a_mut()[1..].reverse();
         ct.b_mut()[0] = ring.mul(ct_0.b(), n_inv);
         ct.b_mut()[1..].fill(ring.zero());
-    })
+    };
+    pack_lwes_inner(ring, ct.into(), rp_key, &cts, &lwe_to_rlwe)
 }
 
 /// Algorithm 2 in 2020/015.
@@ -87,7 +88,7 @@ pub fn pack_lwes<'a, 'b, R: RingOps>(
 ///
 /// # Panics
 ///
-/// Panics if `ring.inv(cts.len().next_power_of_two())` doesn't exist.
+/// Panics if `ring.inv(n)` doesn't exist, or `cts.len() > ring.ring_size()`.
 pub fn pack_lwes_ms<'a, 'b, M: ModulusOps, R: RingOps>(
     mod_lwe: &M,
     ring: &R,
@@ -98,14 +99,15 @@ pub fn pack_lwes_ms<'a, 'b, M: ModulusOps, R: RingOps>(
     let cts = cts.into_iter().map_into().collect_vec();
     let n = cts.len().next_power_of_two();
     let n_inv = &ring.inv(&ring.elem_from(n as u64)).unwrap();
-    pack_lwes_inner(ring, ct.into(), rp_key, &cts, &|mut ct, ct_0| {
+    let lwe_to_rlwe = |mut ct: RlweCiphertextMutView<R::Elem>, ct_0: LweCiphertextView<M::Elem>| {
         mod_lwe.slice_mod_switch(ct.a_mut(), ct_0.a(), ring);
         ring.mul_assign(&mut ct.a_mut()[0], n_inv);
         ring.slice_scalar_mul_assign(&mut ct.a_mut()[1..], &ring.neg(n_inv));
         ct.a_mut()[1..].reverse();
         ct.b_mut()[0] = ring.mul(&mod_lwe.mod_switch(ct_0.b(), ring), n_inv);
         ct.b_mut()[1..].fill(ring.zero());
-    })
+    };
+    pack_lwes_inner(ring, ct.into(), rp_key, &cts, &lwe_to_rlwe)
 }
 
 fn pack_lwes_inner<R: RingOps, T>(
@@ -113,12 +115,14 @@ fn pack_lwes_inner<R: RingOps, T>(
     mut ct: RlweCiphertextMutView<R::Elem>,
     rp_key: &CdksKeyOwned<R::EvalPrep>,
     cts: &[LweCiphertextView<T>],
-    f: &impl Fn(RlweCiphertextMutView<R::Elem>, LweCiphertextView<T>),
+    lwe_to_rlwe: &impl Fn(RlweCiphertextMutView<R::Elem>, LweCiphertextView<T>),
 ) {
     assert!(cts.len() <= ring.ring_size());
     let ell = cts.len().next_power_of_two().ilog2() as usize;
     let mut scratch = ring.allocate_scratch(2 + 2 * (ell + 2), 3, 0);
-    if let (Some(ct_packed), _) = recurse(ring, rp_key, cts, f, 1, 0, scratch.borrow_mut()) {
+    if let (Some(ct_packed), _) =
+        recurse(ring, rp_key, cts, lwe_to_rlwe, 1, 0, scratch.borrow_mut())
+    {
         ct.as_mut().copy_from_slice(ct_packed.as_ref());
     }
 
@@ -126,7 +130,7 @@ fn pack_lwes_inner<R: RingOps, T>(
         ring: &R,
         rp_key: &CdksKeyOwned<R::EvalPrep>,
         cts: &[LweCiphertextView<T>],
-        f: &impl Fn(RlweCiphertextMutView<R::Elem>, LweCiphertextView<T>),
+        lwe_to_rlwe: &impl Fn(RlweCiphertextMutView<R::Elem>, LweCiphertextView<T>),
         step: usize,
         skip: usize,
         mut scratch: Scratch<'a>,
@@ -138,19 +142,20 @@ fn pack_lwes_inner<R: RingOps, T>(
             return (
                 cts.get(skip).map(|ct_0| {
                     let mut ct = RlweCiphertext::scratch(ring_size, ring_size, &mut scratch);
-                    f(ct.as_mut_view(), ct_0.as_view());
+                    lwe_to_rlwe(ct.as_mut_view(), ct_0.as_view());
                     ct
                 }),
                 scratch,
             );
         }
 
-        let (ct_even, mut scratch) = recurse(ring, rp_key, cts, f, 2 * step, skip, scratch);
+        let (ct_even, mut scratch) =
+            recurse(ring, rp_key, cts, lwe_to_rlwe, 2 * step, skip, scratch);
         let (ct_odd, mut tmp) = recurse(
             ring,
             rp_key,
             cts,
-            f,
+            lwe_to_rlwe,
             2 * step,
             skip + step,
             scratch.reborrow(),
