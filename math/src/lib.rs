@@ -10,7 +10,8 @@ pub mod prelude {
         decomposer::{Decomposer, DecompositionParam},
         distribution::{DistributionSized, Gaussian, Sampler, Ternary},
         modulus::{
-            ElemFrom, ElemOps, ElemTo, Modulus, ModulusOps, Native, NonNativePowerOfTwo, Prime,
+            Elem, ElemFrom, ElemOps, ElemTo, Modulus, ModulusOps, Native, NonNativePowerOfTwo,
+            Prime,
         },
         ring::{
             NativeRing, NoisyNativeRing, NoisyNonNativePowerOfTwoRing, NoisyPrimeRing,

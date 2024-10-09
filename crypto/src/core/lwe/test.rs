@@ -156,11 +156,11 @@ impl<M: ModulusOps> Lwe<M> {
         M: ElemFrom<T>,
     {
         let modulus = self.modulus();
-        let mut ct_lc = LweCiphertext::allocate(self.dimension());
+        let mut ct_fma = LweCiphertext::allocate(self.dimension());
         izip_eq!(cts, scalars).for_each(|(ct, scalar)| {
-            modulus.slice_scalar_fma(ct_lc.as_mut(), ct.as_ref(), &modulus.elem_from(scalar))
+            modulus.slice_scalar_fma(ct_fma.as_mut(), ct.as_ref(), &modulus.elem_from(scalar))
         });
-        ct_lc
+        ct_fma
     }
 
     pub fn noise(

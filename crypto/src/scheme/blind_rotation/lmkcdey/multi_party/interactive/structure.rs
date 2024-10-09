@@ -69,13 +69,13 @@ impl<S: HierarchicalSeedableRng> LmkcdeyMpiCrs<S> {
 }
 
 impl<S: HierarchicalSeedableRng> LmkcdeyMpiCrs<S> {
-    pub fn pk_rng<R: RngCore + SeedableRng>(&self, rng: &mut R) -> LweRng<R, S> {
+    pub(crate) fn pk_rng<R: RngCore + SeedableRng>(&self, rng: &mut R) -> LweRng<R, S> {
         let private = R::from_rng(rng).unwrap();
         let seedable = self.hierarchical_rng(&[0]);
         LweRng::new(private, seedable)
     }
 
-    pub fn unseed_pk_rng(&self) -> LweRng<(), S> {
+    pub(crate) fn unseed_pk_rng(&self) -> LweRng<(), S> {
         let seedable = self.hierarchical_rng(&[0]);
         LweRng::new((), seedable)
     }

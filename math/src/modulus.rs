@@ -40,6 +40,8 @@ impl Modulus {
     }
 }
 
+pub type Elem<O> = <O as ElemOps>::Elem;
+
 pub trait ElemOps: Clone + Debug + Send + Sync {
     type Elem: 'static + Copy + Debug + Default + Eq + Ord + Hash + Send + Sync + Serde;
 }

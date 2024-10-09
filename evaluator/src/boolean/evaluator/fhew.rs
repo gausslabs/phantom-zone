@@ -2,17 +2,27 @@
 //! blind rotation in 2022/198.
 
 use crate::boolean::fhew::prelude::*;
+use core::ops::Neg;
 use itertools::{izip, Itertools};
 use phantom_zone_crypto::{
     core::{
         lwe::{self, LweCiphertext, LwePlaintext, LweSecretKeyView},
-        rlwe::{self, RlweCiphertext, RlwePlaintext, RlwePlaintextOwned, RlwePublicKeyView},
+        rlwe::{
+            self, RlweCiphertextList, RlweDecryptionShareList, RlweDecryptionShareListOwned,
+            RlweDecryptionShareListView, RlwePlaintext, RlwePlaintextOwned, RlwePublicKeyView,
+            RlweSecretKeyView,
+        },
     },
-    scheme::blind_rotation::lmkcdey,
+    scheme::{
+        blind_rotation::lmkcdey,
+        ring_packing::cdks::{self, CdksKeyOwned},
+    },
 };
 use phantom_zone_derive::AsSliceWrapper;
 use phantom_zone_math::{
-    izip_eq, poly::automorphism::AutomorphismMap, util::scratch::ScratchOwned,
+    izip_eq,
+    poly::automorphism::AutomorphismMap,
+    util::{as_slice::AsSlice, scratch::ScratchOwned},
 };
 use rand::RngCore;
 
@@ -65,49 +75,7 @@ impl<E> FhewBoolCiphertextOwned<E> {
     where
         E: 'a + Copy + Default,
     {
-        Self::batched_pk_encrypt(param, ring, pk, [m], rng)
-            .pop()
-            .unwrap()
-    }
-
-    pub fn batched_pk_encrypt<'a, R: RingOps<Elem = E>>(
-        param: &FhewBoolParam,
-        ring: &R,
-        pk: impl Into<RlwePublicKeyView<'a, E>>,
-        ms: impl IntoIterator<Item = bool>,
-        rng: &mut LweRng<impl RngCore, impl RngCore>,
-    ) -> Vec<Self>
-    where
-        E: 'a + Copy + Default,
-    {
-        let pk = pk.into();
-        let ms = ms.into_iter().collect_vec();
-        let encoded_one = encode(ring, true);
-        let mut cts = vec![Self::allocate(ring.ring_size()); ms.len()];
-        let mut pt = RlwePlaintext::allocate(ring.ring_size());
-        let mut ct_rlwe = RlweCiphertext::allocate(ring.ring_size());
-        let mut scratch = ring.allocate_scratch(0, 2, 0);
-        izip_eq!(
-            cts.chunks_mut(ring.ring_size()),
-            ms.chunks(ring.ring_size()),
-        )
-        .for_each(|(cts, ms)| {
-            izip!(pt.as_mut(), ms)
-                .for_each(|(pt, m)| *pt = if *m { encoded_one } else { ring.zero() });
-            rlwe::pk_encrypt(
-                ring,
-                &mut ct_rlwe,
-                pk,
-                &pt,
-                param.u_distribution,
-                param.noise_distribution,
-                scratch.borrow_mut(),
-                rng,
-            );
-            izip!(0.., cts)
-                .for_each(|(idx, ct)| rlwe::sample_extract(ring, &mut ct.0, &ct_rlwe, idx))
-        });
-        cts
+        FhewBoolBatchedCiphertext::pk_encrypt(param, ring, pk, [m], rng).extract(ring, 0)
     }
 
     pub fn decrypt<'a, R, T>(&self, ring: &R, sk: impl Into<LweSecretKeyView<'a, T>>) -> bool
@@ -121,16 +89,16 @@ impl<E> FhewBoolCiphertextOwned<E> {
 
     pub fn decrypt_share<'a, R, T>(
         &self,
+        param: &FhewBoolParam,
         ring: &R,
         sk: impl Into<LweSecretKeyView<'a, T>>,
-        noise_distribution: NoiseDistribution,
         rng: &mut LweRng<impl RngCore, impl RngCore>,
     ) -> LweDecryptionShare<E>
     where
         R: RingOps<Elem = E> + ElemFrom<T>,
         T: 'a + Copy,
     {
-        lwe::decrypt_share(ring, sk, &self.0, noise_distribution, rng)
+        lwe::decrypt_share(ring, sk, &self.0, param.noise_distribution, rng)
     }
 
     pub fn aggregate_decryption_shares<'a, R: RingOps<Elem = E>>(
@@ -161,6 +129,218 @@ fn decode<R: RingOps>(ring: &R, pt: R::Elem) -> bool {
     m == 1
 }
 
+#[derive(Clone, Debug, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FhewBoolBatchedCiphertext<S> {
+    #[as_slice(nested)]
+    cts: RlweCiphertextList<S>,
+    n: usize,
+}
+
+impl<S: AsSlice> FhewBoolBatchedCiphertext<S> {
+    pub fn new(cts: RlweCiphertextList<S>, n: usize) -> Self {
+        debug_assert_eq!(cts.len(), n.div_ceil(cts.ring_size()));
+        Self { cts, n }
+    }
+}
+
+impl<E> FhewBoolBatchedCiphertextOwned<E> {
+    pub fn allocate(ring_size: usize, n: usize) -> Self
+    where
+        E: Default,
+    {
+        Self::new(
+            RlweCiphertextList::allocate(ring_size, n.div_ceil(ring_size)),
+            n,
+        )
+    }
+
+    pub fn pk_encrypt<'a, R: RingOps<Elem = E>>(
+        param: &FhewBoolParam,
+        ring: &R,
+        pk: impl Into<RlwePublicKeyView<'a, E>>,
+        ms: impl IntoIterator<Item = bool>,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
+    ) -> Self
+    where
+        E: 'a + Copy + Default,
+    {
+        let pk = pk.into();
+        let ms = ms.into_iter().collect_vec();
+        let encoded = [encode(ring, false), encode(ring, true)];
+        let mut ct = Self::allocate(ring.ring_size(), ms.len());
+        let mut pt = RlwePlaintext::allocate(ring.ring_size());
+        let mut scratch = ring.allocate_scratch(0, 2, 0);
+        izip_eq!(ct.cts.iter_mut(), ms.chunks(ring.ring_size()),).for_each(|(ct_batch, ms)| {
+            izip!(pt.as_mut(), ms).for_each(|(pt, m)| *pt = encoded[*m as usize]);
+            rlwe::pk_encrypt(
+                ring,
+                ct_batch,
+                pk,
+                &pt,
+                param.u_distribution,
+                param.noise_distribution,
+                scratch.borrow_mut(),
+                rng,
+            )
+        });
+        ct
+    }
+
+    pub fn extract<R: RingOps<Elem = E>>(&self, ring: &R, idx: usize) -> FhewBoolCiphertextOwned<E>
+    where
+        E: Clone + Default,
+    {
+        assert!(idx < self.n);
+        let (i, j) = (idx / ring.ring_size(), idx % ring.ring_size());
+        let mut ct = FhewBoolCiphertext::allocate(ring.ring_size());
+        rlwe::sample_extract(ring, &mut ct.0, self.cts.nth(i).unwrap(), j);
+        ct
+    }
+
+    pub fn extract_all<R: RingOps<Elem = E>>(&self, ring: &R) -> Vec<FhewBoolCiphertextOwned<E>>
+    where
+        E: Clone + Default,
+    {
+        let mut cts = vec![FhewBoolCiphertext::allocate(ring.ring_size()); self.n];
+        izip!(cts.chunks_mut(ring.ring_size()), self.cts.iter()).for_each(|(cts, ct_batch)| {
+            izip!(0.., cts)
+                .for_each(|(idx, ct)| rlwe::sample_extract(ring, &mut ct.0, ct_batch, idx))
+        });
+        cts
+    }
+}
+
+#[derive(Clone, Debug, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FhewBoolPackedCiphertext<S> {
+    #[as_slice(nested)]
+    cts: RlweCiphertextList<S>,
+    n: usize,
+}
+
+impl<S: AsSlice> FhewBoolPackedCiphertext<S> {
+    pub fn new(cts: RlweCiphertextList<S>, n: usize) -> Self {
+        debug_assert_eq!(cts.len(), n.div_ceil(cts.ring_size()));
+        Self { cts, n }
+    }
+}
+
+impl<E> FhewBoolPackedCiphertextOwned<E> {
+    pub fn allocate(ring_size: usize, n: usize) -> Self
+    where
+        E: Default,
+    {
+        Self::new(
+            RlweCiphertextList::allocate(ring_size, n.div_ceil(ring_size)),
+            n,
+        )
+    }
+
+    pub fn pack<'a, R: RingOps<Elem = E>>(
+        ring: &R,
+        rp_key: &CdksKeyOwned<R::EvalPrep>,
+        cts: impl IntoIterator<Item: Into<FhewBoolCiphertextView<'a, R::Elem>>>,
+    ) -> Self
+    where
+        E: 'a + Default,
+    {
+        let cts = cts.into_iter().map(|ct| ct.into().0).collect_vec();
+        let mut ct = Self::allocate(ring.ring_size(), cts.len());
+        izip_eq!(ct.cts.iter_mut(), cts.chunks(ring.ring_size()))
+            .for_each(|(ct, cts)| cdks::pack_lwes(ring, ct, rp_key, cts));
+        ct
+    }
+
+    pub fn pack_ms<'a, M: ModulusOps, R: RingOps<Elem = E>>(
+        mod_lwe: &M,
+        ring: &R,
+        rp_key: &CdksKeyOwned<R::EvalPrep>,
+        cts: impl IntoIterator<Item: Into<FhewBoolCiphertextView<'a, M::Elem>>>,
+    ) -> Self
+    where
+        E: 'a + Default,
+    {
+        let cts = cts.into_iter().map(|ct| ct.into().0).collect_vec();
+        let mut ct = Self::allocate(ring.ring_size(), cts.len());
+        izip_eq!(ct.cts.iter_mut(), cts.chunks(ring.ring_size()))
+            .for_each(|(ct, cts)| cdks::pack_lwes_ms(mod_lwe, ring, ct, rp_key, cts));
+        ct
+    }
+
+    pub fn decrypt<'a, R, T>(&self, ring: &R, sk: impl Into<RlweSecretKeyView<'a, T>>) -> Vec<bool>
+    where
+        E: Copy,
+        R: RingOps<Elem = E> + ElemFrom<T>,
+        T: 'a + Copy + Neg<Output = T>,
+    {
+        let sk = sk.into();
+        let mut scratch = ring.allocate_scratch(2, 2, 0);
+        let mut scratch = scratch.borrow_mut();
+        let mut pt = RlwePlaintext::scratch(ring.ring_size(), &mut scratch);
+        let mut ms = vec![false; self.n];
+        izip!(ms.chunks_mut(ring.ring_size()), self.cts.iter()).for_each(|(ms, ct)| {
+            let ell = ms.len().next_power_of_two().ilog2() as usize;
+            rlwe::decrypt(ring, &mut pt, sk, ct, scratch.reborrow());
+            izip!(ms, pt.as_ref().iter().step_by(ring.ring_size() >> ell))
+                .for_each(|(m, pt)| *m = decode(ring, *pt));
+        });
+        ms
+    }
+
+    pub fn decrypt_share<'a, R, T>(
+        &self,
+        param: &FhewBoolParam,
+        ring: &R,
+        sk: impl Into<RlweSecretKeyView<'a, T>>,
+        rng: &mut LweRng<impl RngCore, impl RngCore>,
+    ) -> RlweDecryptionShareListOwned<E>
+    where
+        E: Default,
+        R: RingOps<Elem = E> + ElemFrom<T>,
+        T: 'a + Copy + Neg<Output = T>,
+    {
+        let sk = sk.into();
+        let mut dec_shares = RlweDecryptionShareList::allocate(ring.ring_size(), self.cts.len());
+        let mut scratch = ring.allocate_scratch(0, 2, 0);
+        let mut scratch = scratch.borrow_mut();
+        izip_eq!(dec_shares.iter_mut(), self.cts.iter()).for_each(|(dec_share, ct)| {
+            let scratch = scratch.reborrow();
+            rlwe::decrypt_share(
+                ring,
+                dec_share,
+                sk,
+                ct,
+                param.noise_distribution,
+                scratch,
+                rng,
+            );
+        });
+        dec_shares
+    }
+
+    pub fn aggregate_decryption_shares<'a, R: RingOps<Elem = E>>(
+        &self,
+        ring: &R,
+        dec_shares: impl IntoIterator<Item: Into<RlweDecryptionShareListView<'a, E>>>,
+    ) -> Vec<bool>
+    where
+        E: 'a + Copy + Default,
+    {
+        let dec_shares = dec_shares.into_iter().map_into().collect_vec();
+        let mut pt = RlwePlaintext::allocate(ring.ring_size());
+        let mut ms = vec![false; self.n];
+        izip!(0.., ms.chunks_mut(ring.ring_size()), self.cts.iter()).for_each(|(i, ms, ct)| {
+            let ell = ms.len().next_power_of_two().ilog2() as usize;
+            let dec_shares = dec_shares.iter().map(|dec_share| dec_share.nth(i).unwrap());
+            rlwe::aggregate_decryption_shares(ring, &mut pt, ct, dec_shares);
+            izip!(ms, pt.as_ref().iter().step_by(ring.ring_size() >> ell))
+                .for_each(|(m, pt)| *m = decode(ring, *pt));
+        });
+        ms
+    }
+}
+
 #[derive(Clone, Debug)]
 /// FHEW boolean evaluator.
 ///
@@ -171,7 +351,7 @@ fn decode<R: RingOps>(ring: &R, pt: R::Elem) -> bool {
 pub struct FhewBoolEvaluator<R: RingOps, M: ModulusOps> {
     ring: R,
     mod_ks: M,
-    bs_key: FhewBoolKey<R::EvalPrep, M::Elem>,
+    bs_key: FhewBoolKeyOwned<R::EvalPrep, M::Elem>,
     /// Contains tables for AND, NAND, OR (XOR), NOR (XNOR).
     tables: [RlwePlaintextOwned<R::Elem>; 4],
     encoded_one: R::Elem,
@@ -187,7 +367,7 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
     /// Panics if `R` is not compatible with `bs_key.param().modulus` and
     /// `bs_key.param().ring_size`, or if `M` is not compatible with
     /// `bs_key.param().lwe_modulus`.
-    pub fn new(bs_key: FhewBoolKey<R::EvalPrep, M::Elem>) -> Self {
+    pub fn new(bs_key: FhewBoolKeyOwned<R::EvalPrep, M::Elem>) -> Self {
         assert_eq!(bs_key.param().message_bits, 2);
         let param = bs_key.param();
         let ring = <R as RingOps>::new(param.modulus, param.ring_size);
@@ -220,7 +400,7 @@ impl<R: RingOps, M: ModulusOps> FhewBoolEvaluator<R, M> {
         &self.mod_ks
     }
 
-    pub fn bs_key(&self) -> &FhewBoolKey<R::EvalPrep, M::Elem> {
+    pub fn bs_key(&self) -> &FhewBoolKeyOwned<R::EvalPrep, M::Elem> {
         &self.bs_key
     }
 
@@ -309,7 +489,7 @@ impl<R: RingOps, M: ModulusOps> serde::Serialize for FhewBoolEvaluator<R, M> {
 #[cfg(feature = "serde")]
 impl<'de, R: RingOps, M: ModulusOps> serde::Deserialize<'de> for FhewBoolEvaluator<R, M> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        FhewBoolKey::deserialize(deserializer).map(Self::new)
+        FhewBoolKeyOwned::deserialize(deserializer).map(Self::new)
     }
 }
 
@@ -333,9 +513,9 @@ mod dev {
                 param.lwe_sk_distribution,
                 &mut rng,
             );
-            let mut bs_key = FhewBoolKey::allocate(param);
+            let mut bs_key = FhewBoolKeyOwned::allocate(param);
             bs_key_gen(&ring, &mod_ks, &mut bs_key, sk.as_view(), &sk_ks, &mut rng);
-            let mut bs_key_prep = FhewBoolKey::allocate_eval(param, ring.eval_size());
+            let mut bs_key_prep = FhewBoolKeyOwned::allocate_eval(param, ring.eval_size());
             prepare_bs_key(&ring, &mut bs_key_prep, &bs_key);
             FhewBoolEvaluator::new(bs_key_prep)
         }
