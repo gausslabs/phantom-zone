@@ -163,6 +163,19 @@ impl<M: ModulusOps> Lwe<M> {
         ct_fma
     }
 
+    pub fn random_noiseless(
+        &self,
+        sk: &LweSecretKeyOwned<i32>,
+        rng: &mut impl RngCore,
+    ) -> (LwePlaintext<M::Elem>, LweCiphertextOwned<M::Elem>) {
+        let modulus = self.modulus();
+        let mut ct = LweCiphertext::allocate(self.dimension());
+        modulus.sample_uniform_into(ct.as_mut(), rng);
+        let a_sk = modulus.slice_dot_elem_from(ct.a(), sk.as_ref());
+        let pt = LwePlaintext(modulus.sub(ct.b(), &a_sk));
+        (pt, ct)
+    }
+
     pub fn noise(
         &self,
         sk: &LweSecretKeyOwned<i32>,

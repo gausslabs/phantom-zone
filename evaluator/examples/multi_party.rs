@@ -1,15 +1,17 @@
-#![allow(clippy::type_complexity)]
-
 use core::{array::from_fn, iter::repeat_with};
 use itertools::{izip, Itertools};
 use phantom_zone_evaluator::boolean::{
     dev::MockBoolEvaluator,
-    fhew::{param::I_4P, prelude::*},
+    fhew::{
+        param::{I_4P, I_4P_60},
+        prelude::*,
+    },
 };
 use pz::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rayon::prelude::*;
 
+#[allow(clippy::type_complexity)]
 pub mod pz {
     use core::{fmt::Debug, ops::Deref};
     use itertools::Itertools;
@@ -23,20 +25,11 @@ pub mod pz {
         type KeySwitchMod: ModulusOps;
         type PackingRing: RingOps;
 
-        fn new(param: FhewBoolParam) -> Self;
+        fn new(param: Param) -> Self;
 
         fn param(&self) -> &FhewBoolParam;
 
-        fn ring_packing_param(&self) -> RingPackingParam {
-            let param = self.param();
-            RingPackingParam {
-                modulus: self.ring_rp().modulus(),
-                ring_size: param.ring_size,
-                sk_distribution: param.sk_distribution,
-                noise_distribution: param.noise_distribution,
-                auto_decomposition_param: param.auto_decomposition_param,
-            }
-        }
+        fn ring_packing_param(&self) -> &RingPackingParam;
 
         fn ring(&self) -> &Self::Ring;
 
@@ -113,17 +106,17 @@ pub mod pz {
 
         fn serialize_rp_key_share(
             &self,
-            rp_key_share: &RingPackingKeyShareOwned<Elem<Self::Ring>>,
+            rp_key_share: &RingPackingKeyShareOwned<Elem<Self::PackingRing>>,
         ) -> bincode::Result<Vec<u8>> {
-            bincode::serialize(&rp_key_share.compact(self.ring()))
+            bincode::serialize(&rp_key_share.compact(self.ring_rp()))
         }
 
         fn deserialize_rp_key_share(
             &self,
             bytes: &[u8],
-        ) -> bincode::Result<RingPackingKeyShareOwned<Elem<Self::Ring>>> {
+        ) -> bincode::Result<RingPackingKeyShareOwned<Elem<Self::PackingRing>>> {
             let rp_key_share_compact: RingPackingKeyShareCompact = bincode::deserialize(bytes)?;
-            Ok(rp_key_share_compact.uncompact(self.ring()))
+            Ok(rp_key_share_compact.uncompact(self.ring_rp()))
         }
 
         fn serialize_bs_key_share(
@@ -266,6 +259,7 @@ pub mod pz {
     #[derive(Debug)]
     pub struct NativeOps {
         param: FhewBoolParam,
+        ring_packing_param: RingPackingParam,
         ring: NativeRing,
         mod_ks: NonNativePowerOfTwo,
         ring_rp: PrimeRing,
@@ -277,17 +271,29 @@ pub mod pz {
         type KeySwitchMod = NonNativePowerOfTwo;
         type PackingRing = PrimeRing;
 
-        fn new(param: FhewBoolParam) -> Self {
+        fn new(param: Param) -> Self {
+            let ring_packing_param = RingPackingParam {
+                modulus: param.ring_packing_modulus.unwrap(),
+                ring_size: param.ring_size,
+                sk_distribution: param.sk_distribution,
+                noise_distribution: param.noise_distribution,
+                auto_decomposition_param: param.ring_packing_auto_decomposition_param,
+            };
             Self {
-                param,
+                param: **param,
+                ring_packing_param,
                 ring: RingOps::new(param.modulus, param.ring_size),
                 mod_ks: ModulusOps::new(param.lwe_modulus),
-                ring_rp: RingOps::new(Modulus::Prime(2305843009213554689), param.ring_size),
+                ring_rp: RingOps::new(ring_packing_param.modulus, param.ring_size),
             }
         }
 
         fn param(&self) -> &FhewBoolParam {
             &self.param
+        }
+
+        fn ring_packing_param(&self) -> &RingPackingParam {
+            &self.ring_packing_param
         }
 
         fn ring(&self) -> &Self::Ring {
@@ -314,6 +320,7 @@ pub mod pz {
     #[derive(Debug)]
     pub struct PrimeOps {
         param: FhewBoolParam,
+        ring_packing_param: RingPackingParam,
         ring: PrimeRing,
         mod_ks: NonNativePowerOfTwo,
     }
@@ -324,9 +331,17 @@ pub mod pz {
         type KeySwitchMod = NonNativePowerOfTwo;
         type PackingRing = PrimeRing;
 
-        fn new(param: FhewBoolParam) -> Self {
+        fn new(param: Param) -> Self {
+            let ring_packing_param = RingPackingParam {
+                modulus: param.modulus,
+                ring_size: param.ring_size,
+                sk_distribution: param.sk_distribution,
+                noise_distribution: param.noise_distribution,
+                auto_decomposition_param: param.ring_packing_auto_decomposition_param,
+            };
             Self {
-                param,
+                param: **param,
+                ring_packing_param,
                 ring: RingOps::new(param.modulus, param.ring_size),
                 mod_ks: ModulusOps::new(param.lwe_modulus),
             }
@@ -334,6 +349,10 @@ pub mod pz {
 
         fn param(&self) -> &FhewBoolParam {
             &self.param
+        }
+
+        fn ring_packing_param(&self) -> &RingPackingParam {
+            &self.ring_packing_param
         }
 
         fn ring(&self) -> &Self::Ring {
@@ -354,6 +373,21 @@ pub mod pz {
             cts: impl IntoIterator<Item = &'a FhewBoolCiphertextOwned<Elem<Self::Ring>>>,
         ) -> FhewBoolPackedCiphertextOwned<Elem<Self::PackingRing>> {
             FhewBoolPackedCiphertext::pack(self.ring_rp(), rp_key, cts)
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+    pub struct Param {
+        pub param: FhewBoolMpiParam,
+        pub ring_packing_modulus: Option<Modulus>,
+        pub ring_packing_auto_decomposition_param: DecompositionParam,
+    }
+
+    impl Deref for Param {
+        type Target = FhewBoolMpiParam;
+
+        fn deref(&self) -> &Self::Target {
+            &self.param
         }
     }
 
@@ -380,7 +414,7 @@ pub mod pz {
 
     #[derive(Debug)]
     pub struct Client<O: Ops> {
-        param: FhewBoolMpiParam,
+        param: Param,
         crs: Crs,
         ops: O,
         share_idx: usize,
@@ -398,7 +432,7 @@ pub mod pz {
 
     impl<O: Ops> Client<O> {
         pub fn new(
-            param: FhewBoolMpiParam,
+            param: Param,
             crs: Crs,
             share_idx: usize,
             seed: <StdRng as SeedableRng>::Seed,
@@ -407,7 +441,7 @@ pub mod pz {
             let mut client = Self {
                 param,
                 crs,
-                ops: O::new(*param),
+                ops: O::new(param),
                 share_idx,
                 seed,
                 pk: None,
@@ -456,7 +490,7 @@ pub mod pz {
         }
 
         pub fn rp_key_share_gen(&self) -> RingPackingKeyShareOwned<Elem<O::PackingRing>> {
-            let mut rp_key = RingPackingKeyShareOwned::allocate(self.ring_packing_param());
+            let mut rp_key = RingPackingKeyShareOwned::allocate(*self.ring_packing_param());
             rp_key_share_gen(
                 self.ring_rp(),
                 &mut rp_key,
@@ -474,7 +508,7 @@ pub mod pz {
         pub fn bs_key_share_gen(
             &self,
         ) -> FhewBoolMpiKeyShareOwned<Elem<O::Ring>, Elem<O::KeySwitchMod>> {
-            let mut bs_key_share = FhewBoolMpiKeyShareOwned::allocate(self.param, self.share_idx);
+            let mut bs_key_share = FhewBoolMpiKeyShareOwned::allocate(*self.param, self.share_idx);
             bs_key_share_gen(
                 self.ring(),
                 self.mod_ks(),
@@ -526,7 +560,7 @@ pub mod pz {
 
     #[derive(Debug)]
     pub struct Server<O: Ops> {
-        param: FhewBoolMpiParam,
+        param: Param,
         crs: Crs,
         ops: O,
         pk: Option<RlwePublicKeyOwned<Elem<O::Ring>>>,
@@ -546,7 +580,7 @@ pub mod pz {
 
     impl<O: Ops> Server<O> {
         pub fn new(
-            param: FhewBoolMpiParam,
+            param: Param,
             crs: Crs,
             pk_bytes: Option<&[u8]>,
             rp_key_bytes: Option<&[u8]>,
@@ -555,7 +589,7 @@ pub mod pz {
             let mut server = Self {
                 param,
                 crs,
-                ops: O::new(*param),
+                ops: O::new(param),
                 pk: None,
                 rp_key: None,
                 rp_key_prep: None,
@@ -608,7 +642,7 @@ pub mod pz {
 
         pub fn with_rp_key(&mut self, rp_key: RingPackingKeyOwned<Elem<O::PackingRing>>) {
             let mut rp_key_prep = RingPackingKeyOwned::allocate_eval(
-                self.ring_packing_param(),
+                *self.ring_packing_param(),
                 self.ring_rp().eval_size(),
             );
             prepare_rp_key(self.ring_rp(), &mut rp_key_prep, &rp_key);
@@ -624,7 +658,7 @@ pub mod pz {
                 let ring: O::EvaluationRing =
                     RingOps::new(self.param.modulus, self.param.ring_size);
                 let mut bs_key_prep =
-                    FhewBoolKeyOwned::allocate_eval(*self.param, ring.eval_size());
+                    FhewBoolKeyOwned::allocate_eval(**self.param, ring.eval_size());
                 prepare_bs_key(&ring, &mut bs_key_prep, &bs_key);
                 bs_key_prep
             };
@@ -647,7 +681,7 @@ pub mod pz {
             rp_key_shares: &[RingPackingKeyShareOwned<Elem<O::PackingRing>>],
         ) {
             let crs = self.crs.ring_packing();
-            let mut rp_key = RingPackingKeyOwned::allocate(self.ring_packing_param());
+            let mut rp_key = RingPackingKeyOwned::allocate(*self.ring_packing_param());
             aggregate_rp_key_shares(self.ring_rp(), &mut rp_key, &crs, rp_key_shares);
             self.with_rp_key(rp_key);
         }
@@ -658,7 +692,7 @@ pub mod pz {
         ) {
             let crs = self.crs.fhew();
             let bs_key = {
-                let mut bs_key = FhewBoolKeyOwned::allocate(*self.param);
+                let mut bs_key = FhewBoolKeyOwned::allocate(**self.param);
                 aggregate_bs_key_shares(
                     self.ring(),
                     self.mod_ks(),
@@ -692,44 +726,23 @@ pub mod pz {
         pub fn serialize_bs_key(&self) -> bincode::Result<Vec<u8>> {
             self.ops.serialize_bs_key(self.bs_key())
         }
-    }
 
-    impl Server<NativeOps> {
         pub fn pack<'a>(
             &self,
-            cts: impl IntoIterator<Item = &'a FhewBoolCiphertextOwned<Elem<<NativeOps as Ops>::Ring>>>,
-        ) -> FhewBoolPackedCiphertextOwned<Elem<<NativeOps as Ops>::PackingRing>> {
-            self.ops.pack(self.rp_key_prep(), cts)
-        }
-    }
-
-    impl Server<PrimeOps> {
-        pub fn pack<'a>(
-            &self,
-            cts: impl IntoIterator<Item = &'a FhewBoolCiphertextOwned<Elem<<PrimeOps as Ops>::Ring>>>,
-        ) -> FhewBoolPackedCiphertextOwned<Elem<<PrimeOps as Ops>::PackingRing>> {
+            cts: impl IntoIterator<Item = &'a FhewBoolCiphertextOwned<Elem<O::Ring>>>,
+        ) -> FhewBoolPackedCiphertextOwned<Elem<O::PackingRing>> {
             self.ops.pack(self.rp_key_prep(), cts)
         }
     }
 }
 
-fn function<'a, E: BoolEvaluator>(
-    a: &[FheBool<'a, E>],
-    b: &[FheBool<'a, E>],
-    c: &[FheBool<'a, E>],
-    d: &[FheBool<'a, E>],
-) -> Vec<FheBool<'a, E>> {
-    a.par_iter()
-        .zip(b)
-        .zip(c)
-        .zip(d)
-        .map(|(((a, b), c), d)| a ^ b ^ c ^ d)
-        .collect()
-}
-
-macro_rules! describe {
+macro_rules! timed {
     ($description:literal, $code:expr) => {{
-        print!("{} {} ", $description, "·".repeat(70 - $description.len()));
+        print!(
+            "  {} {} ",
+            $description,
+            "·".repeat(70 - $description.len())
+        );
         std::io::Write::flush(&mut std::io::stdout()).unwrap();
         let start = std::time::Instant::now();
         let out = $code;
@@ -741,21 +754,29 @@ macro_rules! describe {
     }};
 }
 
-fn main() {
-    let param = I_4P;
+fn e2e<O: Ops>(param: Param) {
+    println!(
+        "Running e2e example on {}-bits {} modulus",
+        param.modulus.bits(),
+        match param.modulus {
+            Modulus::PowerOfTwo(_) => "native",
+            Modulus::Prime(_) => "prime",
+        }
+    );
+
     let crs = Crs::from_entropy();
-    let mut server = Server::<PrimeOps>::new(param, crs, None, None, None).unwrap();
+    let mut server = Server::<O>::new(param, crs, None, None, None).unwrap();
     let mut clients = (0..param.total_shares)
         .map(|share_idx| {
             let seed = StdRng::from_entropy().gen();
-            Client::<PrimeOps>::new(param, crs, share_idx, seed, None).unwrap()
+            Client::<O>::new(param, crs, share_idx, seed, None).unwrap()
         })
         .collect_vec();
 
     // Key generation round 1.
 
     let (pk_shares, rp_key_shares) =
-        describe!("client: generate public and ring packing key shares", {
+        timed!("client: generate public and ring packing key shares", {
             let pk_shares = clients
                 .iter()
                 .map(|client| client.serialize_pk_share(&client.pk_share_gen()).unwrap())
@@ -771,7 +792,7 @@ fn main() {
             (pk_shares, rp_key_shares)
         });
 
-    let pk = describe!("server: aggregate public and ring packing key shares", {
+    let pk = timed!("server: aggregate public and ring packing key shares", {
         server.aggregate_pk_shares(
             &pk_shares
                 .into_iter()
@@ -789,7 +810,7 @@ fn main() {
 
     // Key generation round 2.
 
-    let bs_key_shares = describe!(
+    let bs_key_shares = timed!(
         "client: generate bootstrapping key shares",
         clients
             .iter_mut()
@@ -802,7 +823,7 @@ fn main() {
             .collect_vec()
     );
 
-    describe!(
+    timed!(
         "server: aggregate bootstrapping key shares",
         server.aggregate_bs_key_shares(
             &bs_key_shares
@@ -813,6 +834,20 @@ fn main() {
     );
 
     // FHE evaluation.
+
+    fn function<'a, E: BoolEvaluator>(
+        a: &[FheBool<'a, E>],
+        b: &[FheBool<'a, E>],
+        c: &[FheBool<'a, E>],
+        d: &[FheBool<'a, E>],
+    ) -> Vec<FheBool<'a, E>> {
+        a.par_iter()
+            .zip(b)
+            .zip(c)
+            .zip(d)
+            .map(|(((a, b), c), d)| a ^ b ^ c ^ d)
+            .collect()
+    }
 
     let ms: [Vec<bool>; 4] = {
         let mut rng = StdRng::from_entropy();
@@ -829,15 +864,15 @@ fn main() {
             .collect_vec()
     };
 
-    let run = |server: &Server<PrimeOps>, clients: &[Client<PrimeOps>]| {
-        let cts = describe!("client: batched encrypt inputs", {
+    let run = |server: &Server<O>, clients: &[Client<O>]| {
+        let cts = timed!("client: batched encrypt inputs", {
             from_fn(|i| {
                 let ct = clients[i].batched_pk_encrypt(ms[i].clone());
                 clients[i].serialize_batched_ct(&ct).unwrap()
             })
         });
 
-        let ct_out = describe!("server: perform FHE evaluation on inputs parallelly", {
+        let ct_out = timed!("server: perform FHE evaluation on inputs parallelly", {
             let [a, b, c, d] = &cts.map(|bytes| {
                 let ct = server.deserialize_batched_ct(&bytes).unwrap();
                 server.wrap_batched_ct(&ct)
@@ -850,12 +885,12 @@ fn main() {
 
         // With ring packing.
 
-        let rp_ct_out = describe!(
+        let rp_ct_out = timed!(
             "server: perform ring packing on output",
             server.serialize_rp_ct(&server.pack(&ct_out)).unwrap()
         );
 
-        let rp_ct_out_dec_shares = describe!(
+        let rp_ct_out_dec_shares = timed!(
             "client: generate ring packing decryption shares",
             clients
                 .iter()
@@ -867,7 +902,7 @@ fn main() {
                 .collect_vec()
         );
 
-        describe!("anyone: aggregate ring packing decryption shares", {
+        timed!("anyone: aggregate ring packing decryption shares", {
             assert_eq!(
                 out.to_vec(),
                 clients[0].aggregate_rp_decryption_shares(
@@ -887,7 +922,7 @@ fn main() {
             .map(|ct| server.serialize_ct(ct).unwrap())
             .collect_vec();
 
-        let ct_out_dec_shares = describe!(
+        let ct_out_dec_shares = timed!(
             "client: generate decryption shares",
             clients
                 .iter()
@@ -901,7 +936,7 @@ fn main() {
                 .collect_vec()
         );
 
-        describe!("anyone: aggregate decryption shares", {
+        timed!("anyone: aggregate decryption shares", {
             assert_eq!(out.to_vec(), {
                 let ct_out = ct_out
                     .iter()
@@ -927,11 +962,11 @@ fn main() {
 
     // Store and restart.
 
-    let server = describe!("server: store aggregated keys and restart", {
+    let server = timed!("server: store aggregated keys and restart", {
         let pk_bytes = server.serialize_pk().unwrap();
         let rp_key_bytes = server.serialize_rp_key().unwrap();
         let bs_key_bytes = server.serialize_bs_key().unwrap();
-        Server::<PrimeOps>::new(
+        Server::<O>::new(
             param,
             crs,
             Some(&pk_bytes),
@@ -941,15 +976,34 @@ fn main() {
         .unwrap()
     });
 
-    let clients = describe!("client: store aggregated pk and seed and restart", {
+    let clients = timed!("client: store aggregated pk and seed and restart", {
         let seeds = clients.iter().map(|client| client.seed()).collect_vec();
         let pk_bytes = clients[0].serialize_pk().unwrap();
         izip!(0.., seeds)
             .map(|(share_idx, seed)| {
-                Client::<PrimeOps>::new(param, crs, share_idx, seed, Some(&pk_bytes)).unwrap()
+                Client::<O>::new(param, crs, share_idx, seed, Some(&pk_bytes)).unwrap()
             })
             .collect_vec()
     });
 
     run(&server, &clients);
+}
+
+fn main() {
+    e2e::<NativeOps>(Param {
+        param: I_4P_60,
+        ring_packing_modulus: Some(Modulus::Prime(2305843009213554689)),
+        ring_packing_auto_decomposition_param: DecompositionParam {
+            log_base: 20,
+            level: 1,
+        },
+    });
+    e2e::<PrimeOps>(Param {
+        param: I_4P,
+        ring_packing_modulus: None,
+        ring_packing_auto_decomposition_param: DecompositionParam {
+            log_base: 20,
+            level: 1,
+        },
+    });
 }
