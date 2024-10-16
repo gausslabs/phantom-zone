@@ -29,7 +29,7 @@ use rand::RngCore;
 pub mod param;
 pub mod prelude;
 
-#[derive(Clone, Debug, AsSliceWrapper)]
+#[derive(Clone, Debug, PartialEq, AsSliceWrapper)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FhewBoolCiphertext<S>(#[as_slice(nested)] LweCiphertext<S>);
 

@@ -36,9 +36,9 @@ pub use phantom_zone_crypto::{
         lwe::{LweDecryptionShare, LweSecretKey, LweSecretKeyOwned},
         rgsw::RgswDecompositionParam,
         rlwe::{
-            RlweDecryptionShareList, RlweDecryptionShareListOwned, RlwePublicKey,
-            RlwePublicKeyOwned, RlweSecretKey, RlweSecretKeyOwned, SeededRlwePublicKey,
-            SeededRlwePublicKeyOwned,
+            RlweDecryptionShareList, RlweDecryptionShareListOwned, RlweDecryptionShareListView,
+            RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey, RlweSecretKeyOwned,
+            SeededRlwePublicKey, SeededRlwePublicKeyOwned, SeededRlwePublicKeyView,
         },
     },
     util::{

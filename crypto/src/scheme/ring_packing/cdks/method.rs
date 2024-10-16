@@ -217,15 +217,16 @@ pub fn rp_key_share_gen<'a, R, S, T>(
     });
 }
 
-pub fn aggregate_rp_key_shares<R, S>(
+pub fn aggregate_rp_key_shares<'a, R, S>(
     ring: &R,
     rp_key: &mut CdksKeyOwned<R::Elem>,
     crs: &CdksCrs<S>,
-    rp_key_shares: &[CdksKeyShareOwned<R::Elem>],
+    rp_key_shares: impl IntoIterator<Item = &'a CdksKeyShareOwned<R::Elem>>,
 ) where
     R: RingOps,
     S: HierarchicalSeedableRng,
 {
+    let rp_key_shares = rp_key_shares.into_iter().collect_vec();
     debug_assert!(!rp_key_shares.is_empty());
     rp_key_shares
         .iter()
