@@ -39,12 +39,25 @@ pub trait RingOps: ModulusOps {
     }
 
     fn scratch_bytes(&self, poly: usize, eval: usize, eval_prep: usize) -> usize {
-        let mut bytes;
-        bytes = size_of::<Self::Elem>() * self.ring_size() * poly;
-        bytes = bytes.next_multiple_of(size_of::<Self::Eval>());
+        const fn padding<R: RingOps>() -> usize {
+            let sizes = [
+                size_of::<R::Elem>(),
+                size_of::<R::Eval>(),
+                size_of::<R::EvalPrep>(),
+            ];
+            let (mut min, mut max) = (0, 0);
+            let mut i = 0;
+            while i < sizes.len() {
+                min = if sizes[i] < min { sizes[i] } else { min };
+                max = if sizes[i] > max { sizes[i] } else { max };
+                i += 1;
+            }
+            max - min
+        }
+        let mut bytes = padding::<Self>() * (1 + poly + eval + eval_prep);
+        bytes += size_of::<Self::Elem>() * self.ring_size() * poly;
         bytes += size_of::<Self::Eval>() * self.eval_size() * eval;
         bytes += size_of::<Self::Eval>() * self.eval_scratch_size();
-        bytes = bytes.next_multiple_of(size_of::<Self::EvalPrep>());
         bytes += size_of::<Self::EvalPrep>() * self.eval_size() * eval_prep;
         bytes
     }

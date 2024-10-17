@@ -1,3 +1,4 @@
+use auto_impl::auto_impl;
 use core::fmt::Debug;
 use phantom_zone_math::util::serde::Serde;
 
@@ -11,7 +12,8 @@ pub mod fhew;
 /// its corresponding [`BoolEvaluator`] by [`FheBool`][FheBool].
 ///
 /// [FheBool]: crate::boolean::FheBool
-pub trait BoolEvaluator: Send + Sync {
+#[auto_impl(&, Arc)]
+pub trait BoolEvaluator: Clone + Send + Sync {
     type Ciphertext: Clone + Debug + Serde + Send + Sync;
 
     /// Performs bitwise NOT assignment.

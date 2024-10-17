@@ -708,7 +708,7 @@ pub mod pz {
         pub fn wrap_batched_ct(
             &self,
             ct: &FhewBoolBatchedCiphertextOwned<Elem<O::Ring>>,
-        ) -> Vec<FheBool<FhewBoolEvaluator<O::EvaluationRing, O::KeySwitchMod>>> {
+        ) -> Vec<FheBool<&FhewBoolEvaluator<O::EvaluationRing, O::KeySwitchMod>>> {
             ct.extract_all(self.ring())
                 .into_iter()
                 .map(|ct| FheBool::new(self.evaluator(), ct))
@@ -835,12 +835,12 @@ fn e2e<O: Ops>(param: Param) {
 
     // FHE evaluation.
 
-    fn function<'a, E: BoolEvaluator>(
-        a: &[FheBool<'a, E>],
-        b: &[FheBool<'a, E>],
-        c: &[FheBool<'a, E>],
-        d: &[FheBool<'a, E>],
-    ) -> Vec<FheBool<'a, E>> {
+    fn function<E: BoolEvaluator>(
+        a: &[FheBool<E>],
+        b: &[FheBool<E>],
+        c: &[FheBool<E>],
+        d: &[FheBool<E>],
+    ) -> Vec<FheBool<E>> {
         a.par_iter()
             .zip(b)
             .zip(c)

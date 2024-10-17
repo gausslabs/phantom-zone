@@ -42,7 +42,7 @@ fn encrypt_bool<'a>(
     sk: &LweSecretKeyOwned<i32>,
     m: bool,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
-) -> FheBool<'a, Evaluator> {
+) -> FheBool<&'a Evaluator> {
     let ct = FhewBoolCiphertext::sk_encrypt(evaluator.param(), evaluator.ring(), sk, m, rng);
     FheBool::new(evaluator, ct)
 }
@@ -50,7 +50,7 @@ fn encrypt_bool<'a>(
 fn decrypt_bool(
     evaluator: &Evaluator,
     sk: &LweSecretKeyOwned<i32>,
-    ct: FheBool<Evaluator>,
+    ct: FheBool<&Evaluator>,
 ) -> bool {
     ct.ct().decrypt(evaluator.ring(), sk)
 }
@@ -60,7 +60,7 @@ fn encrypt_u8<'a>(
     sk: &LweSecretKeyOwned<i32>,
     m: u8,
     rng: &mut LweRng<impl RngCore, impl RngCore>,
-) -> FheU8<'a, Evaluator> {
+) -> FheU8<&'a Evaluator> {
     let cts = from_fn(|idx| {
         let m = (m >> idx) & 1 == 1;
         FhewBoolCiphertext::sk_encrypt(evaluator.param(), evaluator.ring(), sk, m, rng)
@@ -68,7 +68,7 @@ fn encrypt_u8<'a>(
     FheU8::from_cts(evaluator, cts)
 }
 
-fn decrypt_u8(evaluator: &Evaluator, sk: &LweSecretKeyOwned<i32>, ct: FheU8<Evaluator>) -> u8 {
+fn decrypt_u8(evaluator: &Evaluator, sk: &LweSecretKeyOwned<i32>, ct: FheU8<&Evaluator>) -> u8 {
     ct.into_cts()
         .into_iter()
         .rev()
@@ -76,15 +76,15 @@ fn decrypt_u8(evaluator: &Evaluator, sk: &LweSecretKeyOwned<i32>, ct: FheU8<Eval
         .fold(0, |m, b| (m << 1) | b as u8)
 }
 
-fn gate_level_function<'a, E: BoolEvaluator>(
-    a: &FheBool<'a, E>,
-    b: &FheBool<'a, E>,
-    c: &FheBool<'a, E>,
-    d: &FheBool<'a, E>,
-    e: &FheBool<'a, E>,
-    f: &FheBool<'a, E>,
-    g: &FheBool<'a, E>,
-) -> FheBool<'a, E> {
+fn gate_level_function<E: BoolEvaluator>(
+    a: &FheBool<E>,
+    b: &FheBool<E>,
+    c: &FheBool<E>,
+    d: &FheBool<E>,
+    e: &FheBool<E>,
+    f: &FheBool<E>,
+    g: &FheBool<E>,
+) -> FheBool<E> {
     a.not()
         .bitand(b)
         .bitnand(c)

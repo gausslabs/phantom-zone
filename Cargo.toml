@@ -3,6 +3,7 @@ members = ["crypto", "derive", "evaluator", "math"]
 resolver = "2"
 
 [workspace.dependencies]
+auto_impl = "1.2.0"
 itertools = "0.13.0"
 num-complex = "0.4.6"
 num-traits = "0.2.19"
