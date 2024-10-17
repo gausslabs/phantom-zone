@@ -4,7 +4,7 @@ use crate::{
         rgsw::{self},
         rlwe::{
             self, RlwePlaintext, RlwePublicKeyMutView, RlwePublicKeyView, RlweSecretKeyView,
-            SeededRlwePublicKeyMutView, SeededRlwePublicKeyOwned,
+            SeededRlwePublicKeyMutView, SeededRlwePublicKeyView,
         },
     },
     scheme::blind_rotation::lmkcdey::{
@@ -14,7 +14,7 @@ use crate::{
     util::rng::HierarchicalSeedableRng,
 };
 use core::ops::{Deref, Neg};
-use itertools::izip;
+use itertools::{izip, Itertools};
 use num_traits::AsPrimitive;
 use phantom_zone_math::{
     izip_eq,
@@ -110,20 +110,21 @@ pub fn bs_key_share_gen<'a, 'b, 'c, R, M, S, T>(
     });
 }
 
-pub fn aggregate_bs_key_shares<R, M, S>(
+pub fn aggregate_bs_key_shares<'a, R, M, S>(
     ring: &R,
     mod_ks: &M,
     bs_key: &mut LmkcdeyKeyOwned<R::Elem, M::Elem>,
     crs: &LmkcdeyMpiCrs<S>,
-    bs_key_shares: &[LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem>],
+    bs_key_shares: impl IntoIterator<Item = &'a LmkcdeyMpiKeyShareOwned<R::Elem, M::Elem>>,
 ) where
     R: RingOps,
     M: ModulusOps,
     S: HierarchicalSeedableRng,
 {
+    let bs_key_shares = bs_key_shares.into_iter().collect_vec();
     debug_assert!(!bs_key_shares.is_empty());
     debug_assert_eq!(bs_key_shares.len(), bs_key_shares[0].param().total_shares);
-    izip!(0.., bs_key_shares).for_each(|(share_idx, bs_key_share)| {
+    izip!(0.., &bs_key_shares).for_each(|(share_idx, bs_key_share)| {
         debug_assert_eq!(bs_key_share.param().deref(), bs_key.param());
         debug_assert_eq!(share_idx, bs_key_share.share_idx());
     });
@@ -162,7 +163,7 @@ pub fn aggregate_bs_key_shares<R, M, S>(
         ring.allocate_scratch(2, 3, 2 * level)
     };
     let chunk_size = bs_key.param().lwe_dimension.div_ceil(bs_key_shares.len());
-    for bs_key_share_init in bs_key_shares {
+    for bs_key_share_init in &bs_key_shares {
         let start = chunk_size * bs_key_share_init.share_idx();
         izip_eq!(bs_key.brks_mut(), bs_key_share_init.brks())
             .skip(start)
@@ -185,19 +186,20 @@ pub fn aggregate_bs_key_shares<R, M, S>(
     }
 }
 
-pub fn aggregate_pk_shares<'a, R, S>(
+pub fn aggregate_pk_shares<'a, 'b, R, S>(
     ring: &R,
     pk: impl Into<RlwePublicKeyMutView<'a, R::Elem>>,
     crs: &LmkcdeyMpiCrs<S>,
-    pk_shares: &[SeededRlwePublicKeyOwned<R::Elem>],
+    pk_shares: impl IntoIterator<Item: Into<SeededRlwePublicKeyView<'b, R::Elem>>>,
 ) where
     R: RingOps,
     S: HierarchicalSeedableRng,
 {
+    let pk_shares = pk_shares.into_iter().map_into().collect_vec();
     debug_assert!(!pk_shares.is_empty());
 
     let mut pk = pk.into();
-    rlwe::unseed_pk(ring, &mut pk, &pk_shares[0], &mut crs.unseed_pk_rng());
+    rlwe::unseed_pk(ring, &mut pk, pk_shares[0], &mut crs.unseed_pk_rng());
     pk_shares[1..]
         .iter()
         .for_each(|pk_share| ring.slice_add_assign(pk.b_mut(), pk_share.b()));

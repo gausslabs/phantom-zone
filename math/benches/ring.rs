@@ -18,7 +18,7 @@ fn forward(c: &mut Criterion) {
             let mut scratch = scratch.borrow_mut();
             let b = ring.take_eval(&mut scratch);
             let eval_scratch = ring.take_eval_scratch(&mut scratch);
-            ring.forward(b, &a, eval_scratch)
+            ring.forward_lazy(b, &a, eval_scratch)
         })
     }
 

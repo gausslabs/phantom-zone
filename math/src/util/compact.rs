@@ -138,6 +138,6 @@ mod test {
 
         run(Native::native());
         (48..64).for_each(|bits| run(NonNativePowerOfTwo::new(bits)));
-        (48..63).for_each(|bits| run(Prime::gen(bits, 0)));
+        (48..62).for_each(|bits| run(Prime::gen(bits, 0)));
     }
 }

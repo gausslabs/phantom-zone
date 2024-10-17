@@ -49,7 +49,7 @@ impl Ntt {
         self.ring_size
     }
 
-    pub fn forward<const NORMALIZE: bool>(&self, a: &mut [u64]) {
+    pub fn forward<const NORMALIZE: bool, const LAZY: bool>(&self, a: &mut [u64]) {
         debug_assert_eq!(a.len(), self.ring_size);
         for layer in 0..self.log_ring_size {
             let (m, size) = (1 << layer, 1 << (self.log_ring_size - layer - 1));
@@ -58,8 +58,11 @@ impl Ntt {
                     let (a, b) = a.split_at_mid_mut();
                     self.dit::<false>(&mut a[0], &mut b[0], t);
                     if NORMALIZE {
-                        self.normalize::<true>(&mut a[0]);
-                        self.normalize::<true>(&mut b[0]);
+                        self.normalize(&mut a[0]);
+                        self.normalize(&mut b[0]);
+                    } else if !LAZY {
+                        a[0] = a[0].min(a[0].wrapping_sub(*self.q));
+                        b[0] = b[0].min(b[0].wrapping_sub(*self.q));
                     }
                 });
             } else {
@@ -82,8 +85,8 @@ impl Ntt {
                         izip!(a, b).for_each(|(a, b)| {
                             if NORMALIZE {
                                 self.dif::<true>(a, b, t);
-                                self.normalize::<false>(a);
-                                self.normalize::<false>(b);
+                                self.normalize(a);
+                                self.normalize(b);
                             } else {
                                 self.dif::<false>(a, b, t);
                             }
@@ -103,6 +106,7 @@ impl Ntt {
 
     #[inline(always)]
     fn reduce_twice_assign(&self, a: &mut u64) {
+        debug_assert!(*a < self.q_quart);
         if *a >= self.q_twice {
             *a -= self.q_twice
         }
@@ -142,17 +146,15 @@ impl Ntt {
     }
 
     #[inline(always)]
-    fn normalize<const LAZY: bool>(&self, a: &mut u64) {
+    fn normalize(&self, a: &mut u64) {
         *a = self.q.mul_prep(a, &self.n_inv);
-        if !LAZY {
-            *a = (*a).min(a.wrapping_sub(*self.q));
-        }
+        *a = (*a).min(a.wrapping_sub(*self.q));
     }
 }
 
 impl Default for Ntt {
     fn default() -> Self {
-        Self::new(Prime::new(2), 1)
+        Self::new(Prime::new(3), 1)
     }
 }
 

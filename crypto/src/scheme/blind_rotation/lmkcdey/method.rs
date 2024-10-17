@@ -37,7 +37,7 @@ pub fn bs_key_gen<'a, 'b, R, M, T>(
     let embedding_factor = bs_key.param().embedding_factor();
     let lwe_noise_distribution = bs_key.param().lwe_noise_distribution;
     let noise_distribution = bs_key.param().noise_distribution;
-    let mut scratch = ring.allocate_scratch(0, 3, 0);
+    let mut scratch = ring.allocate_scratch(1, 2, 0);
 
     lwe::ks_key_gen(
         mod_ks,
@@ -62,22 +62,22 @@ pub fn bs_key_gen<'a, 'b, R, M, T>(
 
 pub fn prepare_bs_key<R: RingOps, T: Copy>(
     ring: &R,
-    key_prep: &mut LmkcdeyKeyOwned<R::EvalPrep, T>,
+    bs_key_prep: &mut LmkcdeyKeyOwned<R::EvalPrep, T>,
     bs_key: &LmkcdeyKeyOwned<R::Elem, T>,
 ) {
-    debug_assert_eq!(key_prep.param(), bs_key.param());
+    debug_assert_eq!(bs_key_prep.param(), bs_key.param());
     let mut scratch = ring.allocate_scratch(0, 1, 0);
 
     izip_eq!(
-        key_prep.ks_key_mut().cts_iter_mut(),
+        bs_key_prep.ks_key_mut().cts_iter_mut(),
         bs_key.ks_key().cts_iter()
     )
     .for_each(|(mut ct_prep, ct)| ct_prep.as_mut().copy_from_slice(ct.as_ref()));
 
-    izip_eq!(key_prep.aks_mut(), bs_key.aks())
+    izip_eq!(bs_key_prep.aks_mut(), bs_key.aks())
         .for_each(|(ak_prep, ak)| rlwe::prepare_auto_key(ring, ak_prep, ak, scratch.borrow_mut()));
 
-    izip_eq!(key_prep.brks_mut(), bs_key.brks())
+    izip_eq!(bs_key_prep.brks_mut(), bs_key.brks())
         .for_each(|(brk_prep, brk)| rgsw::prepare_rgsw(ring, brk_prep, brk, scratch.borrow_mut()));
 }
 

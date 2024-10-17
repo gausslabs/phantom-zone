@@ -1,3 +1,5 @@
+//! Implementation of 2022/198.
+
 mod method;
 mod structure;
 

@@ -233,7 +233,7 @@ impl<R: RingOps> Rlwe<R> {
     ) -> RlweAutoKeyOwned<R::Elem> {
         let mut auto_key =
             RlweAutoKey::allocate(self.ring_size(), self.param.ks_decomposition_param, k);
-        let mut scratch = self.ring().allocate_scratch(0, 3, 0);
+        let mut scratch = self.ring().allocate_scratch(1, 2, 0);
         rlwe::auto_key_gen(
             self.ring(),
             &mut auto_key,

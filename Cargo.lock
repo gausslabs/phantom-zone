@@ -400,6 +400,7 @@ dependencies = [
  "phantom-zone-derive",
  "phantom-zone-math",
  "rand",
+ "rayon",
  "serde",
 ]
 

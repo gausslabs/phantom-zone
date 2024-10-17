@@ -81,6 +81,21 @@ pub trait RingOps: ModulusOps {
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem], eval_scratch: &mut [Self::Eval]);
 
+    /// Perform forward but the output might not be in canonical form, the
+    /// implementation must satisfy that the operations on 1 canonically and 1
+    /// lazily forwarded evaluation must work.
+    ///
+    /// On the other hand, operations on 2 lazily forwarded evaluations might
+    /// not work.
+    fn forward_lazy(
+        &self,
+        b: &mut [Self::Eval],
+        a: &[Self::Elem],
+        eval_scratch: &mut [Self::Eval],
+    ) {
+        self.forward(b, a, eval_scratch);
+    }
+
     fn forward_elem_from<T: Copy>(
         &self,
         b: &mut [Self::Eval],
@@ -308,7 +323,7 @@ mod test {
         let [a_eval, b_eval, d_eval] = ring.take_evals(&mut scratch);
         let eval_scratch = ring.take_eval_scratch(&mut scratch);
         ring.forward(a_eval, a, eval_scratch);
-        ring.forward(b_eval, b, eval_scratch);
+        ring.forward_lazy(b_eval, b, eval_scratch);
 
         d_eval.fill_with(Default::default);
         ring.eval_fma(d_eval, a_eval, b_eval);

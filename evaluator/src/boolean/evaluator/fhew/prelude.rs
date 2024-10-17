@@ -1,30 +1,44 @@
-use phantom_zone_crypto::scheme::blind_rotation::lmkcdey::{
-    interactive::{
-        LmkcdeyMpiCrs, LmkcdeyMpiKeyShare, LmkcdeyMpiKeyShareCompact, LmkcdeyMpiKeyShareOwned,
-        LmkcdeyMpiParam,
+use phantom_zone_crypto::scheme::{
+    blind_rotation::lmkcdey::{
+        interactive::{
+            LmkcdeyMpiCrs, LmkcdeyMpiKeyShareCompact, LmkcdeyMpiKeyShareOwned, LmkcdeyMpiParam,
+        },
+        LmkcdeyKeyCompact, LmkcdeyKeyOwned, LmkcdeyParam,
     },
-    LmkcdeyKeyOwned, LmkcdeyParam,
+    ring_packing::cdks::{
+        CdksCrs, CdksKeyCompact, CdksKeyOwned, CdksKeyShareCompact, CdksKeyShareOwned, CdksParam,
+    },
 };
 
 pub use crate::boolean::{
     evaluator::{
-        fhew::{FhewBoolCiphertext, FhewBoolCiphertextOwned, FhewBoolEvaluator},
+        fhew::{
+            FhewBoolBatchedCiphertext, FhewBoolBatchedCiphertextOwned, FhewBoolCiphertext,
+            FhewBoolCiphertextOwned, FhewBoolEvaluator, FhewBoolPackedCiphertext,
+            FhewBoolPackedCiphertextOwned,
+        },
         BoolEvaluator,
     },
     integer::{FheU16, FheU32, FheU64, FheU8, FheUint},
     FheBool,
 };
-pub use phantom_zone_crypto::scheme::blind_rotation::lmkcdey::{
-    interactive::{aggregate_bs_key_shares, aggregate_pk_shares, bs_key_share_gen, pk_share_gen},
-    prepare_bs_key,
+pub use phantom_zone_crypto::scheme::{
+    blind_rotation::lmkcdey::{
+        interactive::{
+            aggregate_bs_key_shares, aggregate_pk_shares, bs_key_share_gen, pk_share_gen,
+        },
+        prepare_bs_key,
+    },
+    ring_packing::cdks::{aggregate_rp_key_shares, prepare_rp_key, rp_key_share_gen},
 };
 pub use phantom_zone_crypto::{
     core::{
         lwe::{LweDecryptionShare, LweSecretKey, LweSecretKeyOwned},
         rgsw::RgswDecompositionParam,
         rlwe::{
+            RlweDecryptionShareList, RlweDecryptionShareListOwned, RlweDecryptionShareListView,
             RlwePublicKey, RlwePublicKeyOwned, RlweSecretKey, RlweSecretKeyOwned,
-            SeededRlwePublicKey, SeededRlwePublicKeyOwned,
+            SeededRlwePublicKey, SeededRlwePublicKeyOwned, SeededRlwePublicKeyView,
         },
     },
     util::{
@@ -38,7 +52,10 @@ pub use phantom_zone_math::prelude::*;
 pub type FhewBoolParam = LmkcdeyParam;
 
 /// FHEW boolean FHE bootstrapping key.
-pub type FhewBoolKey<T1, T2> = LmkcdeyKeyOwned<T1, T2>;
+pub type FhewBoolKeyOwned<T1, T2> = LmkcdeyKeyOwned<T1, T2>;
+
+/// FHEW boolean FHE bootstrapping key in compact format.
+pub type FhewBoolKeyCompact = LmkcdeyKeyCompact;
 
 /// FHEW multi-party boolean FHE (interactive keygen version) parameter.
 pub type FhewBoolMpiParam = LmkcdeyMpiParam;
@@ -49,12 +66,26 @@ pub type FhewBoolMpiCrs<S> = LmkcdeyMpiCrs<S>;
 
 /// FHEW multi-party boolean FHE (interactive keygen version) bootstrapping key
 /// share.
-pub type FhewBoolMpiKeyShare<S1, S2> = LmkcdeyMpiKeyShare<S1, S2>;
+pub type FhewBoolMpiKeyShareOwned<T1, T2> = LmkcdeyMpiKeyShareOwned<T1, T2>;
 
 /// FHEW multi-party boolean FHE (interactive keygen version) bootstrapping key
 /// share in compact format.
 pub type FhewBoolMpiKeyShareCompact = LmkcdeyMpiKeyShareCompact;
 
-/// FHEW multi-party boolean FHE (interactive keygen version) bootstrapping key
-/// share.
-pub type FhewBoolMpiKeyShareOwned<T1, T2> = LmkcdeyMpiKeyShareOwned<T1, T2>;
+/// Ring packing parameter.
+pub type RingPackingParam = CdksParam;
+
+/// Ring packing key.
+pub type RingPackingKeyOwned<T> = CdksKeyOwned<T>;
+
+/// Ring packing key in compact format.
+pub type RingPackingKeyCompact = CdksKeyCompact;
+
+/// Ring packing common reference string .
+pub type RingPackingCrs<T> = CdksCrs<T>;
+
+/// Ring packing key share.
+pub type RingPackingKeyShareOwned<T> = CdksKeyShareOwned<T>;
+
+/// Ring packing key share in compact format.
+pub type RingPackingKeyShareCompact = CdksKeyShareCompact;

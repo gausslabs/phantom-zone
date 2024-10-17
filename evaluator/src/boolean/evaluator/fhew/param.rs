@@ -46,11 +46,11 @@ pub const I_4P_60: FhewBoolMpiParam = FhewBoolMpiParam {
         noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
         u_distribution: SecretDistribution::Ternary(Ternary),
         auto_decomposition_param: DecompositionParam {
-            log_base: 17,
+            log_base: 18,
             level: 1,
         },
         rlwe_by_rgsw_decomposition_param: RgswDecompositionParam {
-            log_base: 17,
+            log_base: 18,
             level_a: 1,
             level_b: 1,
         },
@@ -59,7 +59,7 @@ pub const I_4P_60: FhewBoolMpiParam = FhewBoolMpiParam {
         lwe_sk_distribution: SecretDistribution::Ternary(Ternary),
         lwe_noise_distribution: NoiseDistribution::Gaussian(Gaussian(3.19)),
         lwe_ks_decomposition_param: DecompositionParam {
-            log_base: 5,
+            log_base: 4,
             level: 3,
         },
         q: 1024,
@@ -67,9 +67,9 @@ pub const I_4P_60: FhewBoolMpiParam = FhewBoolMpiParam {
         w: 10,
     },
     rgsw_by_rgsw_decomposition_param: RgswDecompositionParam {
-        log_base: 16,
+        log_base: 15,
         level_a: 3,
-        level_b: 2,
+        level_b: 3,
     },
     total_shares: 4,
 };

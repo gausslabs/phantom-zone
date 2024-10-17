@@ -3,11 +3,12 @@ use crate::{
         lwe::LweCiphertextMutView,
         rlwe::structure::{
             RlweAutoKeyMutView, RlweAutoKeyView, RlweCiphertext, RlweCiphertextMutView,
-            RlweCiphertextView, RlweKeySwitchKeyMutView, RlweKeySwitchKeyView,
-            RlwePlaintextMutView, RlwePlaintextView, RlwePublicKey, RlwePublicKeyMutView,
-            RlwePublicKeyView, RlweSecretKeyView, SeededRlweAutoKeyMutView, SeededRlweAutoKeyView,
-            SeededRlweCiphertextView, SeededRlweKeySwitchKeyMutView, SeededRlweKeySwitchKeyView,
-            SeededRlwePublicKeyMutView, SeededRlwePublicKeyView,
+            RlweCiphertextView, RlweDecryptionShareMutView, RlweDecryptionShareView,
+            RlweKeySwitchKeyMutView, RlweKeySwitchKeyView, RlwePlaintextMutView, RlwePlaintextView,
+            RlwePublicKey, RlwePublicKeyMutView, RlwePublicKeyView, RlweSecretKeyView,
+            SeededRlweAutoKeyMutView, SeededRlweAutoKeyView, SeededRlweCiphertextView,
+            SeededRlweKeySwitchKeyMutView, SeededRlweKeySwitchKeyView, SeededRlwePublicKeyMutView,
+            SeededRlwePublicKeyView,
         },
     },
     util::{
@@ -78,9 +79,8 @@ pub(crate) fn sk_encrypt_zero<'a, 'b, R, T>(
     let mut ct = ct.into();
     let (a, b) = ct.a_b_mut();
     ring.sample_uniform_into(a, rng.seedable());
-    ring.poly_mul_elem_from(b, a, sk.into().as_ref(), scratch);
-    let e = ring.sample_iter::<i64>(noise_distribution, rng);
-    ring.slice_add_assign_iter(b, e);
+    ring.sample_into::<i64>(b, noise_distribution, &mut *rng);
+    ring.poly_fma_elem_from(b, a, sk.into().as_ref(), scratch);
 }
 
 pub fn pk_encrypt<'a, 'b, 'c, R: RingOps>(
@@ -149,6 +149,36 @@ pub fn decrypt<'a, 'b, 'c, R, T>(
     ring.poly_mul_elem_from(pt.as_mut(), ct.a(), sk.into().as_ref(), scratch);
     ring.slice_neg_assign(pt.as_mut());
     ring.slice_add_assign(pt.as_mut(), ct.b().as_ref());
+}
+
+pub fn decrypt_share<'a, 'b, 'c, R, T>(
+    ring: &R,
+    dec_share: impl Into<RlweDecryptionShareMutView<'a, R::Elem>>,
+    sk: impl Into<RlweSecretKeyView<'b, T>>,
+    ct: impl Into<RlweCiphertextView<'c, R::Elem>>,
+    noise_distribution: NoiseDistribution,
+    scratch: Scratch,
+    rng: &mut LweRng<impl RngCore, impl RngCore>,
+) where
+    R: RingOps + ElemFrom<T>,
+    T: 'b + Copy,
+{
+    let (mut dec_share, ct) = (dec_share.into(), ct.into());
+    ring.sample_into::<i64>(dec_share.as_mut(), noise_distribution, &mut *rng);
+    ring.poly_fma_elem_from(dec_share.as_mut(), ct.a(), sk.into().as_ref(), scratch);
+}
+
+pub fn aggregate_decryption_shares<'a, 'b, 'c, R: RingOps>(
+    ring: &R,
+    pt: impl Into<RlwePlaintextMutView<'a, R::Elem>>,
+    ct: impl Into<RlweCiphertextView<'a, R::Elem>>,
+    dec_shares: impl IntoIterator<Item: Into<RlweDecryptionShareView<'c, R::Elem>>>,
+) {
+    let (mut pt, ct) = (pt.into(), ct.into());
+    pt.as_mut().copy_from_slice(ct.b());
+    dec_shares
+        .into_iter()
+        .for_each(|dec_share| ring.slice_sub_assign(pt.as_mut(), dec_share.into().as_ref()));
 }
 
 pub fn sample_extract<'a, 'b, R: RingOps>(
@@ -391,7 +421,7 @@ pub(crate) fn decomposed_fma_prep<'a, 'b, R: RingOps, const DIRTY: bool>(
         } else {
             R::eval_fma_prep
         };
-        ring.forward(t0, a_i, eval_scratch);
+        ring.forward_lazy(t0, a_i, eval_scratch);
         eval_fma_prep(ring, ct_eval.a_mut(), t0, b_i.a());
         eval_fma_prep(ring, ct_eval.b_mut(), t0, b_i.b());
     });

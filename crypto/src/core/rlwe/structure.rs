@@ -84,6 +84,108 @@ impl<'a, T> RlwePlaintextMutView<'a, T> {
 
 #[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct RlweDecryptionShare<S> {
+    #[as_slice]
+    data: S,
+    ring_size: usize,
+}
+
+impl<S> RlweDecryptionShare<S> {
+    pub fn new(data: S, ring_size: usize) -> Self {
+        Self { data, ring_size }
+    }
+
+    pub fn ring_size(&self) -> usize {
+        self.ring_size
+    }
+}
+
+impl<T: Default> RlweDecryptionShareOwned<T> {
+    pub fn allocate(ring_size: usize) -> Self {
+        Self::new(repeat_with(T::default).take(ring_size).collect(), ring_size)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct RlweDecryptionShareList<S> {
+    #[as_slice]
+    data: S,
+    ring_size: usize,
+}
+
+impl<S> RlweDecryptionShareList<S> {
+    pub fn ring_size(&self) -> usize {
+        self.ring_size
+    }
+}
+
+impl<S: AsSlice> RlweDecryptionShareList<S> {
+    pub fn new(data: S, ring_size: usize) -> Self {
+        debug_assert_eq!(data.len() % ring_size, 0);
+        Self { data, ring_size }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len() / self.ring_size()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = RlweDecryptionShareView<S::Elem>> {
+        let ring_size = self.ring_size();
+        self.as_ref()
+            .chunks(ring_size)
+            .map(move |ct| RlweDecryptionShare::new(ct, ring_size))
+    }
+
+    pub fn nth(&self, n: usize) -> Option<RlweDecryptionShareView<S::Elem>> {
+        self.iter().nth(n)
+    }
+
+    pub fn chunks(
+        &self,
+        chunk_size: usize,
+    ) -> impl Iterator<Item = RlweDecryptionShareListView<S::Elem>> {
+        let ring_size = self.ring_size();
+        self.as_ref()
+            .chunks(chunk_size * ring_size)
+            .map(move |ct| RlweDecryptionShareList::new(ct, ring_size))
+    }
+}
+
+impl<S: AsMutSlice> RlweDecryptionShareList<S> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = RlweDecryptionShareMutView<S::Elem>> {
+        let ring_size = self.ring_size();
+        self.as_mut()
+            .chunks_mut(ring_size)
+            .map(move |ct| RlweDecryptionShare::new(ct, ring_size))
+    }
+
+    pub fn chunks_mut(
+        &mut self,
+        chunk_size: usize,
+    ) -> impl Iterator<Item = RlweDecryptionShareListMutView<S::Elem>> {
+        let ring_size = self.ring_size();
+        self.as_mut()
+            .chunks_mut(chunk_size * ring_size)
+            .map(move |ct| RlweDecryptionShareList::new(ct, ring_size))
+    }
+}
+
+impl<T: Default> RlweDecryptionShareListOwned<T> {
+    pub fn allocate(ring_size: usize, n: usize) -> Self {
+        Self::new(
+            repeat_with(T::default).take(n * ring_size).collect(),
+            ring_size,
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, AsSliceWrapper)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RlweCiphertext<S> {
     #[as_slice]
     data: S,
@@ -194,6 +296,10 @@ impl<S: AsSlice> RlweCiphertextList<S> {
         self.as_ref()
             .chunks(ct_size)
             .map(move |ct| RlweCiphertext::new(ct, ring_size))
+    }
+
+    pub fn nth(&self, n: usize) -> Option<RlweCiphertextView<S::Elem>> {
+        self.iter().nth(n)
     }
 
     pub fn chunks(

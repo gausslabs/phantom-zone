@@ -6,11 +6,11 @@ use crate::{
 };
 
 /// A `RingOps` implementation that supports small prime modulus (less than
-/// `1 << 62`) .
+/// `1 << 61`) .
 ///
 /// The ring multiplication is implemented with NTT.
 ///
-/// It panics in [`RingOps::new`] if `modulus` is not in range `1..1 << 62`, or
+/// It panics in [`RingOps::new`] if `modulus` is not in range `3..1 << 61`, or
 /// `modulus` doesn't have `2 * ring_size`-th root-of-unity.
 pub type PrimeRing = prime::PrimeRing<Ntt>;
 
@@ -37,7 +37,12 @@ impl RingOps for PrimeRing {
 
     fn forward(&self, b: &mut [Self::Eval], a: &[Self::Elem], _: &mut [Self::Eval]) {
         b.copy_from_slice(a);
-        self.fft.forward::<false>(b);
+        self.fft.forward::<false, false>(b);
+    }
+
+    fn forward_lazy(&self, b: &mut [Self::Eval], a: &[Self::Elem], _: &mut [Self::Eval]) {
+        b.copy_from_slice(a);
+        self.fft.forward::<false, true>(b);
     }
 
     fn forward_elem_from<T: Copy>(&self, b: &mut [Self::Eval], a: &[T], _: &mut [Self::Eval])
@@ -45,12 +50,12 @@ impl RingOps for PrimeRing {
         Self: ElemFrom<T>,
     {
         self.slice_elem_from(b, a);
-        self.fft.forward::<false>(b);
+        self.fft.forward::<false, false>(b);
     }
 
     fn forward_normalized(&self, b: &mut [Self::Eval], a: &[Self::Elem], _: &mut [Self::Eval]) {
         b.copy_from_slice(a);
-        self.fft.forward::<true>(b);
+        self.fft.forward::<true, false>(b);
     }
 
     fn backward(&self, b: &mut [Self::Elem], a: &mut [Self::Eval], _: &mut [Self::Eval]) {
@@ -130,13 +135,14 @@ mod test {
             RingOps,
         },
     };
+    use itertools::Itertools;
     use rand::thread_rng;
 
     #[test]
     fn round_trip() {
         let mut rng = thread_rng();
-        for log_ring_size in 0..10 {
-            for q in Prime::gen_iter(50, log_ring_size + 1).take(10) {
+        for (log_q, log_ring_size) in (50..62).cartesian_product(0..10) {
+            for q in Prime::gen_iter(log_q, log_ring_size + 1).take(5) {
                 let ring: PrimeRing = RingOps::new(q.into(), 1 << log_ring_size);
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 test_round_trip(&ring, &a, |a, b| assert_eq!(a, b));
@@ -147,8 +153,8 @@ mod test {
     #[test]
     fn poly_mul() {
         let mut rng = thread_rng();
-        for log_ring_size in 0..10 {
-            for q in Prime::gen_iter(50, log_ring_size + 1).take(10) {
+        for (log_q, log_ring_size) in (50..62).cartesian_product(0..10) {
+            for q in Prime::gen_iter(log_q, log_ring_size + 1).take(5) {
                 let ring: PrimeRing = RingOps::new(q.into(), 1 << log_ring_size);
                 let a = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
                 let b = ring.sample_uniform_vec(ring.ring_size(), &mut rng);
