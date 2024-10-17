@@ -10,6 +10,7 @@ missing_debug_implementations = "forbid"
 broken_intra_doc_links = "forbid"
 
 [dependencies]
+auto_impl = { workspace = true }
 itertools = { workspace = true }
 paste = { workspace = true }
 rand = { workspace = true }

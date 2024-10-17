@@ -10,15 +10,15 @@ pub use evaluator::{fhew, BoolEvaluator};
 /// operations if available (otherwise expose as functions following the same
 /// naming pattern).
 #[derive(Debug)]
-pub struct FheBool<'a, E: BoolEvaluator> {
-    evaluator: &'a E,
+pub struct FheBool<E: BoolEvaluator> {
+    evaluator: E,
     ct: E::Ciphertext,
 }
 
-impl<'a, E: BoolEvaluator> FheBool<'a, E> {
+impl<E: BoolEvaluator> FheBool<E> {
     /// Wraps a [`BoolEvaluator::Ciphertext`] with reference to its
     /// corresponding [`BoolEvaluator`].
-    pub fn new(evaluator: &'a E, ct: E::Ciphertext) -> Self {
+    pub fn new(evaluator: E, ct: E::Ciphertext) -> Self {
         Self { evaluator, ct }
     }
 
@@ -89,7 +89,7 @@ impl<'a, E: BoolEvaluator> FheBool<'a, E> {
     /// Performs half adder assignment and returns the carry.
     pub fn overflowing_add_assign(&mut self, b: &Self) -> Self {
         let carry = self.evaluator.overflowing_add_assign(&mut self.ct, &b.ct);
-        Self::new(self.evaluator, carry)
+        Self::new(self.evaluator.clone(), carry)
     }
 
     /// Performs half subtractor and returns the difference and borrow.
@@ -102,7 +102,7 @@ impl<'a, E: BoolEvaluator> FheBool<'a, E> {
     /// Performs half subtractor assignment and returns the borrow.
     pub fn overflowing_sub_assign(&mut self, b: &Self) -> Self {
         let borrow = self.evaluator.overflowing_sub_assign(&mut self.ct, &b.ct);
-        Self::new(self.evaluator, borrow)
+        Self::new(self.evaluator.clone(), borrow)
     }
 
     /// Performs full adder and returns the sum and carry.
@@ -117,7 +117,7 @@ impl<'a, E: BoolEvaluator> FheBool<'a, E> {
         let carry = self
             .evaluator
             .carrying_add_assign(&mut self.ct, &b.ct, &carry.ct);
-        Self::new(self.evaluator, carry)
+        Self::new(self.evaluator.clone(), carry)
     }
 
     /// Performs full subtractor and returns the difference and borrow.
@@ -132,18 +132,18 @@ impl<'a, E: BoolEvaluator> FheBool<'a, E> {
         let borrow = self
             .evaluator
             .borrowing_sub_assign(&mut self.ct, &b.ct, &borrow.ct);
-        Self::new(self.evaluator, borrow)
+        Self::new(self.evaluator.clone(), borrow)
     }
 }
 
-impl<'a, E: BoolEvaluator> Clone for FheBool<'a, E> {
+impl<E: BoolEvaluator> Clone for FheBool<E> {
     fn clone(&self) -> Self {
-        Self::new(self.evaluator, self.ct.clone())
+        Self::new(self.evaluator.clone(), self.ct.clone())
     }
 }
 
-impl<'a, E: BoolEvaluator> Not for FheBool<'a, E> {
-    type Output = FheBool<'a, E>;
+impl<E: BoolEvaluator> Not for FheBool<E> {
+    type Output = FheBool<E>;
 
     fn not(mut self) -> Self::Output {
         self.evaluator.bitnot_assign(&mut self.ct);
@@ -151,8 +151,8 @@ impl<'a, E: BoolEvaluator> Not for FheBool<'a, E> {
     }
 }
 
-impl<'a, E: BoolEvaluator> Not for &FheBool<'a, E> {
-    type Output = FheBool<'a, E>;
+impl<E: BoolEvaluator> Not for &FheBool<E> {
+    type Output = FheBool<E>;
 
     fn not(self) -> Self::Output {
         self.clone().not()
@@ -162,8 +162,8 @@ impl<'a, E: BoolEvaluator> Not for &FheBool<'a, E> {
 macro_rules! impl_core_op {
     (@ impl $trait:ident<$rhs:ty> for $lhs:ty; $lhs_convert:expr) => {
         paste::paste! {
-            impl<'a, E: BoolEvaluator> core::ops::$trait<$rhs> for $lhs {
-                type Output = FheBool<'a, E>;
+            impl<E: BoolEvaluator> core::ops::$trait<$rhs> for $lhs {
+                type Output = FheBool<E>;
 
                 fn [<$trait:lower>](self, rhs: $rhs) -> Self::Output {
                     let mut lhs = $lhs_convert(self);
@@ -176,12 +176,12 @@ macro_rules! impl_core_op {
     ($(impl $trait:ident<$rhs:ty> for $lhs:ty),* $(,)?) => {
         $(
             paste::paste! {
-                impl<'a, E: BoolEvaluator> core::ops::[<$trait Assign>]<$rhs> for $lhs {
+                impl<E: BoolEvaluator> core::ops::[<$trait Assign>]<$rhs> for $lhs {
                     fn [<$trait:lower _assign>](&mut self, rhs: $rhs) {
                         self.evaluator.[<$trait:lower _assign>](&mut self.ct, &rhs.ct);
                     }
                 }
-                impl<'a, E: BoolEvaluator> core::ops::[<$trait Assign>]<&$rhs> for $lhs {
+                impl<E: BoolEvaluator> core::ops::[<$trait Assign>]<&$rhs> for $lhs {
                     fn [<$trait:lower _assign>](&mut self, rhs: &$rhs) {
                         self.evaluator.[<$trait:lower _assign>](&mut self.ct, &rhs.ct);
                     }
@@ -196,9 +196,9 @@ macro_rules! impl_core_op {
 }
 
 impl_core_op!(
-    impl BitAnd<FheBool<'a, E>> for FheBool<'a, E>,
-    impl BitOr<FheBool<'a, E>> for FheBool<'a, E>,
-    impl BitXor<FheBool<'a, E>> for FheBool<'a, E>,
+    impl BitAnd<FheBool<E>> for FheBool<E>,
+    impl BitOr<FheBool<E>> for FheBool<E>,
+    impl BitXor<FheBool<E>> for FheBool<E>,
 );
 
 #[cfg(any(test, feature = "dev"))]
@@ -243,13 +243,13 @@ pub mod dev {
         }
     }
 
-    impl From<bool> for FheBool<'static, MockBoolEvaluator> {
+    impl From<bool> for FheBool<MockBoolEvaluator> {
         fn from(a: bool) -> Self {
-            FheBool::new(&MockBoolEvaluator, a)
+            FheBool::new(MockBoolEvaluator, a)
         }
     }
 
-    impl PartialEq<bool> for FheBool<'static, MockBoolEvaluator> {
+    impl PartialEq<bool> for FheBool<MockBoolEvaluator> {
         fn eq(&self, other: &bool) -> bool {
             self.ct == *other
         }

@@ -8,30 +8,30 @@ use itertools::izip;
 use std::{borrow::Cow, collections::VecDeque};
 
 /// A wrapper using [`FheBool`] to implement [`u8`] wrapping operations.
-pub type FheU8<'a, E> = FheUint<'a, E, 8>;
+pub type FheU8<E> = FheUint<E, 8>;
 /// A wrapper using [`FheBool`] to implement [`u16`] wrapping operations.
-pub type FheU16<'a, E> = FheUint<'a, E, 16>;
+pub type FheU16<E> = FheUint<E, 16>;
 /// A wrapper using [`FheBool`] to implement [`u32`] wrapping operations.
-pub type FheU32<'a, E> = FheUint<'a, E, 32>;
+pub type FheU32<E> = FheUint<E, 32>;
 /// A wrapper using [`FheBool`] to implement [`u64`] wrapping operations.
-pub type FheU64<'a, E> = FheUint<'a, E, 64>;
+pub type FheU64<E> = FheUint<E, 64>;
 
 /// A wrapper using [`FheBool`] to implement unsigned integer wrapping
 /// operations, and expose as Rust core operations if available (otherwise
 /// expose as functions following the same naming pattern).
 #[derive(Debug)]
-pub struct FheUint<'a, E: BoolEvaluator, const BITS: usize>([FheBool<'a, E>; BITS]);
+pub struct FheUint<E: BoolEvaluator, const BITS: usize>([FheBool<E>; BITS]);
 
-impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
+impl<E: BoolEvaluator, const BITS: usize> FheUint<E, BITS> {
     /// Wraps [`FheBool`] as little-endian bits.
-    pub fn new(bits: [FheBool<'a, E>; BITS]) -> Self {
+    pub fn new(bits: [FheBool<E>; BITS]) -> Self {
         Self(bits)
     }
 
     /// Wraps array of [`BoolEvaluator::Ciphertext`] as little-endian bits with
     /// reference to their corresponding [`BoolEvaluator`].
-    pub fn from_cts(evaluator: &'a E, bits: [E::Ciphertext; BITS]) -> Self {
-        Self::new(bits.map(|bit| FheBool::new(evaluator, bit)))
+    pub fn from_cts(evaluator: E, bits: [E::Ciphertext; BITS]) -> Self {
+        Self::new(bits.map(|bit| FheBool::new(evaluator.clone(), bit)))
     }
 
     /// Unwraps and returns underlying array of [`BoolEvaluator::Ciphertext`]
@@ -47,14 +47,14 @@ impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
     }
 }
 
-impl<'a, E: BoolEvaluator, const BITS: usize> Clone for FheUint<'a, E, BITS> {
+impl<E: BoolEvaluator, const BITS: usize> Clone for FheUint<E, BITS> {
     fn clone(&self) -> Self {
         Self::new(self.0.each_ref().map(|bit| bit.clone()))
     }
 }
 
-impl<'a, E: BoolEvaluator, const BITS: usize> Not for FheUint<'a, E, BITS> {
-    type Output = FheUint<'a, E, BITS>;
+impl<E: BoolEvaluator, const BITS: usize> Not for FheUint<E, BITS> {
+    type Output = FheUint<E, BITS>;
 
     fn not(mut self) -> Self::Output {
         self.0.each_mut().map(|bit| bit.bitnot_assign());
@@ -62,15 +62,15 @@ impl<'a, E: BoolEvaluator, const BITS: usize> Not for FheUint<'a, E, BITS> {
     }
 }
 
-impl<'a, E: BoolEvaluator, const BITS: usize> Not for &FheUint<'a, E, BITS> {
-    type Output = FheUint<'a, E, BITS>;
+impl<E: BoolEvaluator, const BITS: usize> Not for &FheUint<E, BITS> {
+    type Output = FheUint<E, BITS>;
 
     fn not(self) -> Self::Output {
         FheUint(self.0.each_ref().map(|bit| !bit))
     }
 }
 
-impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
+impl<E: BoolEvaluator, const BITS: usize> FheUint<E, BITS> {
     pub fn wrapping_neg(&self) -> Self {
         let v = self.0.each_ref();
         let mut carry = !v[0];
@@ -121,7 +121,7 @@ impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
         r
     }
 
-    pub fn overflowing_add(&self, rhs: &Self) -> (Self, FheBool<'a, E>) {
+    pub fn overflowing_add(&self, rhs: &Self) -> (Self, FheBool<E>) {
         let (lhs, rhs, mut carry) = (self.0.each_ref(), rhs.0.each_ref(), None);
         let sum = from_fn(|i| {
             let (sum, carry_out) = match carry.take() {
@@ -134,7 +134,7 @@ impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
         (Self(sum), carry.unwrap())
     }
 
-    pub fn overflowing_sub(&self, rhs: &Self) -> (Self, FheBool<'a, E>) {
+    pub fn overflowing_sub(&self, rhs: &Self) -> (Self, FheBool<E>) {
         let (lhs, rhs, mut borrow) = (self.0.each_ref(), rhs.0.each_ref(), None);
         let sum = from_fn(|i| {
             let (sum, borrow_out) = match borrow.take() {
@@ -147,7 +147,7 @@ impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
         (Self(sum), borrow.unwrap())
     }
 
-    pub fn carrying_add(&self, rhs: &Self, carry: &FheBool<'a, E>) -> (Self, FheBool<'a, E>) {
+    pub fn carrying_add(&self, rhs: &Self, carry: &FheBool<E>) -> (Self, FheBool<E>) {
         let (lhs, rhs, mut carry) = (self.0.each_ref(), rhs.0.each_ref(), Cow::Borrowed(carry));
         let sum = from_fn(|i| {
             let (sum, carry_out) = lhs[i].carrying_add(rhs[i], &carry);
@@ -157,7 +157,7 @@ impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
         (Self(sum), carry.into_owned())
     }
 
-    pub fn borrowing_sub(&self, rhs: &Self, borrow: &FheBool<'a, E>) -> (Self, FheBool<'a, E>) {
+    pub fn borrowing_sub(&self, rhs: &Self, borrow: &FheBool<E>) -> (Self, FheBool<E>) {
         let (lhs, rhs, mut borrow) = (self.0.each_ref(), rhs.0.each_ref(), Cow::Borrowed(borrow));
         let diff = from_fn(|i| {
             let (diff, borrow_out) = lhs[i].borrowing_sub(rhs[i], &borrow);
@@ -192,8 +192,8 @@ impl<'a, E: BoolEvaluator, const BITS: usize> FheUint<'a, E, BITS> {
 macro_rules! impl_core_op {
     (@ impl $trait:ident<$rhs:ty> for $lhs:ty) => {
         paste::paste! {
-            impl<'a, E: BoolEvaluator, const BITS: usize> core::ops::$trait<$rhs> for $lhs {
-                type Output = FheUint<'a, E, BITS>;
+            impl<E: BoolEvaluator, const BITS: usize> core::ops::$trait<$rhs> for $lhs {
+                type Output = FheUint<E, BITS>;
 
                 fn [<$trait:lower>](self, rhs: $rhs) -> Self::Output {
                     self.[<wrapping_ $trait:lower>](rhs.borrow())
@@ -204,12 +204,12 @@ macro_rules! impl_core_op {
     ($(impl $trait:ident<$rhs:ty> for $lhs:ty),* $(,)?) => {
         $(
             paste::paste! {
-                impl<'a, E: BoolEvaluator, const BITS: usize> core::ops::[<$trait Assign>]<&$rhs> for $lhs {
+                impl<E: BoolEvaluator, const BITS: usize> core::ops::[<$trait Assign>]<&$rhs> for $lhs {
                     fn [<$trait:lower _assign>](&mut self, rhs: &$rhs) {
                         *self = self.[<wrapping_ $trait:lower>](rhs);
                     }
                 }
-                impl<'a, E: BoolEvaluator, const BITS: usize> core::ops::[<$trait Assign>]<$rhs> for $lhs {
+                impl<E: BoolEvaluator, const BITS: usize> core::ops::[<$trait Assign>]<$rhs> for $lhs {
                     fn [<$trait:lower _assign>](&mut self, rhs: $rhs) {
                         *self = self.[<wrapping_ $trait:lower>](&rhs);
                     }
@@ -224,11 +224,11 @@ macro_rules! impl_core_op {
 }
 
 impl_core_op!(
-    impl Add<FheUint<'a, E, BITS>> for FheUint<'a, E, BITS>,
-    impl Sub<FheUint<'a, E, BITS>> for FheUint<'a, E, BITS>,
-    impl Mul<FheUint<'a, E, BITS>> for FheUint<'a, E, BITS>,
-    impl Div<FheUint<'a, E, BITS>> for FheUint<'a, E, BITS>,
-    impl Rem<FheUint<'a, E, BITS>> for FheUint<'a, E, BITS>,
+    impl Add<FheUint<E, BITS>> for FheUint<E, BITS>,
+    impl Sub<FheUint<E, BITS>> for FheUint<E, BITS>,
+    impl Mul<FheUint<E, BITS>> for FheUint<E, BITS>,
+    impl Div<FheUint<E, BITS>> for FheUint<E, BITS>,
+    impl Rem<FheUint<E, BITS>> for FheUint<E, BITS>,
 );
 
 #[cfg(test)]
@@ -251,14 +251,14 @@ mod test {
 
     macro_rules! impl_fhe_uint {
         ($uint:ident, $fhe_uint:ident) => {
-            impl From<$uint> for $fhe_uint<'static, MockBoolEvaluator> {
+            impl From<$uint> for $fhe_uint<MockBoolEvaluator> {
                 fn from(a: $uint) -> Self {
-                    let bits = from_fn(|i| FheBool::new(&MockBoolEvaluator, (a >> i) & 1 == 1));
+                    let bits = from_fn(|i| FheBool::new(MockBoolEvaluator, (a >> i) & 1 == 1));
                     Self::new(bits)
                 }
             }
 
-            impl PartialEq<$uint> for $fhe_uint<'static, MockBoolEvaluator> {
+            impl PartialEq<$uint> for $fhe_uint<MockBoolEvaluator> {
                 fn eq(&self, other: &$uint) -> bool {
                     self.0
                         .iter()
