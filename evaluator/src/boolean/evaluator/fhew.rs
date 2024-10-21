@@ -137,6 +137,12 @@ pub struct FhewBoolBatchedCiphertext<S> {
     n: usize,
 }
 
+impl<S> FhewBoolBatchedCiphertext<S> {
+    pub fn n(&self) -> usize {
+        self.n
+    }
+}
+
 impl<S: AsSlice> FhewBoolBatchedCiphertext<S> {
     pub fn new(cts: RlweCiphertextList<S>, n: usize) -> Self {
         debug_assert_eq!(cts.len(), n.div_ceil(cts.ring_size()));
@@ -217,6 +223,12 @@ pub struct FhewBoolPackedCiphertext<S> {
     #[as_slice(nested)]
     cts: RlweCiphertextList<S>,
     n: usize,
+}
+
+impl<S> FhewBoolPackedCiphertext<S> {
+    pub fn n(&self) -> usize {
+        self.n
+    }
 }
 
 impl<S: AsSlice> FhewBoolPackedCiphertext<S> {
