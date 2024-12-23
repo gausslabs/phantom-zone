@@ -15,3 +15,15 @@ rayon = { workspace = true }
 [dev-dependencies]
 rand = { workspace = true }
 phantom-zone-evaluator = { path = "../evaluator" }
+
+[features]
+default = []
+dev = ["phantom-zone-evaluator/dev"]
+
+[[example]]
+name = "layered_circuit_demo"
+required-features = ["dev"]
+
+[[example]]
+name = "summon_demo"
+required-features = ["dev"]

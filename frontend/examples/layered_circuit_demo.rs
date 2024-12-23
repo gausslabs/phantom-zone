@@ -67,13 +67,16 @@ fn main() {
 
     let layered_circuit = LayeredCircuit::from_bristol(&circuit);
 
-    println!("{:?}", layered_circuit);
-
     let mut rng = StdLweRng::from_entropy();
     let sk = LweSecretKey::sample(PARAM.ring_size, PARAM.sk_distribution, &mut rng);
     let evaluator = Evaluator::sample(PARAM, &sk, &mut rng);
 
     let x = vec![true, true, false, false];
+
+    let mut plain_inputs = HashMap::new();
+    plain_inputs.insert("x".to_string(), x.clone());
+    let plain_outputs = layered_circuit.eval(plain_inputs);
+    let plain_main = plain_outputs.get("main").unwrap();
 
     let encrypted_x = x
         .iter()
@@ -96,5 +99,5 @@ fn main() {
         .map(|ct| decrypt_bool(&evaluator, &sk, ct.clone()))
         .collect::<Vec<_>>();
 
-    println!("{:?}", main);
+    assert_eq!(plain_main, &main);
 }
